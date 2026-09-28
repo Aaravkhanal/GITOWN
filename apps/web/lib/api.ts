@@ -93,6 +93,12 @@ export type PullReview = {
   stale: boolean;
   created_at: string;
 };
+export type BranchRule = {
+  branch: string;
+  required_approvals: number;
+  block_changes_requested: boolean;
+  updated_at: string;
+};
 export type Activity = {
   id: number;
   action: string;
@@ -138,6 +144,9 @@ export function post<T>(path: string, body: unknown) {
 }
 export function patch<T>(path: string, body: unknown) {
   return api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+}
+export function put<T>(path: string, body: unknown) {
+  return api<T>(path, { method: "PUT", body: JSON.stringify(body) });
 }
 export function remove<T>(path: string) {
   return api<T>(path, { method: "DELETE" });

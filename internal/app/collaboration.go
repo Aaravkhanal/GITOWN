@@ -1026,6 +1026,9 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "stale_branches", "A branch changed. Refresh the pull request before merging.")
 		return
 	}
+	if !a.enforceReviewRule(w, r, repo, p, head) {
+		return
+	}
 	tree, err := a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
 	if err != nil {
 		fail(w, 409, "merge_conflict", "Resolve merge conflicts locally and push the branch again.")

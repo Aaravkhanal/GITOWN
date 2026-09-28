@@ -581,6 +581,44 @@ paths:
                     message: { type: string }
                     author: { type: string }
                     date: { type: string, format: date-time }
+  /repos/{owner}/{repo}/branch-rules:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { name: branch, in: query, required: true, schema: { type: string } }
+    get:
+      security: []
+      summary: Read the merge guard for an existing visible branch
+      responses:
+        "200":
+          description: Stored rule or the permissive default
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchRule" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Create or replace a branch merge guard (owner only)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [required_approvals, block_changes_requested]
+              properties:
+                required_approvals: { type: integer, minimum: 0, maximum: 10 }
+                block_changes_requested: { type: boolean }
+      responses:
+        "200":
+          description: Saved merge guard
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchRule" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues:
     parameters:
       [
@@ -1097,6 +1135,13 @@ components:
         display_name: { type: string }
         role: { $ref: "#/components/schemas/RepositoryRole" }
         created_at: { type: string, format: date-time }
+    BranchRule:
+      type: object
+      properties:
+        branch: { type: string }
+        required_approvals: { type: integer, minimum: 0, maximum: 10 }
+        block_changes_requested: { type: boolean }
+        updated_at: { type: string, format: date-time }
     DeletedRepository:
       type: object
       properties:

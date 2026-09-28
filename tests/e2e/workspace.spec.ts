@@ -116,6 +116,22 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("Repository settings saved.", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Merge guard" }),
+  ).toBeVisible();
+  await page.getByLabel("Required approvals").fill("0");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes("/branch-rules?branch=main") &&
+        response.request().method() === "PUT" &&
+        response.ok(),
+    ),
+    page.getByRole("button", { name: "Save merge guard" }).click(),
+  ]);
+  await expect(
+    page.getByText("Branch rule saved.", { exact: true }),
+  ).toBeVisible();
   const publicVisitor = await browser.newContext();
   const publicVisitorPage = await publicVisitor.newPage();
   await publicVisitorPage.goto(`/repos/${username}/first-project`);

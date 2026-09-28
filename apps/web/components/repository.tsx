@@ -34,6 +34,7 @@ import {
   api,
   patch,
   post,
+  put,
   remove,
   destroy,
   date,
@@ -48,6 +49,7 @@ import {
   type PullDetail,
   type PullComment,
   type PullReview,
+  type BranchRule,
   type RepositoryMember,
 } from "@/lib/api";
 import {
@@ -262,7 +264,11 @@ export function RepositoryPage({
           branches={repo.data.branches}
         />
       ) : tab === "settings" && r.can_manage ? (
-        <RepositorySettings endpoint={endpoint} repo={r} />
+        <RepositorySettings
+          endpoint={endpoint}
+          repo={r}
+          branches={repo.data.branches}
+        />
       ) : (
         <div className="empty-state">
           <h2>Page not found</h2>
@@ -691,9 +697,11 @@ function EmptyRepository({ repo }: { repo: Repo }) {
 function RepositorySettings({
   endpoint,
   repo,
+  branches,
 }: {
   endpoint: string;
   repo: Repo;
+  branches: string[];
 }) {
   const [visibility, setVisibility] = useState(repo.visibility);
   const [message, setMessage] = useState("");
@@ -775,6 +783,13 @@ function RepositorySettings({
           {busy ? "Saving..." : "Save settings"}
         </button>
       </form>
+      {branches.length > 0 && (
+        <BranchRuleSettings
+          endpoint={endpoint}
+          branches={branches}
+          defaultBranch={repo.default_branch}
+        />
+      )}
       <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       <div className="panel lifecycle-settings">
         <div className="section-heading">
@@ -876,6 +891,117 @@ function RepositorySettings({
         </div>
       </div>
     </section>
+  );
+}
+
+function BranchRuleSettings({
+  endpoint,
+  branches,
+  defaultBranch,
+}: {
+  endpoint: string;
+  branches: string[];
+  defaultBranch: string;
+}) {
+  const [branch, setBranch] = useState(
+    branches.includes(defaultBranch) ? defaultBranch : branches[0],
+  );
+  const [version, setVersion] = useState(0);
+  const rule = useData<BranchRule>(
+    `${endpoint}/branch-rules?branch=${encodeURIComponent(branch)}`,
+    version,
+  );
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <form
+      className="panel settings-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setMessage("");
+        setError("");
+        const data = new FormData(event.currentTarget);
+        try {
+          await put<BranchRule>(
+            `${endpoint}/branch-rules?branch=${encodeURIComponent(branch)}`,
+            {
+              required_approvals: Number(data.get("required_approvals")),
+              block_changes_requested:
+                data.get("block_changes_requested") === "on",
+            },
+          );
+          setMessage("Branch rule saved.");
+          setVersion((value) => value + 1);
+        } catch (saveError) {
+          setError((saveError as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="section-heading">
+        <div>
+          <h2>
+            <GitBranch size={18} /> Merge guard
+          </h2>
+          <p>Require fresh Unite approvals before changes enter a branch.</p>
+        </div>
+      </div>
+      <label>
+        Protected branch
+        <select
+          value={branch}
+          onChange={(event) => {
+            setBranch(event.target.value);
+            setMessage("");
+            setError("");
+          }}
+        >
+          {branches.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {rule.loading ? (
+        <Loading />
+      ) : rule.error ? (
+        <ErrorMessage error={rule.error} />
+      ) : (
+        <>
+          <label>
+            Required approvals
+            <input
+              key={`${branch}-${version}`}
+              name="required_approvals"
+              type="number"
+              min="0"
+              max="10"
+              defaultValue={rule.data?.required_approvals ?? 0}
+              required
+            />
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`block-${branch}-${version}`}
+              name="block_changes_requested"
+              type="checkbox"
+              defaultChecked={rule.data?.block_changes_requested ?? true}
+            />
+            Block merging while a current review requests changes
+          </label>
+          {error && <div className="form-error">{error}</div>}
+          {message && <div className="success-box">{message}</div>}
+          <button className="button primary" disabled={busy} type="submit">
+            <Save size={16} /> {busy ? "Saving..." : "Save merge guard"}
+          </button>
+        </>
+      )}
+    </form>
   );
 }
 

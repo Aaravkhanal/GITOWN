@@ -310,6 +310,14 @@ func TestPlatformWorkflow(t *testing.T) {
 	if !detail.Mergeable || !strings.Contains(detail.Diff, "Hello from a real Git push") {
 		t.Fatal("missing real pull-request diff")
 	}
+	var rule BranchRule
+	owner.request("PUT", "/repos/owner/project/branch-rules?branch=main", map[string]any{"required_approvals": 1, "block_changes_requested": true}, 200, &rule)
+	if rule.Branch != "main" || rule.RequiredApprovals != 1 || !rule.BlockChangesRequested {
+		t.Fatalf("unexpected branch rule: %+v", rule)
+	}
+	other.request("PUT", "/repos/owner/project/branch-rules?branch=main", map[string]any{"required_approvals": 0, "block_changes_requested": false}, 403, nil)
+	owner.request("GET", "/repos/owner/project/branch-rules?branch=main", nil, 200, &rule)
+	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 409, nil)
 	owner.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "body": "Self approval", "head_sha": detail.HeadSHA}, 403, nil)
 	other.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "head_sha": strings.Repeat("0", 40)}, 409, nil)
 	var review PullReview
