@@ -125,12 +125,12 @@ async function main() {
       throw new Error(
         "Restore requires an empty dedicated database. Existing tables are never overwritten.",
       );
-    await mkdir(storage, { recursive: false, mode: 0o700 });
     await cp(join(snapshot, "repositories"), storage, {
       recursive: true,
       errorOnExist: true,
       force: false,
     });
+    await chmod(storage, 0o700);
     for (const entry of await readdir(storage, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name.endsWith(".git"))
         run("git", [
