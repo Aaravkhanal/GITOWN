@@ -7,7 +7,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        # ubuntu-latest currently ships PostgreSQL 16 client tools. Keep the
+        # service on the same major version so the real backup/restore drill
+        # is valid instead of failing pg_dump's safety check.
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: gitown
           POSTGRES_PASSWORD: gitown-ci-only
