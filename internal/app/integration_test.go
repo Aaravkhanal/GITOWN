@@ -267,6 +267,17 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
+	var bugLabel Label
+	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "bug", "color": "#d73a4a", "description": "Something is not working"}, 201, &bugLabel)
+	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "BUG", "color": "d73a4a"}, 409, nil)
+	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "bad", "color": "purple"}, 422, nil)
+	owner.request("POST", "/repos/owner/project/issues/1/labels", map[string]string{"label_id": bugLabel.ID}, 200, nil)
+	var issueLabels []Label
+	owner.request("GET", "/repos/owner/project/issues/1/labels", nil, 200, &issueLabels)
+	if len(issueLabels) != 1 || issueLabels[0].ID != bugLabel.ID {
+		t.Fatalf("issue labels were not returned: %+v", issueLabels)
+	}
+	owner.request("GET", "/repos/owner/project/issues/999/labels", nil, 404, nil)
 	var comment IssueComment
 	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "The first discussion reply."}, 201, &comment)
 	if comment.Author != "owner" || comment.Body != "The first discussion reply." {
@@ -283,6 +294,8 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "triage"}, 200, &member)
 	other.request("POST", "/repos/owner/project/issues", map[string]string{"title": "Triage issue", "body": "Created by a collaborator"}, 201, nil)
 	other.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
+	other.request("DELETE", "/repos/owner/project/issues/1/labels/"+bugLabel.ID, nil, 200, nil)
+	other.request("DELETE", "/repos/owner/project/labels/"+bugLabel.ID, nil, 200, nil)
 	other.request("POST", "/repos/owner/project/pulls", map[string]string{"title": "No code permission", "base_branch": "main", "head_branch": "feature"}, 403, nil)
 	owner.request("DELETE", "/repos/owner/project/members/other", nil, 200, nil)
 	other.request("GET", "/repos/owner/project", nil, 404, nil)
@@ -290,6 +303,9 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
+	other.request("POST", "/repos/owner/public-project/labels", map[string]string{"name": "Unauthorized", "color": "ffffff"}, 403, nil)
+	var publicLabels []Label
+	anon.request("GET", "/repos/owner/public-project/labels", nil, 200, &publicLabels)
 	anon.request("POST", "/repos/owner/public-project/issues/1/comments", map[string]string{"body": "Anonymous reply"}, 401, nil)
 	gitRun("", "", "", true, "ls-remote", server.URL+"/git/owner/public-project.git")
 	var lifecycleRepo Repository

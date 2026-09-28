@@ -1960,6 +1960,58 @@ textarea {
 .inline-form {
   margin-bottom: 22px;
 }
+.heading-actions {
+  display: flex;
+  gap: 8px;
+}
+.label-form .form-grid {
+  grid-template-columns: 2fr 1fr;
+}
+.label-catalog {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.label-catalog-item,
+.assigned-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.label-catalog-item > span:not(.label-chip) {
+  color: #789683;
+  font-size: 10px;
+}
+.label-catalog-item > button,
+.assigned-label > button {
+  border: 0;
+  background: none;
+  color: #819b89;
+  padding: 0 3px;
+  font-size: 16px;
+}
+.label-chip {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.issue-labels {
+  margin: 14px 0;
+}
+.assigned-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 9px;
+}
+.label-picker {
+  max-width: 230px;
+}
 .issue-item {
   border-bottom: 1px solid #2e3b32;
 }

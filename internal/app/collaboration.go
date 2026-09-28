@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,17 @@ type IssueComment struct {
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type Label struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Color       string    `json:"color"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+var labelColor = regexp.MustCompile(`^[0-9a-f]{6}$`)
+
 type Pull struct {
 	ID           string    `json:"id"`
 	Number       int       `json:"number"`
@@ -291,6 +303,262 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 201, comment)
+}
+
+func (a *App) labels(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT id,name,color,description,created_at FROM labels WHERE repository_id=$1 ORDER BY lower(name),id LIMIT 100`, repo.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	labels := []Label{}
+	for rows.Next() {
+		var label Label
+		if err = rows.Scan(&label.ID, &label.Name, &label.Color, &label.Description, &label.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		labels = append(labels, label)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, labels)
+}
+
+func (a *App) createLabel(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		Name        string `json:"name"`
+		Color       string `json:"color"`
+		Description string `json:"description"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	in.Color = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(in.Color), "#"))
+	in.Description = strings.TrimSpace(in.Description)
+	if in.Name == "" || len(in.Name) > 50 || !labelColor.MatchString(in.Color) || len(in.Description) > 200 {
+		fail(w, 422, "validation_failed", "Use a label name up to 50 characters, a six-digit hex color, and a description up to 200 characters.")
+		return
+	}
+	label := Label{ID: auth.ID(), Name: in.Name, Color: in.Color, Description: in.Description}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	err = tx.QueryRow(r.Context(), `INSERT INTO labels(id,repository_id,name,color,description) VALUES($1,$2,$3,$4,$5) RETURNING created_at`, label.ID, repo.ID, label.Name, label.Color, label.Description).Scan(&label.CreatedAt)
+	if conflict(err) {
+		fail(w, 409, "label_exists", "A label with that name already exists.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'label.created',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+label.Name); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, label)
+}
+
+func (a *App) deleteLabel(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
+		return
+	}
+	u := a.user(r)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var name string
+	err = tx.QueryRow(r.Context(), `DELETE FROM labels WHERE id=$1 AND repository_id=$2 RETURNING name`, r.PathValue("id"), repo.ID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Label not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'label.deleted',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+name); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"ok": true})
+}
+
+func (a *App) issueLabels(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	number, ok := issueNumber(w, r)
+	if !ok {
+		return
+	}
+	var exists bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM issues WHERE repository_id=$1 AND number=$2)`, repo.ID, number).Scan(&exists); err != nil {
+		serverError(w, err)
+		return
+	}
+	if !exists {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT l.id,l.name,l.color,l.description,l.created_at FROM labels l JOIN issue_labels il ON il.label_id=l.id JOIN issues i ON i.id=il.issue_id WHERE i.repository_id=$1 AND i.number=$2 ORDER BY lower(l.name),l.id`, repo.ID, number)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	labels := []Label{}
+	for rows.Next() {
+		var label Label
+		if err = rows.Scan(&label.ID, &label.Name, &label.Color, &label.Description, &label.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		labels = append(labels, label)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, labels)
+}
+
+func (a *App) addIssueLabel(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
+		return
+	}
+	number, ok := issueNumber(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		LabelID string `json:"label_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	u := a.user(r)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var label Label
+	err = tx.QueryRow(r.Context(), `WITH selected AS (SELECT i.id issue_id,l.id,l.name,l.color,l.description,l.created_at FROM issues i JOIN labels l ON l.repository_id=i.repository_id WHERE i.repository_id=$1 AND i.number=$2 AND l.id=$3), inserted AS (INSERT INTO issue_labels(issue_id,label_id) SELECT issue_id,id FROM selected ON CONFLICT DO NOTHING RETURNING label_id) SELECT s.id,s.name,s.color,s.description,s.created_at FROM selected s`, repo.ID, number, in.LabelID).Scan(&label.ID, &label.Name, &label.Color, &label.Description, &label.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Issue or label not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.label_added',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%s", repo.Owner, repo.Name, number, label.Name)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, label)
+}
+
+func (a *App) removeIssueLabel(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
+		return
+	}
+	number, ok := issueNumber(w, r)
+	if !ok {
+		return
+	}
+	u := a.user(r)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var name string
+	err = tx.QueryRow(r.Context(), `DELETE FROM issue_labels il USING issues i,labels l WHERE il.issue_id=i.id AND il.label_id=l.id AND i.repository_id=$1 AND i.number=$2 AND l.repository_id=$1 AND l.id=$3 RETURNING l.name`, repo.ID, number, r.PathValue("id")).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Issue label not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.label_removed',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%s", repo.Owner, repo.Name, number, name)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"ok": true})
 }
 
 func (a *App) pulls(w http.ResponseWriter, r *http.Request) {

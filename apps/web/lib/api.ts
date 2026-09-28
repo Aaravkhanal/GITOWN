@@ -57,6 +57,13 @@ export type IssueComment = {
   author: string;
   created_at: string;
 };
+export type Label = {
+  id: string;
+  name: string;
+  color: string;
+  description: string;
+  created_at: string;
+};
 export type Pull = Issue & {
   base_branch: string;
   head_branch: string;

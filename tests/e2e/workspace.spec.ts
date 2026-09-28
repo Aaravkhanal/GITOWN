@@ -142,6 +142,14 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await collaborator.close();
   await page.getByRole("link", { name: "Code", exact: true }).click();
   await page.getByRole("link", { name: "Issues", exact: true }).click();
+  await page.getByRole("button", { name: "New label", exact: true }).click();
+  await page.getByLabel("Name", { exact: true }).fill("idea");
+  await page.getByLabel("Color", { exact: true }).fill("6f42c1");
+  await page
+    .getByLabel("Description", { exact: true })
+    .fill("A future improvement");
+  await page.getByRole("button", { name: "Create label", exact: true }).click();
+  await expect(page.locator(".label-chip", { hasText: "idea" })).toBeVisible();
   await page.getByRole("button", { name: "New issue", exact: true }).click();
   await page
     .getByLabel("Title", { exact: true })
@@ -155,6 +163,10 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
     .click();
   await expect(
     page.getByText("Keep every change small, useful, and tested."),
+  ).toBeVisible();
+  await page.getByLabel("Add label").selectOption({ label: "idea" });
+  await expect(
+    page.locator(".assigned-label .label-chip", { hasText: "idea" }),
   ).toBeVisible();
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();

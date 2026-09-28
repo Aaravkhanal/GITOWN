@@ -544,6 +544,119 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/labels:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: List repository labels
+      responses:
+        "200":
+          description: Labels ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Label" }
+    post:
+      summary: Create a repository label with triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, color]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 50 }
+                color: { type: string, pattern: "^#?[0-9a-fA-F]{6}$" }
+                description: { type: string, maxLength: 200 }
+      responses:
+        "201":
+          description: Label created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Label" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/labels/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        },
+      ]
+    delete:
+      summary: Delete a repository label and its issue assignments
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/labels:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: List labels assigned to an issue
+      responses:
+        "200":
+          description: Assigned labels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Label" }
+    post:
+      summary: Assign a label with triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label_id]
+              properties:
+                label_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Assigned label
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Label" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/labels/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+        {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        },
+      ]
+    delete:
+      summary: Remove an assigned issue label with triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/pulls:
     parameters:
       [
@@ -768,6 +881,14 @@ components:
         id: { type: string, format: uuid }
         body: { type: string }
         author: { type: string }
+        created_at: { type: string, format: date-time }
+    Label:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        color: { type: string, pattern: "^[0-9a-f]{6}$" }
+        description: { type: string }
         created_at: { type: string, format: date-time }
     Pull:
       type: object

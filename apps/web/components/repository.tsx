@@ -43,6 +43,7 @@ import {
   type Tree,
   type Issue,
   type IssueComment,
+  type Label,
   type Pull,
   type PullDetail,
   type RepositoryMember,
@@ -872,10 +873,12 @@ function IssueList({
   const [version, setVersion] = useState(0);
   const issues = useData<Issue[]>(`${endpoint}/issues`, version);
   const [showForm, setShowForm] = useState(false);
+  const [showLabelForm, setShowLabelForm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("open");
   const [expanded, setExpanded] = useState<number | null>(null);
+  const labels = useData<Label[]>(`${endpoint}/labels`, version);
   const filtered = issues.data?.filter((i) => i.state === filter) || [];
   return (
     <>
@@ -900,16 +903,112 @@ function IssueList({
           </button>
         </div>
         {canTriage && (
-          <button
-            className="button primary small-button"
-            onClick={() => setShowForm(!showForm)}
-          >
-            <Plus size={15} />
-            New issue
-          </button>
+          <div className="heading-actions">
+            <button
+              className="button small-button"
+              onClick={() => setShowLabelForm(!showLabelForm)}
+            >
+              <Plus size={15} />
+              New label
+            </button>
+            <button
+              className="button primary small-button"
+              onClick={() => setShowForm(!showForm)}
+            >
+              <Plus size={15} />
+              New issue
+            </button>
+          </div>
         )}
       </div>
-      <ErrorMessage error={error || issues.error} />
+      <ErrorMessage error={error || issues.error || labels.error} />
+      {showLabelForm && (
+        <form
+          className="panel form-panel inline-form label-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            const data = new FormData(event.currentTarget);
+            try {
+              await post(`${endpoint}/labels`, {
+                name: data.get("name"),
+                color: data.get("color"),
+                description: data.get("description"),
+              });
+              setShowLabelForm(false);
+              setVersion((value) => value + 1);
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h2>Create a reusable label.</h2>
+          <div className="form-grid">
+            <label>
+              Name
+              <input name="name" maxLength={50} required />
+            </label>
+            <label>
+              Color
+              <input
+                name="color"
+                defaultValue="2f9e44"
+                pattern="#?[0-9a-fA-F]{6}"
+                maxLength={7}
+                required
+              />
+            </label>
+          </div>
+          <label>
+            Description
+            <input name="description" maxLength={200} />
+          </label>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button"
+              onClick={() => setShowLabelForm(false)}
+            >
+              Cancel
+            </button>
+            <button disabled={busy} className="button primary">
+              {busy ? "Creating…" : "Create label"}
+            </button>
+          </div>
+        </form>
+      )}
+      {!!labels.data?.length && (
+        <div className="label-catalog panel">
+          {labels.data.map((label) => (
+            <span className="label-catalog-item" key={label.id}>
+              <LabelChip label={label} />
+              {label.description && <span>{label.description}</span>}
+              {canTriage && (
+                <button
+                  aria-label={`Delete label ${label.name}`}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await remove(`${endpoint}/labels/${label.id}`);
+                      setVersion((value) => value + 1);
+                    } catch (error) {
+                      setError((error as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       {showForm && (
         <form
           className="panel form-panel inline-form"
@@ -1006,6 +1105,12 @@ function IssueList({
                     issueNumber={issue.number}
                     canComment={canComment}
                   />
+                  <IssueLabels
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    labels={labels.data || []}
+                    canTriage={canTriage}
+                  />
                   {canTriage && (
                     <button
                       disabled={busy}
@@ -1044,6 +1149,98 @@ function IssueList({
         </div>
       )}
     </>
+  );
+}
+
+function LabelChip({ label }: { label: Label }) {
+  const foreground = readableLabelText(label.color);
+  return (
+    <span
+      className="label-chip"
+      style={{ backgroundColor: `#${label.color}`, color: foreground }}
+      title={label.description || label.name}
+    >
+      {label.name}
+    </span>
+  );
+}
+
+function readableLabelText(color: string) {
+  const red = Number.parseInt(color.slice(0, 2), 16);
+  const green = Number.parseInt(color.slice(2, 4), 16);
+  const blue = Number.parseInt(color.slice(4, 6), 16);
+  return red * 299 + green * 587 + blue * 114 > 150000 ? "#152018" : "#ffffff";
+}
+
+function IssueLabels({
+  endpoint,
+  issueNumber,
+  labels,
+  canTriage,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  labels: Label[];
+  canTriage: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/issues/${issueNumber}/labels`;
+  const assigned = useData<Label[]>(path, version);
+  const assignedIDs = new Set(assigned.data?.map((label) => label.id));
+  const available = labels.filter((label) => !assignedIDs.has(label.id));
+  return (
+    <section className="issue-labels" aria-label="Issue labels">
+      <ErrorMessage error={error || assigned.error} />
+      <div className="assigned-labels">
+        {assigned.data?.map((label) => (
+          <span key={label.id} className="assigned-label">
+            <LabelChip label={label} />
+            {canTriage && (
+              <button
+                aria-label={`Remove label ${label.name}`}
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove(`${path}/${label.id}`);
+                    setVersion((value) => value + 1);
+                  } catch (error) {
+                    setError((error as Error).message);
+                  }
+                }}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {canTriage && available.length > 0 && (
+        <label className="label-picker">
+          Add label
+          <select
+            value=""
+            onChange={async (event) => {
+              if (!event.target.value) return;
+              setError("");
+              try {
+                await post(path, { label_id: event.target.value });
+                setVersion((value) => value + 1);
+              } catch (error) {
+                setError((error as Error).message);
+              }
+            }}
+          >
+            <option value="">Choose a label…</option>
+            {available.map((label) => (
+              <option value={label.id} key={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </section>
   );
 }
 
