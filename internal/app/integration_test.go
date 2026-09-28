@@ -133,6 +133,17 @@ func TestPlatformWorkflow(t *testing.T) {
 	if revokedState.User != nil {
 		t.Fatal("revoked browser session remained authenticated")
 	}
+	_ = owner.token("repo:read")
+	owner.request("PATCH", "/user/password", map[string]any{"current_password": "incorrect-password", "new_password": "updated-owner-password", "revoke_access_tokens": true}, 401, nil)
+	owner.request("PATCH", "/user/password", map[string]any{"current_password": "owner-long-password", "new_password": "updated-owner-password", "revoke_access_tokens": true}, 200, nil)
+	owner.request("GET", "/auth/me", nil, 200, nil)
+	var revokedTokens []Token
+	owner.request("GET", "/user/tokens", nil, 200, &revokedTokens)
+	if len(revokedTokens) != 0 {
+		t.Fatalf("password change did not revoke access tokens: %+v", revokedTokens)
+	}
+	ownerSecond.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "owner-long-password"}, 401, nil)
+	ownerSecond.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "updated-owner-password"}, 200, nil)
 	anon.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "incorrect-password"}, 401, nil)
 	var repo Repository
 	owner.request("POST", "/repos", map[string]any{"name": "project", "description": "Integration repository", "visibility": "private", "readme": true}, 201, &repo)

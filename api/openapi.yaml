@@ -146,6 +146,36 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/Error" }
+  /user/password:
+    patch:
+      summary: Change your password and revoke every other browser session
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password, revoke_access_tokens]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                new_password: { type: string, minLength: 12, maxLength: 128 }
+                revoke_access_tokens: { type: boolean }
+      responses:
+        "200":
+          description: Password changed, with revocation counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  sessions_revoked: { type: integer }
+                  tokens_revoked: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /user/activity:
     get:
       summary: Read the latest 30 activity records for your account

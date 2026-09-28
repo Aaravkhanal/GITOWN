@@ -72,6 +72,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/user/activity", a.activity)
 	mux.HandleFunc("GET /api/v1/user/sessions", a.sessions)
 	mux.HandleFunc("DELETE /api/v1/user/sessions/{id}", a.deleteSession)
+	mux.HandleFunc("PATCH /api/v1/user/password", a.changePassword)
 	mux.HandleFunc("GET /api/v1/user/deleted-repositories", a.deletedRepositories)
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)

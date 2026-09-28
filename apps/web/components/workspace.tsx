@@ -211,6 +211,11 @@ export function Workspace({ segments }: { segments: string[] }) {
                 </Link>
               )}
               {user && (
+                <Link className="" href="/settings/security">
+                  <LockKeyhole size={17} /> Account security
+                </Link>
+              )}
+              {user && (
                 <Link className="" href="/settings/repositories">
                   <Trash2 size={17} /> Deleted repositories
                 </Link>
@@ -250,6 +255,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <DeletedRepositoriesPage />
           ) : section === "settings" && segments[1] === "sessions" ? (
             <SessionsPage />
+          ) : section === "settings" && segments[1] === "security" ? (
+            <SecurityPage />
           ) : section === "settings" ? (
             <TokensPage />
           ) : section === "repos" && segments.length >= 3 ? (
@@ -1154,11 +1161,117 @@ function SessionsPage() {
         <div>
           <strong>See something unfamiliar?</strong>
           <p>
-            Revoke that session immediately. Password changes and MFA controls
-            are the next account-security milestone.
+            Revoke that session immediately. You can also change your password
+            in Account security; MFA is a later account-security milestone.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SecurityPage() {
+  const { user } = useSession();
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!user) return <SignInPrompt />;
+  return (
+    <div className="form-page wide-form">
+      <div className="breadcrumb">
+        <span>Settings</span>
+        <ChevronRight size={12} /> Account security
+      </div>
+      <div className="page-heading">
+        <div>
+          <h1>Protect your account.</h1>
+          <p>Change your password and close access you no longer trust.</p>
+        </div>
+        <LockKeyhole size={30} className="muted" />
+      </div>
+      <ErrorMessage error={error} />
+      {notice && <div className="success-message">{notice}</div>}
+      <form
+        className="panel form-panel"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          setNotice("");
+          const form = event.currentTarget;
+          const data = new FormData(form);
+          if (data.get("new_password") !== data.get("confirm_password")) {
+            setError("The new passwords do not match.");
+            setBusy(false);
+            return;
+          }
+          try {
+            await api("/user/password", {
+              method: "PATCH",
+              body: JSON.stringify({
+                current_password: data.get("current_password"),
+                new_password: data.get("new_password"),
+                revoke_access_tokens: data.get("revoke_access_tokens") === "on",
+              }),
+            });
+            form.reset();
+            setNotice(
+              "Password changed. Other browser sessions were signed out.",
+            );
+          } catch (changeError) {
+            setError((changeError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <h2>Change password</h2>
+        <label>
+          Current password
+          <input
+            name="current_password"
+            type="password"
+            autoComplete="current-password"
+            maxLength={128}
+            required
+          />
+        </label>
+        <div className="two-fields">
+          <label>
+            New password
+            <input
+              name="new_password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={128}
+              required
+            />
+          </label>
+          <label>
+            Confirm new password
+            <input
+              name="confirm_password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={128}
+              required
+            />
+          </label>
+        </div>
+        <label className="checkbox-row">
+          <input name="revoke_access_tokens" type="checkbox" defaultChecked />
+          <span>
+            <strong>Revoke every personal access token</strong>
+            <small>Git clients will need a newly generated token.</small>
+          </span>
+        </label>
+        <button className="button primary" disabled={busy}>
+          <LockKeyhole size={15} />
+          {busy ? "Changing password…" : "Change password"}
+        </button>
+      </form>
     </div>
   );
 }

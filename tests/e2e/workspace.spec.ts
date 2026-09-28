@@ -30,6 +30,19 @@ test("account security, project collaboration, Git transport, and responsive nav
     page.getByRole("heading", { name: "Your active sessions." }),
   ).toBeVisible();
   await expect(page.getByText("Current device", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Account security" }).click();
+  await page.getByLabel("Current password").fill("test-only-strong-password");
+  await page
+    .getByLabel("New password", { exact: true })
+    .fill("changed-test-password");
+  await page.getByLabel("Confirm new password").fill("changed-test-password");
+  await page.getByLabel("Revoke every personal access token").uncheck();
+  await page
+    .getByRole("button", { name: "Change password", exact: true })
+    .click();
+  await expect(
+    page.getByText("Password changed. Other browser sessions were signed out."),
+  ).toBeVisible();
   await page.goto("/");
   await page
     .getByRole("link", { name: "New repository", exact: true })

@@ -11,7 +11,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 
 ## What works
 
-- Accounts, login/logout, Argon2id password hashes, expiring/revocable browser sessions with device visibility, and request-origin checks.
+- Accounts, login/logout, Argon2id password hashes, secure password changes with optional token revocation, expiring/revocable browser sessions with device visibility, and request-origin checks.
 - Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
 - Personal access tokens with read or write scopes, 30-day expiration, and revocation.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).

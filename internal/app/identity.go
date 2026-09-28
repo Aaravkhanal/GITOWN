@@ -189,6 +189,85 @@ func (a *App) deleteSession(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]bool{"ok": true, "current": tokenHash == current})
 }
 
+func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	var in struct {
+		CurrentPassword    string `json:"current_password"`
+		NewPassword        string `json:"new_password"`
+		RevokeAccessTokens bool   `json:"revoke_access_tokens"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.CurrentPassword) > 128 || len(in.NewPassword) < 12 || len(in.NewPassword) > 128 {
+		fail(w, 422, "validation_failed", "Use a new password between 12 and 128 characters.")
+		return
+	}
+	if !a.authLimit(w, r) {
+		return
+	}
+	defer func() { <-a.passwords }()
+	var currentHash string
+	if err := a.db.QueryRow(r.Context(), `SELECT password_hash FROM users WHERE id=$1`, u.ID).Scan(&currentHash); err != nil {
+		serverError(w, err)
+		return
+	}
+	if !auth.CheckPassword(currentHash, in.CurrentPassword) {
+		fail(w, 401, "invalid_credentials", "Current password is incorrect.")
+		return
+	}
+	if auth.CheckPassword(currentHash, in.NewPassword) {
+		fail(w, 422, "password_unchanged", "Choose a password you have not just used.")
+		return
+	}
+	currentSession := ""
+	if cookie, err := r.Cookie("gitown_session"); err == nil {
+		currentSession = auth.Digest(cookie.Value)
+	}
+	newHash := auth.HashPassword(in.NewPassword)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	result, err := tx.Exec(r.Context(), `UPDATE users SET password_hash=$1 WHERE id=$2 AND password_hash=$3`, newHash, u.ID, currentHash)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if result.RowsAffected() != 1 {
+		fail(w, 409, "password_changed", "Your password changed in another session. Sign in again and retry.")
+		return
+	}
+	sessionsResult, err := tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2`, u.ID, currentSession)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	var tokenCount int64
+	if in.RevokeAccessTokens {
+		tokensResult, deleteErr := tx.Exec(r.Context(), `DELETE FROM access_tokens WHERE user_id=$1`, u.ID)
+		if deleteErr != nil {
+			serverError(w, deleteErr)
+			return
+		}
+		tokenCount = tokensResult.RowsAffected()
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'account.password_changed',$2)`, u.ID, u.Username); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"ok": true, "sessions_revoked": sessionsResult.RowsAffected(), "tokens_revoked": tokenCount})
+}
+
 func (a *App) tokens(w http.ResponseWriter, r *http.Request) {
 	u := a.requireUser(w, r)
 	if u == nil {

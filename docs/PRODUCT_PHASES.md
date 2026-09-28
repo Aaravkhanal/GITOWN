@@ -6,7 +6,7 @@ Status legend: **partial** means usable capabilities exist but the phase gate ha
 
 ## Phase 1 — Safe public accounts (partial)
 
-Shipped: registration and login, Argon2id passwords, expiring and revocable browser sessions, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
+Shipped: registration and login, Argon2id passwords, authenticated password changes that revoke other sessions and can revoke every access token, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
 
 Remaining gate: verified email, password recovery, TOTP MFA and recovery codes, step-up authentication for destructive actions, security-event notifications, invitation controls, stronger account/IP abuse throttles, and operator-visible abuse decisions.
 
