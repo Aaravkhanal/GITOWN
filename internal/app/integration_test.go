@@ -122,6 +122,22 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	anon.request("GET", "/repos/owner/project", nil, 200, nil)
 	owner.request("PATCH", "/repos/owner/project", map[string]string{"description": "Integration repository", "visibility": "private"}, 200, &repo)
+	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "missing", "role": "read"}, 404, nil)
+	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "owner", "role": "write"}, 422, nil)
+	var member RepositoryMember
+	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "other", "role": "read"}, 201, &member)
+	if member.Username != "other" || member.Role != "read" {
+		t.Fatalf("unexpected collaborator: %+v", member)
+	}
+	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "other", "role": "write"}, 409, nil)
+	other.request("GET", "/repos/owner/project", nil, 200, nil)
+	other.request("PATCH", "/repos/owner/project", map[string]string{"description": "not yours", "visibility": "public"}, 403, nil)
+	other.request("GET", "/repos/owner/project/members", nil, 403, nil)
+	var memberRepos []Repository
+	other.request("GET", "/repos?mine=true", nil, 200, &memberRepos)
+	if len(memberRepos) != 1 || memberRepos[0].Role != "read" || memberRepos[0].CanWrite {
+		t.Fatalf("collaborator repository listing has wrong permissions: %+v", memberRepos)
+	}
 	var anonymousRepos []Repository
 	anon.request("GET", "/repos", nil, 200, &anonymousRepos)
 	if len(anonymousRepos) != 0 {
@@ -164,7 +180,7 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	gitRun("", "", "", false, "ls-remote", repoURL)
 	gitRun("", "owner", "owner-long-password", false, "ls-remote", repoURL)
-	gitRun("", "other", otherToken, false, "ls-remote", repoURL)
+	gitRun("", "other", otherToken, true, "ls-remote", repoURL)
 	gitRun("", "owner", readToken, true, "ls-remote", repoURL)
 	gitRun("", "owner", writeToken, true, "clone", repoURL, work)
 	gitRun(work, "", "", true, "config", "user.name", "Owner")
@@ -177,6 +193,9 @@ func TestPlatformWorkflow(t *testing.T) {
 	gitRun(work, "", "", true, "commit", "-m", "Add hello file")
 	gitRun(work, "owner", readToken, false, "push", "origin", "feature")
 	gitRun(work, "owner", writeToken, true, "push", "-u", "origin", "feature")
+	gitRun(work, "other", otherToken, false, "push", "origin", "feature")
+	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "write"}, 200, &member)
+	gitRun(work, "other", otherToken, true, "push", "origin", "feature")
 	owner.request("GET", "/repos/owner/project/tree?ref=feature&path=hello.txt", nil, 200, nil)
 	gitRun(work, "owner", writeToken, false, "push", "origin", "--delete", "feature")
 	gitRun(work, "", "", true, "tag", "v0.1.0")
@@ -200,7 +219,7 @@ func TestPlatformWorkflow(t *testing.T) {
 		t.Fatal("missing real pull-request diff")
 	}
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": strings.Repeat("0", 40), "base_sha": detail.BaseSHA}, 409, nil)
-	other.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 404, nil)
+	other.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	gitRun(work, "", "", true, "checkout", "main")
@@ -249,6 +268,12 @@ func TestPlatformWorkflow(t *testing.T) {
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
 	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 200, nil)
+	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "triage"}, 200, &member)
+	other.request("POST", "/repos/owner/project/issues", map[string]string{"title": "Triage issue", "body": "Created by a collaborator"}, 201, nil)
+	other.request("POST", "/repos/owner/project/pulls", map[string]string{"title": "No code permission", "base_branch": "main", "head_branch": "feature"}, 403, nil)
+	owner.request("DELETE", "/repos/owner/project/members/other", nil, 200, nil)
+	other.request("GET", "/repos/owner/project", nil, 404, nil)
+	gitRun("", "other", otherToken, false, "ls-remote", repoURL)
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)

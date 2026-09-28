@@ -9,6 +9,7 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   browser,
 }) => {
   const username = `builder-${Date.now().toString(36)}`;
+  const collaboratorUsername = `collab-${Date.now().toString(36)}`;
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/register");
@@ -86,6 +87,59 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await expect(
     page.getByText("Repository settings saved.", { exact: true }),
   ).toBeVisible();
+  const collaborator = await browser.newContext();
+  const appOrigin = new URL(page.url()).origin;
+  const registration = await collaborator.request.post(
+    `${appOrigin}/api/v1/auth/register`,
+    {
+      headers: { Origin: appOrigin },
+      data: {
+        username: collaboratorUsername,
+        email: `${collaboratorUsername}@example.test`,
+        password: "collaborator-test-password",
+        display_name: "Collaborator",
+      },
+    },
+  );
+  expect(registration.ok()).toBeTruthy();
+  await page.getByLabel("Username", { exact: true }).fill(collaboratorUsername);
+  await page
+    .getByRole("button", { name: "Add collaborator", exact: true })
+    .click();
+  await expect(page.getByText(`@${collaboratorUsername}`)).toBeVisible();
+  const collaboratorPage = await collaborator.newPage();
+  await collaboratorPage.goto(`/repos/${username}/first-project`);
+  await expect(
+    collaboratorPage.getByRole("heading", {
+      name: `${username} / first-project`,
+    }),
+  ).toBeVisible();
+  await expect(
+    collaboratorPage.getByRole("link", { name: "Settings", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByLabel(`Role for ${collaboratorUsername}`)
+    .selectOption("triage");
+  await expect(
+    page.getByText(`Updated @${collaboratorUsername}.`, { exact: true }),
+  ).toBeVisible();
+  await collaboratorPage.goto(`/repos/${username}/first-project/issues`);
+  await expect(
+    collaboratorPage.getByRole("button", { name: "New issue", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: `Remove ${collaboratorUsername}` })
+    .click();
+  await expect(
+    page.getByText(`Removed @${collaboratorUsername}.`, { exact: true }),
+  ).toBeVisible();
+  await collaboratorPage.reload();
+  await expect(
+    collaboratorPage
+      .getByRole("alert")
+      .filter({ hasText: "Repository not found" }),
+  ).toBeVisible();
+  await collaborator.close();
   await page.getByRole("link", { name: "Code", exact: true }).click();
   await page.getByRole("link", { name: "Issues", exact: true }).click();
   await page.getByRole("button", { name: "New issue", exact: true }).click();

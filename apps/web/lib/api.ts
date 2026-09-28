@@ -8,7 +8,16 @@ export type Repo = {
   default_branch: string;
   created_at: string;
   can_write: boolean;
+  can_triage: boolean;
+  can_manage: boolean;
+  role?: "owner" | "maintain" | "write" | "triage" | "read";
   clone_url: string;
+};
+export type RepositoryMember = {
+  username: string;
+  display_name: string;
+  role: "maintain" | "write" | "triage" | "read";
+  created_at: string;
 };
 export type Commit = {
   sha: string;
@@ -82,6 +91,9 @@ export function post<T>(path: string, body: unknown) {
 }
 export function patch<T>(path: string, body: unknown) {
   return api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+}
+export function remove<T>(path: string) {
+  return api<T>(path, { method: "DELETE" });
 }
 export function date(value: string) {
   return new Date(value).toLocaleDateString(undefined, {

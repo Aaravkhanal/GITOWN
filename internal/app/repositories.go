@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/Aaravkhanal/GITOWN/internal/gitstore"
+	"github.com/jackc/pgx/v5"
 )
 
 type Repository struct {
@@ -21,6 +23,9 @@ type Repository struct {
 	DefaultBranch string    `json:"default_branch"`
 	CreatedAt     time.Time `json:"created_at"`
 	CanWrite      bool      `json:"can_write"`
+	CanTriage     bool      `json:"can_triage"`
+	CanManage     bool      `json:"can_manage"`
+	Role          string    `json:"role,omitempty"`
 	CloneURL      string    `json:"clone_url"`
 }
 
@@ -33,21 +38,39 @@ func scanRepo(row scanner) (Repository, error) {
 	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt)
 	return r, err
 }
-func (a *App) decorate(repo *Repository, u *User) {
-	repo.CanWrite = u != nil && u.ID == repo.OwnerID
+func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
+	if u != nil && u.ID == repo.OwnerID {
+		repo.Role = "owner"
+	} else if u != nil {
+		err := a.db.QueryRow(ctx, `SELECT role FROM repository_members WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID).Scan(&repo.Role)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	repo.CanWrite = repo.Role == "owner" || repo.Role == "maintain" || repo.Role == "write"
+	repo.CanTriage = repo.CanWrite || repo.Role == "triage"
+	repo.CanManage = repo.Role == "owner"
 	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
+	return nil
 }
 
 func (a *App) access(w http.ResponseWriter, r *http.Request, write bool) *Repository {
 	u := a.user(r)
 	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2`, r.PathValue("owner"), r.PathValue("repo")))
-	if err != nil || (repo.Visibility == "private" && (u == nil || u.ID != repo.OwnerID)) {
+	if err != nil {
 		fail(w, 404, "not_found", "Repository not found.")
 		return nil
 	}
-	a.decorate(&repo, u)
+	if err = a.decorate(r.Context(), &repo, u); err != nil {
+		serverError(w, err)
+		return nil
+	}
+	if repo.Visibility == "private" && repo.Role == "" {
+		fail(w, 404, "not_found", "Repository not found.")
+		return nil
+	}
 	if write && !repo.CanWrite {
-		fail(w, 403, "forbidden", "Only the repository owner can make this change.")
+		fail(w, 403, "forbidden", "Repository write permission is required.")
 		return nil
 	}
 	return &repo
@@ -59,9 +82,9 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 	if u != nil {
 		id = u.ID
 	}
-	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE (r.visibility='public' OR r.owner_id::text=$1)`
+	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE (r.visibility='public' OR r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
 	if r.URL.Query().Get("mine") == "true" {
-		query += ` AND r.owner_id::text=$1`
+		query += ` AND (r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
 	}
 	query += ` ORDER BY r.created_at DESC LIMIT 100`
 	rows, err := a.db.Query(r.Context(), query, id)
@@ -77,7 +100,10 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		a.decorate(&repo, u)
+		if err = a.decorate(r.Context(), &repo, u); err != nil {
+			serverError(w, err)
+			return
+		}
 		repos = append(repos, repo)
 	}
 	if err := rows.Err(); err != nil {
@@ -150,7 +176,10 @@ func (a *App) createRepository(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	a.decorate(&repo, u)
+	if err = a.decorate(r.Context(), &repo, u); err != nil {
+		serverError(w, err)
+		return
+	}
 	respond(w, 201, repo)
 }
 
@@ -172,8 +201,12 @@ func (a *App) repository(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, true)
+	repo := a.access(w, r, false)
 	if repo == nil {
+		return
+	}
+	if !repo.CanManage {
+		fail(w, 403, "forbidden", "Only the repository owner can change repository settings.")
 		return
 	}
 	var in struct {
@@ -207,7 +240,10 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	a.decorate(&updated, a.user(r))
+	if err = a.decorate(r.Context(), &updated, a.user(r)); err != nil {
+		serverError(w, err)
+		return
+	}
 	respond(w, 200, updated)
 }
 func (a *App) tree(w http.ResponseWriter, r *http.Request) {

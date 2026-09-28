@@ -74,8 +74,12 @@ func validContent(title, body string) bool {
 	return strings.TrimSpace(title) != "" && len(title) <= 200 && len(body) <= 20000
 }
 func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, true)
+	repo := a.access(w, r, false)
 	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
 		return
 	}
 	u := a.user(r)
@@ -118,8 +122,12 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, true)
+	repo := a.access(w, r, false)
 	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
 		return
 	}
 	u := a.user(r)

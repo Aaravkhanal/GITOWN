@@ -222,6 +222,76 @@ paths:
               schema: { $ref: "#/components/schemas/Repository" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/members:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List collaborators as the repository owner
+      responses:
+        "200":
+          description: Repository collaborators
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RepositoryMember" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add a collaborator as the repository owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, role]
+              properties:
+                username: { type: string }
+                role: { $ref: "#/components/schemas/RepositoryRole" }
+      responses:
+        "201":
+          description: Collaborator added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryMember" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/members/{username}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: username, in: path, required: true, schema: { type: string } },
+      ]
+    patch:
+      summary: Change a collaborator role as the repository owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/RepositoryRole" }
+      responses:
+        "200":
+          description: Collaborator updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryMember" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove a collaborator as the repository owner
+      responses:
+        "200": { description: Collaborator removed }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/tree:
     parameters:
       [
@@ -515,7 +585,22 @@ components:
         default_branch: { type: string }
         created_at: { type: string, format: date-time }
         can_write: { type: boolean }
+        can_triage: { type: boolean }
+        can_manage: { type: boolean }
+        role:
+          type: string
+          enum: [owner, maintain, write, triage, read]
         clone_url: { type: string, format: uri }
+    RepositoryRole:
+      type: string
+      enum: [maintain, write, triage, read]
+    RepositoryMember:
+      type: object
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        role: { $ref: "#/components/schemas/RepositoryRole" }
+        created_at: { type: string, format: date-time }
     Token:
       type: object
       properties:

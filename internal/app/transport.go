@@ -51,11 +51,20 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "A valid personal access token is required.", 401)
 		return
 	}
-	if err != nil || (repo.Visibility == "private" && u.ID != repo.OwnerID) {
+	role := ""
+	if authenticated {
+		if u.ID == repo.OwnerID {
+			role = "owner"
+		} else {
+			_ = a.db.QueryRow(r.Context(), `SELECT role FROM repository_members WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID).Scan(&role)
+		}
+	}
+	if err != nil || (repo.Visibility == "private" && role == "") {
 		http.NotFound(w, r)
 		return
 	}
-	if write && (u.ID != repo.OwnerID || scope != "repo:write") {
+	canWrite := role == "owner" || role == "maintain" || role == "write"
+	if write && (!canWrite || scope != "repo:write") {
 		http.Error(w, "Repository write permission and repo:write scope are required.", 403)
 		return
 	}

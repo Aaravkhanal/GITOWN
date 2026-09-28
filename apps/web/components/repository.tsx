@@ -25,11 +25,15 @@ import {
   Save,
   Settings,
   Terminal,
+  Trash2,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import {
   api,
   patch,
   post,
+  remove,
   date,
   repoPath,
   type Repo,
@@ -38,6 +42,7 @@ import {
   type Issue,
   type Pull,
   type PullDetail,
+  type RepositoryMember,
 } from "@/lib/api";
 import {
   Avatar,
@@ -163,7 +168,7 @@ export function RepositoryPage({
             label: "Commits",
             href: `${basePath}/commits`,
           },
-          ...(r.can_write
+          ...(r.can_manage
             ? [
                 {
                   key: "settings",
@@ -231,7 +236,7 @@ export function RepositoryPage({
       ) : tab === "commits" ? (
         <CommitList endpoint={endpoint} branch={branch} />
       ) : tab === "issues" ? (
-        <IssueList endpoint={endpoint} canWrite={r.can_write} />
+        <IssueList endpoint={endpoint} canWrite={r.can_triage} />
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (
@@ -240,12 +245,8 @@ export function RepositoryPage({
           repo={r}
           branches={repo.data.branches}
         />
-      ) : tab === "settings" && r.can_write ? (
-        <RepositorySettings
-          endpoint={endpoint}
-          repo={r}
-          onSaved={() => setVersion((v) => v + 1)}
-        />
+      ) : tab === "settings" && r.can_manage ? (
+        <RepositorySettings endpoint={endpoint} repo={r} />
       ) : (
         <div className="empty-state">
           <h2>Page not found</h2>
@@ -465,11 +466,9 @@ function EmptyRepository({ repo }: { repo: Repo }) {
 function RepositorySettings({
   endpoint,
   repo,
-  onSaved,
 }: {
   endpoint: string;
   repo: Repo;
-  onSaved: () => void;
 }) {
   const [visibility, setVisibility] = useState(repo.visibility);
   const [message, setMessage] = useState("");
@@ -497,7 +496,6 @@ function RepositorySettings({
               visibility,
             });
             setMessage("Repository settings saved.");
-            window.setTimeout(onSaved, 700);
           } catch (saveError) {
             setError((saveError as Error).message);
           } finally {
@@ -551,7 +549,151 @@ function RepositorySettings({
           {busy ? "Saving..." : "Save settings"}
         </button>
       </form>
+      <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
     </section>
+  );
+}
+
+const collaboratorRoles = ["read", "triage", "write", "maintain"] as const;
+
+function CollaboratorSettings({
+  endpoint,
+  owner,
+}: {
+  endpoint: string;
+  owner: string;
+}) {
+  const [version, setVersion] = useState(0);
+  const members = useData<RepositoryMember[]>(`${endpoint}/members`, version);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <div className="panel collaborator-settings">
+      <div className="section-heading">
+        <div>
+          <h2>
+            <Users size={18} /> Collaborators
+          </h2>
+          <p>
+            Grant repository access to existing GITOWN users. You remain the
+            owner.
+          </p>
+        </div>
+      </div>
+      <form
+        className="collaborator-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          setMessage("");
+          const form = event.currentTarget;
+          const data = new FormData(form);
+          try {
+            await post<RepositoryMember>(`${endpoint}/members`, {
+              username: data.get("username"),
+              role: data.get("role"),
+            });
+            form.reset();
+            setMessage("Collaborator added.");
+            refresh();
+          } catch (memberError) {
+            setError((memberError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Username
+          <input name="username" placeholder="gitown-user" required />
+        </label>
+        <label>
+          Role
+          <select name="role" defaultValue="read">
+            {collaboratorRoles.map((role) => (
+              <option key={role} value={role}>
+                {role[0].toUpperCase() + role.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="button primary" disabled={busy} type="submit">
+          <UserPlus size={16} /> {busy ? "Adding..." : "Add collaborator"}
+        </button>
+      </form>
+      <p className="muted small-text role-help">
+        Read can clone. Triage can manage issues. Write and Maintain can also
+        push and merge. Only {owner} can manage access and visibility.
+      </p>
+      {error && <div className="form-error">{error}</div>}
+      {message && <div className="success-box">{message}</div>}
+      <ErrorMessage error={members.error} />
+      {members.loading ? (
+        <Loading />
+      ) : members.data?.length ? (
+        <div className="member-list">
+          {members.data.map((member) => (
+            <div className="member-row" key={member.username}>
+              <Avatar name={member.display_name || member.username} small />
+              <div>
+                <strong>{member.display_name || member.username}</strong>
+                <span>@{member.username}</span>
+              </div>
+              <select
+                aria-label={`Role for ${member.username}`}
+                value={member.role}
+                onChange={async (event) => {
+                  setError("");
+                  setMessage("");
+                  try {
+                    await patch<RepositoryMember>(
+                      `${endpoint}/members/${encodeURIComponent(member.username)}`,
+                      { role: event.target.value },
+                    );
+                    setMessage(`Updated @${member.username}.`);
+                    refresh();
+                  } catch (memberError) {
+                    setError((memberError as Error).message);
+                    refresh();
+                  }
+                }}
+              >
+                {collaboratorRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role[0].toUpperCase() + role.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <button
+                aria-label={`Remove ${member.username}`}
+                className="icon-button danger-icon"
+                onClick={async () => {
+                  setError("");
+                  setMessage("");
+                  try {
+                    await remove<{ removed: boolean }>(
+                      `${endpoint}/members/${encodeURIComponent(member.username)}`,
+                    );
+                    setMessage(`Removed @${member.username}.`);
+                    refresh();
+                  } catch (memberError) {
+                    setError((memberError as Error).message);
+                  }
+                }}
+                type="button"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-inline">No collaborators yet.</div>
+      )}
+    </div>
   );
 }
 
