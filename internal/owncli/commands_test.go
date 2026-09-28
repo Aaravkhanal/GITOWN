@@ -15,6 +15,7 @@ func TestResolve(t *testing.T) {
 		{[]string{"track", "README.md", "src"}, []string{"add", "README.md", "src"}},
 		{[]string{"save", "-m", "Document commands"}, []string{"commit", "-m", "Document commands"}},
 		{[]string{"send", "origin", "main"}, []string{"push", "origin", "main"}},
+		{[]string{"send"}, []string{"push", "--set-upstream", "origin", "HEAD"}},
 		{[]string{"sync"}, []string{"pull", "--ff-only"}},
 		{[]string{"unite", "feature"}, []string{"merge", "feature"}},
 		{[]string{"move", "-c", "feature"}, []string{"switch", "-c", "feature"}},

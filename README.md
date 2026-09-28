@@ -63,6 +63,7 @@ git push -u origin feature/first-change
 When Git asks, enter your GITOWN username and use the token as the password. Do not paste the token into the remote URL. Your account password is not accepted for Git operations.
 
 You can also use GITOWN's own command names for this workflow. Build the CLI with `npm run build:cli`, then see the [CLI guide](docs/CLI.md).
+On a new branch, `gitown send` automatically publishes it to `origin` and records the upstream.
 
 Open **Pull requests → New pull request**, choose `main` as the base and your feature branch as the comparison, and create it. Inspect the diff, then click **Merge pull request**. Finally:
 

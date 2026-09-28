@@ -38,6 +38,11 @@ func Resolve(args []string) ([]string, error) {
 		}
 		return append([]string(nil), args[1:]...), nil
 	}
+	// A new local branch has no upstream, so plain `git push` fails. GITOWN's
+	// zero-argument send publishes the current branch and remembers origin.
+	if args[0] == "send" && len(args) == 1 {
+		return []string{"push", "--set-upstream", "origin", "HEAD"}, nil
+	}
 	command, ok := commands[args[0]]
 	if !ok {
 		return nil, fmt.Errorf("unknown command %q", args[0])

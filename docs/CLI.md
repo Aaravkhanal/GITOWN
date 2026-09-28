@@ -19,7 +19,7 @@ The executable is written to `.tools/bin/gitown`. Add that directory to your `PA
 | `gitown bring URL [DIRECTORY]`  | `git clone`          | Bring a repository onto this computer.                  |
 | `gitown track PATH...`          | `git add`            | Select changes for the next save.                       |
 | `gitown save -m "MESSAGE"`      | `git commit`         | Save tracked changes as a commit.                       |
-| `gitown send [REMOTE] [BRANCH]` | `git push`           | Send commits to a GITOWN server.                        |
+| `gitown send [REMOTE] [BRANCH]` | `git push`           | Publish the current branch, or send an explicit ref.    |
 | `gitown sync [REMOTE] [BRANCH]` | `git pull --ff-only` | Safely sync without creating an automatic merge commit. |
 | `gitown unite BRANCH`           | `git merge`          | Unite another branch into the current branch.           |
 | `gitown move BRANCH`            | `git switch`         | Move to another branch.                                 |
@@ -36,8 +36,10 @@ gitown move -c feature/first-change
 # Edit files in your editor.
 gitown track .
 gitown save -m "Add my first change"
-gitown send -u origin feature/first-change
+gitown send
 ```
+
+With no arguments, `gitown send` publishes the current branch to `origin` and records its upstream automatically. Later `gitown send` calls therefore work without the common “current branch has no upstream branch” error. You can still choose an exact destination with `gitown send REMOTE BRANCH`.
 
 After the pull request is merged:
 
