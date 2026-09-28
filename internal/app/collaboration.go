@@ -73,6 +73,13 @@ func (a *App) issues(w http.ResponseWriter, r *http.Request) {
 func validContent(title, body string) bool {
 	return strings.TrimSpace(title) != "" && len(title) <= 200 && len(body) <= 20000
 }
+func activeRepository(w http.ResponseWriter, repo *Repository) bool {
+	if repo.Archived {
+		fail(w, 409, "repository_archived", "Unarchive this repository before making changes.")
+		return false
+	}
+	return true
+}
 func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
 	if repo == nil {
@@ -80,6 +87,9 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if !repo.CanTriage {
 		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
 		return
 	}
 	u := a.user(r)
@@ -128,6 +138,9 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if !repo.CanTriage {
 		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
 		return
 	}
 	u := a.user(r)

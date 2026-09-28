@@ -11,7 +11,15 @@ export type Repo = {
   can_triage: boolean;
   can_manage: boolean;
   role?: "owner" | "maintain" | "write" | "triage" | "read";
+  archived: boolean;
   clone_url: string;
+};
+export type DeletedRepository = {
+  id: string;
+  owner: string;
+  name: string;
+  deleted_at: string;
+  purge_after: string;
 };
 export type RepositoryMember = {
   username: string;
@@ -94,6 +102,9 @@ export function patch<T>(path: string, body: unknown) {
 }
 export function remove<T>(path: string) {
   return api<T>(path, { method: "DELETE" });
+}
+export function destroy<T>(path: string, body: unknown) {
+  return api<T>(path, { method: "DELETE", body: JSON.stringify(body) });
 }
 export function date(value: string) {
   return new Date(value).toLocaleDateString(undefined, {

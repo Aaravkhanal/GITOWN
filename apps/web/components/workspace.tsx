@@ -27,6 +27,8 @@ import {
   Search,
   ShieldCheck,
   Terminal,
+  Trash2,
+  RotateCcw,
   X,
 } from "lucide-react";
 import {
@@ -38,6 +40,7 @@ import {
   type Repo,
   type Activity,
   type Token,
+  type DeletedRepository,
 } from "@/lib/api";
 import {
   Avatar,
@@ -201,6 +204,11 @@ export function Workspace({ segments }: { segments: string[] }) {
               >
                 <KeyRound size={17} /> Access tokens
               </Link>
+              {user && (
+                <Link className="" href="/settings/repositories">
+                  <Trash2 size={17} /> Deleted repositories
+                </Link>
+              )}
             </nav>
             <div className="sidebar-note">
               <span className="note-icon">
@@ -232,6 +240,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <AuthPage mode={section} />
           ) : section === "new" ? (
             <NewRepository />
+          ) : section === "settings" && segments[1] === "repositories" ? (
+            <DeletedRepositoriesPage />
           ) : section === "settings" ? (
             <TokensPage />
           ) : section === "repos" && segments.length >= 3 ? (
@@ -262,6 +272,75 @@ export function Workspace({ segments }: { segments: string[] }) {
         </main>
       </div>
     </SessionContext.Provider>
+  );
+}
+
+function DeletedRepositoriesPage() {
+  const { user } = useSession();
+  const router = useRouter();
+  const [version, setVersion] = useState(0);
+  const repositories = useData<DeletedRepository[]>(
+    user ? "/user/deleted-repositories" : null,
+    version,
+  );
+  const [error, setError] = useState("");
+  if (!user) return <SignInPrompt />;
+  return (
+    <div className="form-page wide-form">
+      <div className="breadcrumb">
+        <span>Settings</span>
+        <ChevronRight size={12} /> Deleted repositories
+      </div>
+      <div className="page-heading">
+        <div>
+          <h1>Deleted repositories.</h1>
+          <p>Restore repositories before their scheduled purge date.</p>
+        </div>
+        <Trash2 size={30} className="muted" />
+      </div>
+      <ErrorMessage error={error || repositories.error} />
+      <div className="panel token-list">
+        {repositories.loading ? (
+          <Loading />
+        ) : repositories.data?.length ? (
+          repositories.data.map((repo) => (
+            <div className="token-row" key={repo.id}>
+              <Trash2 size={19} />
+              <div>
+                <strong>
+                  {repo.owner}/{repo.name}
+                </strong>
+                <span>
+                  Deleted {date(repo.deleted_at)} · Purges after{" "}
+                  {date(repo.purge_after)}
+                </span>
+              </div>
+              <button
+                className="button small-button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    const restored = await post<{
+                      owner: string;
+                      name: string;
+                    }>(`/user/deleted-repositories/${repo.id}/restore`, {});
+                    setVersion((value) => value + 1);
+                    router.push(`/repos/${restored.owner}/${restored.name}`);
+                  } catch (restoreError) {
+                    setError((restoreError as Error).message);
+                  }
+                }}
+                type="button"
+              >
+                <RotateCcw size={15} /> Restore
+              </button>
+            </div>
+          ))
+        ) : (
+          <p className="muted padded">No deleted repositories.</p>
+        )}
+      </div>
+    </div>
   );
 }
 

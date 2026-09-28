@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Archive,
   BookOpen,
   Check,
   ChevronRight,
@@ -34,6 +35,7 @@ import {
   patch,
   post,
   remove,
+  destroy,
   date,
   repoPath,
   type Repo,
@@ -120,6 +122,7 @@ export function RepositoryPage({
               )}
               {r.visibility}
             </Badge>
+            {r.archived && <Badge>archived</Badge>}
           </div>
           <p>{r.description || "A home for your next great idea."}</p>
         </div>
@@ -128,6 +131,11 @@ export function RepositoryPage({
           Clone repository
         </button>
       </div>
+      {r.archived && (
+        <div className="archive-banner">
+          <Archive size={17} /> This repository is archived and read-only.
+        </div>
+      )}
       {clone && (
         <div className="clone-panel panel">
           <div>
@@ -474,6 +482,7 @@ function RepositorySettings({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
   return (
     <section className="settings-layout">
       <div className="section-heading">
@@ -550,6 +559,105 @@ function RepositorySettings({
         </button>
       </form>
       <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
+      <div className="panel lifecycle-settings">
+        <div className="section-heading">
+          <div>
+            <h2>Repository lifecycle</h2>
+            <p>
+              Rename, archive, restore, or schedule this repository for
+              deletion.
+            </p>
+          </div>
+        </div>
+        <form
+          className="rename-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            const data = new FormData(event.currentTarget);
+            try {
+              const updated = await post<Repo>(`${endpoint}/rename`, {
+                name: data.get("name"),
+              });
+              router.push(`${repoPath(updated)}/settings`);
+            } catch (renameError) {
+              setError((renameError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Repository name
+            <input name="name" defaultValue={repo.name} required />
+          </label>
+          <button className="button" disabled={busy} type="submit">
+            Rename repository
+          </button>
+        </form>
+        <div className="lifecycle-row">
+          <div>
+            <strong>
+              {repo.archived ? "Unarchive repository" : "Archive repository"}
+            </strong>
+            <span>
+              {repo.archived
+                ? "Allow pushes, issues, and merges again."
+                : "Keep the code readable while blocking pushes and collaboration changes."}
+            </span>
+          </div>
+          <button
+            className="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await post<Repo>(
+                  `${endpoint}/${repo.archived ? "unarchive" : "archive"}`,
+                  {},
+                );
+                window.location.reload();
+              } catch (archiveError) {
+                setError((archiveError as Error).message);
+                setBusy(false);
+              }
+            }}
+            type="button"
+          >
+            <Archive size={16} /> {repo.archived ? "Unarchive" : "Archive"}
+          </button>
+        </div>
+        <div className="lifecycle-row danger-zone">
+          <div>
+            <strong>Delete repository</strong>
+            <span>Hide it immediately. You can restore it for 30 days.</span>
+          </div>
+          <button
+            className="button danger"
+            disabled={busy}
+            onClick={async () => {
+              const confirmation = window.prompt(
+                `Type ${repo.name} to schedule deletion.`,
+              );
+              if (confirmation === null) return;
+              setBusy(true);
+              setError("");
+              try {
+                await destroy<{ deleted: boolean }>(endpoint, { confirmation });
+                router.push("/");
+              } catch (deleteError) {
+                setError((deleteError as Error).message);
+                setBusy(false);
+              }
+            }}
+            type="button"
+          >
+            <Trash2 size={16} /> Delete repository
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

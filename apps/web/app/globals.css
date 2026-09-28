@@ -1240,6 +1240,67 @@ textarea {
   color: var(--muted);
   font-size: 12px;
 }
+.archive-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 15px;
+  margin-bottom: 16px;
+  border: 1px solid #8c744755;
+  border-radius: 7px;
+  background: #4c3b1833;
+  color: #e7cc91;
+  font-size: 12px;
+}
+.lifecycle-settings {
+  padding: 24px;
+}
+.lifecycle-settings .section-heading {
+  margin-bottom: 20px;
+}
+.lifecycle-settings .section-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 5px 0 0;
+}
+.rename-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  padding-bottom: 22px;
+}
+.rename-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  color: #b9c8bf;
+  font-size: 12px;
+  font-weight: 500;
+}
+.lifecycle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+}
+.lifecycle-row:last-child {
+  padding-bottom: 0;
+}
+.lifecycle-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lifecycle-row span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.danger-zone strong {
+  color: var(--red);
+}
 .form-error,
 .success-box {
   padding: 10px 12px;
@@ -2426,6 +2487,10 @@ textarea {
   }
 }
 @media (max-width: 510px) {
+  .app-layout {
+    width: 100vw;
+    overflow-x: hidden;
+  }
   .topbar {
     gap: 13px;
     padding: 0 14px;
@@ -2454,6 +2519,8 @@ textarea {
   }
   .main-content {
     padding: 19px 16px 0;
+    width: calc(100vw - 52px);
+    flex: none;
   }
   .page-heading {
     flex-direction: column;
@@ -2777,6 +2844,16 @@ textarea {
   .member-row select {
     grid-column: 2 / 4;
     grid-row: 2;
+  }
+  .rename-form {
+    grid-template-columns: 1fr;
+  }
+  .lifecycle-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .lifecycle-row .button {
+    width: 100%;
   }
 }
 @media (prefers-reduced-motion: reduce) {

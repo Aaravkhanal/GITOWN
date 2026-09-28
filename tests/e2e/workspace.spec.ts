@@ -248,9 +248,48 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   ).toBeVisible();
   await outsider.close();
 
+  await page.goto(`/repos/${username}/first-project/settings`);
+  await page.getByLabel("Repository name").fill("renamed-project");
+  await page
+    .getByRole("button", { name: "Rename repository", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: `${username} / renamed-project` }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(
+    page.getByText("This repository is archived and read-only.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Unarchive", exact: true }).click();
+  await expect(
+    page.getByText("This repository is archived and read-only.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept("renamed-project"));
+  await page
+    .getByRole("button", { name: "Delete repository", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome back, Aarav." }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Deleted repositories", exact: true })
+    .click();
+  const restore = page.getByRole("button", { name: "Restore", exact: true });
+  await expect(restore).toBeVisible();
+  await restore.click();
+  await expect(
+    page.getByRole("heading", { name: `${username} / renamed-project` }),
+  ).toBeVisible();
+
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "first-project", exact: true }),
+    page.getByRole("heading", { name: "renamed-project", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/workspace-desktop.png",
@@ -261,11 +300,29 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
     path: "test-results/workspace-mobile.png",
     fullPage: true,
   });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBeTruthy();
+  const mobileLayout = await page.evaluate(() => ({
+    fits: document.documentElement.scrollWidth <= window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    viewport: window.innerWidth,
+    overflowing: Array.from(document.querySelectorAll<HTMLElement>("*"))
+      .map((element) => {
+        const bounds = element.getBoundingClientRect();
+        return {
+          tag: element.tagName,
+          className: element.className?.toString().slice(0, 80),
+          text: element.textContent?.trim().slice(0, 80),
+          left: bounds.left,
+          right: bounds.right,
+          width: bounds.width,
+        };
+      })
+      .filter(
+        (element) =>
+          element.left < -0.5 || element.right > window.innerWidth + 0.5,
+      )
+      .slice(0, 20),
+  }));
+  expect(mobileLayout.fits, JSON.stringify(mobileLayout, null, 2)).toBeTruthy();
   await page.getByRole("link", { name: "Access tokens", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Keys to your code." }),

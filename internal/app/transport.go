@@ -37,7 +37,7 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write := suffix == "git-receive-pack" || service == "git-receive-pack"
-	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2`, parts[0], name))
+	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2 AND r.deleted_at IS NULL`, parts[0], name))
 	var u User
 	var scope string
 	username, token, provided := r.BasicAuth()
@@ -64,6 +64,10 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canWrite := role == "owner" || role == "maintain" || role == "write"
+	if write && repo.Archived {
+		http.Error(w, "This repository is archived and read-only.", 403)
+		return
+	}
 	if write && (!canWrite || scope != "repo:write") {
 		http.Error(w, "Repository write permission and repo:write scope are required.", 403)
 		return

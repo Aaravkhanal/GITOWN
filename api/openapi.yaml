@@ -143,6 +143,30 @@ paths:
                     action: { type: string }
                     target: { type: string }
                     created_at: { type: string, format: date-time }
+  /user/deleted-repositories:
+    get:
+      summary: List owned repositories in the 30-day recovery window
+      responses:
+        "200":
+          description: Deleted repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DeletedRepository" }
+  /user/deleted-repositories/{id}/restore:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      summary: Restore an owned soft-deleted repository
+      responses:
+        "200": { description: Repository restored }
+        "404": { $ref: "#/components/responses/Error" }
   /repos:
     get:
       security: []
@@ -222,6 +246,74 @@ paths:
               schema: { $ref: "#/components/schemas/Repository" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Schedule an owned repository for deletion with 30-day recovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation: { type: string }
+      responses:
+        "200": { description: Repository scheduled for deletion }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/rename:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Rename an owned repository without moving opaque Git storage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: Renamed repository
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/archive:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Archive an owned repository as read-only
+      responses:
+        "200":
+          description: Archived repository
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
+  /repos/{owner}/{repo}/unarchive:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Restore writes to an archived owned repository
+      responses:
+        "200":
+          description: Unarchived repository
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
   /repos/{owner}/{repo}/members:
     parameters:
       [
@@ -587,6 +679,7 @@ components:
         can_write: { type: boolean }
         can_triage: { type: boolean }
         can_manage: { type: boolean }
+        archived: { type: boolean }
         role:
           type: string
           enum: [owner, maintain, write, triage, read]
@@ -601,6 +694,14 @@ components:
         display_name: { type: string }
         role: { $ref: "#/components/schemas/RepositoryRole" }
         created_at: { type: string, format: date-time }
+    DeletedRepository:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        owner: { type: string }
+        name: { type: string }
+        deleted_at: { type: string, format: date-time }
+        purge_after: { type: string, format: date-time }
     Token:
       type: object
       properties:

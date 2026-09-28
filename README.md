@@ -9,7 +9,7 @@ This is a **local development alpha**, not the finished GitHub-equivalent MVP. S
 ## What works
 
 - Accounts, login/logout, Argon2id password hashes, expiring browser sessions, and request-origin checks.
-- Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, and real bare Git storage.
+- Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
 - Personal access tokens with read or write scopes, 30-day expiration, and revocation.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
@@ -68,7 +68,7 @@ git switch main
 git pull --ff-only origin main
 ```
 
-This release uses merge commits. Squash/rebase methods, required reviews, and protected-branch policies beyond force-push/deletion prevention are planned.
+This release uses merge commits. Squash/rebase methods, required reviews, permanent purge automation, and protected-branch policies beyond force-push/deletion prevention are planned.
 
 ## Docker Compose
 

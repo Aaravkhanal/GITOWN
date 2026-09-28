@@ -278,6 +278,30 @@ func TestPlatformWorkflow(t *testing.T) {
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
 	gitRun("", "", "", true, "ls-remote", server.URL+"/git/owner/public-project.git")
+	var lifecycleRepo Repository
+	owner.request("POST", "/repos", map[string]any{"name": "lifecycle", "visibility": "private", "readme": true}, 201, &lifecycleRepo)
+	owner.request("POST", "/repos/owner/lifecycle/rename", map[string]string{"name": "renamed-repository"}, 200, &lifecycleRepo)
+	if lifecycleRepo.Name != "renamed-repository" || !strings.Contains(lifecycleRepo.CloneURL, "renamed-repository.git") {
+		t.Fatalf("repository rename returned wrong metadata: %+v", lifecycleRepo)
+	}
+	owner.request("GET", "/repos/owner/lifecycle", nil, 404, nil)
+	owner.request("POST", "/repos/owner/renamed-repository/archive", map[string]any{}, 200, &lifecycleRepo)
+	if !lifecycleRepo.Archived {
+		t.Fatal("repository was not archived")
+	}
+	owner.request("POST", "/repos/owner/renamed-repository/issues", map[string]string{"title": "Archived change"}, 409, nil)
+	gitRun("", "owner", readToken, true, "ls-remote", server.URL+"/git/owner/renamed-repository.git")
+	owner.request("POST", "/repos/owner/renamed-repository/unarchive", map[string]any{}, 200, &lifecycleRepo)
+	owner.request("DELETE", "/repos/owner/renamed-repository", map[string]string{"confirmation": "wrong"}, 422, nil)
+	owner.request("DELETE", "/repos/owner/renamed-repository", map[string]string{"confirmation": "renamed-repository"}, 200, nil)
+	owner.request("GET", "/repos/owner/renamed-repository", nil, 404, nil)
+	var deleted []DeletedRepository
+	owner.request("GET", "/user/deleted-repositories", nil, 200, &deleted)
+	if len(deleted) != 1 || deleted[0].Name != "renamed-repository" {
+		t.Fatalf("deleted repository missing from recovery list: %+v", deleted)
+	}
+	owner.request("POST", "/user/deleted-repositories/"+deleted[0].ID+"/restore", map[string]any{}, 200, nil)
+	owner.request("GET", "/repos/owner/renamed-repository", nil, 200, nil)
 	var tokens []Token
 	owner.request("GET", "/user/tokens", nil, 200, &tokens)
 	for _, token := range tokens {

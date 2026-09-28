@@ -26,16 +26,17 @@ type Repository struct {
 	CanTriage     bool      `json:"can_triage"`
 	CanManage     bool      `json:"can_manage"`
 	Role          string    `json:"role,omitempty"`
+	Archived      bool      `json:"archived"`
 	CloneURL      string    `json:"clone_url"`
 }
 
-const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at`
+const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL)`
 
 type scanner interface{ Scan(...any) error }
 
 func scanRepo(row scanner) (Repository, error) {
 	var r Repository
-	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived)
 	return r, err
 }
 func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
@@ -56,7 +57,7 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 
 func (a *App) access(w http.ResponseWriter, r *http.Request, write bool) *Repository {
 	u := a.user(r)
-	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2`, r.PathValue("owner"), r.PathValue("repo")))
+	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2 AND r.deleted_at IS NULL`, r.PathValue("owner"), r.PathValue("repo")))
 	if err != nil {
 		fail(w, 404, "not_found", "Repository not found.")
 		return nil
@@ -73,6 +74,10 @@ func (a *App) access(w http.ResponseWriter, r *http.Request, write bool) *Reposi
 		fail(w, 403, "forbidden", "Repository write permission is required.")
 		return nil
 	}
+	if write && repo.Archived {
+		fail(w, 409, "repository_archived", "Unarchive this repository before making changes.")
+		return nil
+	}
 	return &repo
 }
 
@@ -82,7 +87,7 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 	if u != nil {
 		id = u.ID
 	}
-	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE (r.visibility='public' OR r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
+	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.deleted_at IS NULL AND (r.visibility='public' OR r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
 	if r.URL.Query().Get("mine") == "true" {
 		query += ` AND (r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
 	}
@@ -245,6 +250,136 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, updated)
+}
+
+func (a *App) renameRepository(w http.ResponseWriter, r *http.Request) {
+	repo := a.managedRepository(w, r)
+	if repo == nil {
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.ToLower(strings.TrimSpace(in.Name))
+	if !repoSlug.MatchString(in.Name) || strings.HasSuffix(in.Name, ".git") || strings.Contains(in.Name, "..") {
+		fail(w, 422, "validation_failed", "Use a repository name with letters, numbers, dots, hyphens or underscores.")
+		return
+	}
+	if in.Name == repo.Name {
+		respond(w, 200, repo)
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `UPDATE repositories SET name=$1 WHERE id=$2`, in.Name, repo.ID); conflict(err) {
+		fail(w, 409, "repository_exists", "You already have a repository with that name.")
+		return
+	} else if err != nil {
+		serverError(w, err)
+		return
+	}
+	oldTarget := repo.Owner + "/" + repo.Name
+	repo.Name = in.Name
+	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.renamed',$2)`, repo.OwnerID, oldTarget+"->"+repo.Owner+"/"+repo.Name)
+	respond(w, 200, repo)
+}
+
+func (a *App) setRepositoryArchived(w http.ResponseWriter, r *http.Request) {
+	repo := a.managedRepository(w, r)
+	if repo == nil {
+		return
+	}
+	archived := r.PathValue("action") == "archive"
+	if !archived && r.PathValue("action") != "unarchive" {
+		fail(w, 404, "not_found", "Action not found.")
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `UPDATE repositories SET archived_at=CASE WHEN $1 THEN now() ELSE NULL END WHERE id=$2`, archived, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	repo.Archived = archived
+	action := "repository.unarchived"
+	if archived {
+		action = "repository.archived"
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, repo.OwnerID, action, repo.Owner+"/"+repo.Name)
+	respond(w, 200, repo)
+}
+
+type DeletedRepository struct {
+	ID         string    `json:"id"`
+	Owner      string    `json:"owner"`
+	Name       string    `json:"name"`
+	DeletedAt  time.Time `json:"deleted_at"`
+	PurgeAfter time.Time `json:"purge_after"`
+}
+
+func (a *App) deleteRepository(w http.ResponseWriter, r *http.Request) {
+	repo := a.managedRepository(w, r)
+	if repo == nil {
+		return
+	}
+	var in struct {
+		Confirmation string `json:"confirmation"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Confirmation != repo.Name {
+		fail(w, 422, "confirmation_failed", "Type the repository name exactly to schedule deletion.")
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `UPDATE repositories SET deleted_at=now(),purge_after=now()+interval '30 days' WHERE id=$1`, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.deletion_scheduled',$2)`, repo.OwnerID, repo.Owner+"/"+repo.Name)
+	respond(w, 200, map[string]any{"deleted": true, "recoverable_days": 30})
+}
+
+func (a *App) deletedRepositories(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT r.id,u.username,r.name,r.deleted_at,r.purge_after FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.owner_id=$1 AND r.deleted_at IS NOT NULL ORDER BY r.deleted_at DESC`, u.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []DeletedRepository{}
+	for rows.Next() {
+		var item DeletedRepository
+		if err = rows.Scan(&item.ID, &item.Owner, &item.Name, &item.DeletedAt, &item.PurgeAfter); err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, item)
+	}
+	respond(w, 200, items)
+}
+
+func (a *App) restoreRepository(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	var owner, name string
+	err := a.db.QueryRow(r.Context(), `UPDATE repositories r SET deleted_at=NULL,purge_after=NULL WHERE id=$1 AND owner_id=$2 AND deleted_at IS NOT NULL RETURNING (SELECT username FROM users WHERE id=r.owner_id),r.name`, r.PathValue("id"), u.ID).Scan(&owner, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Deleted repository not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.restored',$2)`, u.ID, owner+"/"+name)
+	respond(w, 200, map[string]string{"owner": owner, "name": name})
 }
 func (a *App) tree(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
