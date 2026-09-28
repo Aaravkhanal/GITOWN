@@ -1,0 +1,434 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Aaravkhanal/GITOWN/internal/auth"
+	"github.com/jackc/pgx/v5"
+)
+
+type Issue struct {
+	ID        string    `json:"id"`
+	Number    int       `json:"number"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	State     string    `json:"state"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+}
+type Pull struct {
+	ID           string    `json:"id"`
+	Number       int       `json:"number"`
+	Title        string    `json:"title"`
+	Body         string    `json:"body"`
+	State        string    `json:"state"`
+	Author       string    `json:"author"`
+	Base         string    `json:"base_branch"`
+	Head         string    `json:"head_branch"`
+	MergeSHA     *string   `json:"merge_sha"`
+	ExpectedBase *string   `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at`
+
+func scanPull(row scanner) (Pull, error) {
+	var p Pull
+	err := row.Scan(&p.ID, &p.Number, &p.Title, &p.Body, &p.State, &p.Author, &p.Base, &p.Head, &p.MergeSHA, &p.ExpectedBase, &p.CreatedAt)
+	return p, err
+}
+
+func (a *App) issues(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT i.id,i.number,i.title,i.body,i.state,u.username,i.created_at FROM issues i JOIN users u ON u.id=i.author_id WHERE repository_id=$1 ORDER BY number DESC LIMIT 100`, repo.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []Issue{}
+	for rows.Next() {
+		var i Issue
+		if err := rows.Scan(&i.ID, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, items)
+}
+
+func validContent(title, body string) bool {
+	return strings.TrimSpace(title) != "" && len(title) <= 200 && len(body) <= 20000
+}
+func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !validContent(in.Title, in.Body) {
+		fail(w, 422, "validation_failed", "A title up to 200 characters and body up to 20,000 characters are required.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	i := Issue{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username}
+	err = tx.QueryRow(r.Context(), `INSERT INTO issues(id,repository_id,number,author_id,title,body) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5 FROM issues WHERE repository_id=$2 RETURNING number,created_at`, i.ID, repo.ID, u.ID, i.Title, i.Body).Scan(&i.Number, &i.CreatedAt)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, i.Number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, i)
+}
+
+func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		State string `json:"state"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.State != "open" && in.State != "closed" {
+		fail(w, 422, "validation_failed", "State must be open or closed.")
+		return
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	result, err := tx.Exec(r.Context(), `UPDATE issues SET state=$1 WHERE repository_id=$2 AND number=$3`, in.State, repo.ID, number)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if result.RowsAffected() == 0 {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "issue."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]string{"state": in.State})
+}
+
+func (a *App) pulls(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT `+pullColumns+` FROM pull_requests p JOIN users u ON u.id=p.author_id WHERE repository_id=$1 ORDER BY number DESC LIMIT 100`, repo.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []Pull{}
+	for rows.Next() {
+		p, err := scanPull(rows)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, p)
+	}
+	if err := rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, items)
+}
+
+func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+		Base  string `json:"base_branch"`
+		Head  string `json:"head_branch"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if !validContent(in.Title, in.Body) || in.Base == in.Head {
+		fail(w, 422, "validation_failed", "Provide a title and two different branches.")
+		return
+	}
+	base, e1 := a.git.Resolve(r.Context(), repo.ID, in.Base)
+	head, e2 := a.git.Resolve(r.Context(), repo.ID, in.Head)
+	if e1 != nil || e2 != nil {
+		fail(w, 422, "invalid_branch", "Both branches must exist.")
+		return
+	}
+	if _, err := a.git.Run(r.Context(), repo.ID, nil, "merge-base", base, head); err != nil {
+		fail(w, 422, "unrelated_history", "These branches have no common history.")
+		return
+	}
+	if _, err := a.git.Run(r.Context(), repo.ID, nil, "merge-base", "--is-ancestor", head, base); err == nil {
+		fail(w, 422, "no_changes", "The base branch already contains these commits.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	p := Pull{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username, Base: in.Base, Head: in.Head}
+	err = tx.QueryRow(r.Context(), `INSERT INTO pull_requests(id,repository_id,number,author_id,title,body,base_branch,head_branch) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5,$6,$7 FROM pull_requests WHERE repository_id=$2 RETURNING number,created_at`, p.ID, repo.ID, u.ID, p.Title, p.Body, p.Base, p.Head).Scan(&p.Number, &p.CreatedAt)
+	if conflict(err) {
+		fail(w, 409, "pull_exists", "An open pull request already exists for these branches.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, p)
+}
+
+func (a *App) getPull(w http.ResponseWriter, r *http.Request, repo *Repository) *Pull {
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		fail(w, 404, "not_found", "Pull request not found.")
+		return nil
+	}
+	p, err := scanPull(a.db.QueryRow(r.Context(), `SELECT `+pullColumns+` FROM pull_requests p JOIN users u ON u.id=p.author_id WHERE repository_id=$1 AND number=$2`, repo.ID, number))
+	if err != nil {
+		fail(w, 404, "not_found", "Pull request not found.")
+		return nil
+	}
+	return &p
+}
+
+func (a *App) pull(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	base, e1 := a.git.Resolve(r.Context(), repo.ID, p.Base)
+	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	diff := ""
+	diffError := ""
+	mergeable := false
+	if e1 == nil && e2 == nil {
+		rangeSpec := base + "..." + head
+		if p.State == "merged" && p.MergeSHA != nil {
+			rangeSpec = *p.MergeSHA + "^1.." + *p.MergeSHA
+		}
+		output, err := a.git.Run(r.Context(), repo.ID, nil, "diff", "--no-ext-diff", "--no-textconv", "--stat", "--patch", rangeSpec, "--")
+		if err != nil {
+			diffError = "Diff is unavailable or exceeds the display limit. Inspect the branches with Git."
+		} else {
+			diff = string(output)
+		}
+		if p.State == "open" {
+			_, err = a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
+			mergeable = err == nil
+		}
+	} else {
+		diffError = "A branch no longer exists."
+	}
+	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_error": diffError, "mergeable": mergeable})
+}
+
+func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		HeadSHA string `json:"head_sha"`
+		BaseSHA string `json:"base_sha"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	// A session advisory lock serializes merge attempts across API processes.
+	conn, err := a.db.Acquire(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer conn.Release()
+	var locked bool
+	if err = conn.QueryRow(r.Context(), `SELECT pg_try_advisory_lock(hashtextextended($1,0))`, repo.ID).Scan(&locked); err != nil {
+		serverError(w, err)
+		return
+	}
+	if !locked {
+		fail(w, 409, "merge_busy", "Another merge is running. Refresh and retry.")
+		return
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if _, err := conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtextextended($1,0))`, repo.ID); err != nil {
+			_ = conn.Conn().Close(ctx)
+		}
+	}()
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	if p.State == "merged" {
+		respond(w, 200, p)
+		return
+	}
+	if p.State == "merging" && p.MergeSHA != nil && p.ExpectedBase != nil {
+		// Recover an interrupted Git/database handoff without producing a second merge.
+		current, e := a.git.Resolve(r.Context(), repo.ID, p.Base)
+		if e != nil {
+			fail(w, 409, "merge_recovery", "Base branch is unavailable; restore it before retrying.")
+			return
+		}
+		if _, e = a.git.Run(r.Context(), repo.ID, nil, "merge-base", "--is-ancestor", *p.MergeSHA, current); e != nil {
+			if current != *p.ExpectedBase {
+				fail(w, 409, "merge_recovery", "Base changed during an interrupted merge. Administrative recovery is required.")
+				return
+			}
+			if _, e = a.git.Run(r.Context(), repo.ID, nil, "update-ref", "refs/heads/"+p.Base, *p.MergeSHA, *p.ExpectedBase); e != nil {
+				fail(w, 409, "merge_recovery", "The merge could not be resumed. Refresh and retry.")
+				return
+			}
+		}
+		if err := a.finishMerge(r.Context(), conn, *p, *repo, *u); err != nil {
+			serverError(w, err)
+			return
+		}
+		p.State = "merged"
+		respond(w, 200, p)
+		return
+	}
+	if p.State != "open" {
+		fail(w, 409, "not_open", "This pull request is not open.")
+		return
+	}
+	base, e1 := a.git.Resolve(r.Context(), repo.ID, p.Base)
+	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	if e1 != nil || e2 != nil || head != in.HeadSHA || base != in.BaseSHA {
+		fail(w, 409, "stale_branches", "A branch changed. Refresh the pull request before merging.")
+		return
+	}
+	tree, err := a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
+	if err != nil {
+		fail(w, 409, "merge_conflict", "Resolve merge conflicts locally and push the branch again.")
+		return
+	}
+	treeSHA := strings.SplitN(strings.TrimSpace(string(tree)), "\n", 2)[0]
+	sha, err := a.git.Commit(r.Context(), repo.ID, treeSHA, []string{base, head}, fmt.Sprintf("Merge pull request #%d: %s", p.Number, p.Title), u.DisplayName, u.Username+"@users.gitown.local")
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	// Persist the intent before touching refs, so a failed final DB write is recoverable.
+	_, err = conn.Exec(r.Context(), `UPDATE pull_requests SET state='merging',merge_sha=$1,expected_base_sha=$2 WHERE id=$3`, sha, base, p.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	p.MergeSHA = &sha
+	p.ExpectedBase = &base
+	if _, err = a.git.Run(r.Context(), repo.ID, nil, "update-ref", "refs/heads/"+p.Base, sha, base); err != nil {
+		fail(w, 409, "merge_recovery", "The branch moved or the merge was interrupted. Refresh before retrying.")
+		return
+	}
+	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u); err != nil {
+		serverError(w, err)
+		return
+	}
+	p.State = "merged"
+	respond(w, 200, p)
+}
+
+type beginner interface {
+	Begin(context.Context) (pgx.Tx, error)
+}
+
+func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Repository, u User) error {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE pull_requests SET state='merged',merged_at=now() WHERE id=$1`, p.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.merged',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

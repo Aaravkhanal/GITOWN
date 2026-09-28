@@ -1,0 +1,55 @@
+name: GITOWN checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gitown
+          POSTGRES_PASSWORD: gitown-ci-only
+          POSTGRES_DB: gitown
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gitown -d gitown"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://gitown:gitown-ci-only@127.0.0.1:5432/gitown?sslmode=disable
+      TEST_DATABASE_URL: postgres://gitown:gitown-ci-only@127.0.0.1:5432/gitown?sslmode=disable
+      GITOWN_WEB_PORT: "3101"
+      GITOWN_API_PORT: "8181"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Test Go and Git workflows
+        run: go test -race ./...
+      - run: go vet ./...
+      - run: npm run test:operations
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Browser workflows
+        run: |
+          npm run dev > /tmp/gitown-dev.log 2>&1 &
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://localhost:3101/api/v1/auth/me; then break; fi
+            sleep 1
+          done
+          npm run test:e2e
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitown-test-results
+          path: |
+            test-results
+            /tmp/gitown-dev.log

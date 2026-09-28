@@ -1,0 +1,18 @@
+FROM golang:1.27.1-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY apps/server ./apps/server
+COPY internal ./internal
+COPY migrations ./migrations
+RUN CGO_ENABLED=0 go build -trimpath -o /gitown ./apps/server
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home gitown \
+    && mkdir -p /data/repositories && chown -R gitown:gitown /data
+COPY --from=build /gitown /usr/local/bin/gitown
+USER gitown
+ENV GITOWN_ADDR=0.0.0.0:8080 GITOWN_DATA_DIR=/data/repositories
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/gitown"]

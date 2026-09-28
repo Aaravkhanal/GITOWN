@@ -1,0 +1,10 @@
+node_modules
+.tools
+.data
+.next
+.next-e2e
+package-lock.json
+go.sum
+next-env.d.ts
+test-results
+playwright-report

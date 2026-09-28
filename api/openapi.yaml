@@ -1,0 +1,529 @@
+openapi: 3.1.0
+info:
+  title: GITOWN API
+  version: 0.1.0
+  description: |
+    Local development alpha. Browser API authentication uses an HttpOnly session
+    cookie. Every mutation requires an Origin header equal to GITOWN_ORIGIN;
+    mutations other than DELETE require application/json. Git personal access
+    tokens authenticate only /git transport endpoints, not this JSON API.
+    Lists currently return bounded arrays without pagination.
+servers:
+  - url: /api/v1
+security:
+  - session: []
+paths:
+  /auth/me:
+    get:
+      security: []
+      summary: Read current session and signup availability
+      responses:
+        "200":
+          description: User is null for anonymous sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    oneOf:
+                      - $ref: "#/components/schemas/User"
+                      - type: "null"
+                  signup_enabled: { type: boolean }
+  /auth/register:
+    post:
+      security: []
+      summary: Register and start a session if signup is enabled
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username: { type: string, maxLength: 39 }
+                display_name: { type: string, maxLength: 80 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        "201": { $ref: "#/components/responses/Session" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/login:
+    post:
+      security: []
+      summary: Sign in using username or email and password
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, maxLength: 128 }
+      responses:
+        "200": { $ref: "#/components/responses/Session" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/logout:
+    post:
+      summary: Revoke this browser session and clear the cookie
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+  /user/tokens:
+    get:
+      summary: List your token metadata, never secret values
+      responses:
+        "200":
+          description: Tokens
+          content:
+            application/json:
+              schema:
+                { type: array, items: { $ref: "#/components/schemas/Token" } }
+    post:
+      summary: Generate a token; its secret is returned once
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scope]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                scope: { type: string, enum: ["repo:read", "repo:write"] }
+      responses:
+        "201":
+          description: One-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  details: { $ref: "#/components/schemas/Token" }
+        "422": { $ref: "#/components/responses/Error" }
+  /user/tokens/{id}:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    delete:
+      summary: Revoke an owned token immediately
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/Error" }
+  /user/activity:
+    get:
+      summary: Read the latest 30 activity records for your account
+      responses:
+        "200":
+          description: Activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    action: { type: string }
+                    target: { type: string }
+                    created_at: { type: string, format: date-time }
+  /repos:
+    get:
+      security: []
+      summary: List up to 100 visible repositories, newest first
+      parameters:
+        - { name: mine, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: Visible repositories
+          content:
+            application/json:
+              schema:
+                {
+                  type: array,
+                  items: { $ref: "#/components/schemas/Repository" },
+                }
+    post:
+      summary: Create an owned repository and optional README commit
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, visibility]
+              properties:
+                name: { type: string, maxLength: 100 }
+                description: { type: string, maxLength: 500 }
+                visibility: { type: string, enum: [public, private] }
+                readme: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Repository created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Read a visible repository and its branches
+      responses:
+        "200":
+          description: Repository details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  repository: { $ref: "#/components/schemas/Repository" }
+                  branches: { type: array, items: { type: string } }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/tree:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Browse a branch's tree or text file
+      parameters:
+        - {
+            name: ref,
+            in: query,
+            description: Branch name; defaults to the repository default,
+            schema: { type: string },
+          }
+        - { name: path, in: query, schema: { type: string, default: "" } }
+      responses:
+        "200":
+          description: Tree, text content, or binary marker
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  branch: { type: string }
+                  path: { type: string }
+                  sha: { type: string }
+                  content: { type: string }
+                  binary: { type: boolean }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        type: { type: string, enum: [tree, blob, commit] }
+                        sha: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/commits:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Read the latest 30 commits on a branch
+      parameters:
+        - { name: ref, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Commit history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    sha: { type: string }
+                    message: { type: string }
+                    author: { type: string }
+                    date: { type: string, format: date-time }
+  /repos/{owner}/{repo}/issues:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: List up to 100 issues visible to repository readers
+      responses:
+        "200":
+          description: Issues, newest first
+          content:
+            application/json:
+              schema:
+                { type: array, items: { $ref: "#/components/schemas/Issue" } }
+    post:
+      summary: Create an issue (owner only in v0.1)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody: { $ref: "#/components/requestBodies/Content" }
+      responses:
+        "201":
+          description: Issue created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+  /repos/{owner}/{repo}/issues/{number}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    patch:
+      summary: Close or reopen an issue (owner only)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [open, closed] }
+      responses:
+        "200":
+          description: Updated state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string, enum: [open, closed] }
+  /repos/{owner}/{repo}/pulls:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: List up to 100 pull requests
+      responses:
+        "200":
+          description: Pull requests, newest first
+          content:
+            application/json:
+              schema:
+                { type: array, items: { $ref: "#/components/schemas/Pull" } }
+    post:
+      summary: Open a same-repository pull request (owner only)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, base_branch, head_branch]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+                body: { type: string, maxLength: 20000 }
+                base_branch: { type: string }
+                head_branch: { type: string }
+      responses:
+        "201":
+          description: Pull request created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pull" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: Read current pull request, diff, and mergeability
+      responses:
+        "200":
+          description: Comparison snapshot; send its SHAs when merging
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pull: { $ref: "#/components/schemas/Pull" }
+                  head_sha: { type: string }
+                  base_sha: { type: string }
+                  diff: { type: string }
+                  diff_error: { type: string }
+                  mergeable: { type: boolean }
+  /repos/{owner}/{repo}/pulls/{number}/merge:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    post:
+      summary: Merge with a merge commit or resume a persisted merge intent (owner only)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [head_sha, base_sha]
+              properties:
+                head_sha: { type: string }
+                base_sha: { type: string }
+      responses:
+        "200":
+          description: Merged pull request; retries of already merged requests are idempotent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pull" }
+        "409": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: gitown_session }
+  parameters:
+    Origin:
+      {
+        name: Origin,
+        in: header,
+        required: true,
+        schema: { type: string },
+        description: Exact configured frontend origin,
+      }
+    Owner: { name: owner, in: path, required: true, schema: { type: string } }
+    Repo: { name: repo, in: path, required: true, schema: { type: string } }
+    Number:
+      {
+        name: number,
+        in: path,
+        required: true,
+        schema: { type: integer, minimum: 1 },
+      }
+  requestBodies:
+    Content:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [title]
+            properties:
+              title: { type: string, minLength: 1, maxLength: 200 }
+              body: { type: string, maxLength: 20000 }
+  responses:
+    OK:
+      description: Operation completed
+      content:
+        application/json:
+          schema: { type: object, properties: { ok: { type: boolean } } }
+    Session:
+      description: User and new session cookie
+      headers:
+        Set-Cookie:
+          {
+            schema: { type: string },
+            description: HttpOnly,
+            SameSite=Lax; Secure for HTTPS origins,
+          }
+      content:
+        application/json:
+          schema:
+            {
+              type: object,
+              properties: { user: { $ref: "#/components/schemas/User" } },
+            }
+    Error:
+      description: Safe error with a stable code; all endpoints may also return 400, 401, 403, or 500
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        display_name: { type: string }
+    Repository:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        owner: { type: string }
+        name: { type: string }
+        description: { type: string }
+        visibility: { type: string, enum: [public, private] }
+        default_branch: { type: string }
+        created_at: { type: string, format: date-time }
+        can_write: { type: boolean }
+        clone_url: { type: string, format: uri }
+    Token:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        scope: { type: string, enum: ["repo:read", "repo:write"] }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    Issue:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        title: { type: string }
+        body: { type: string }
+        state: { type: string, enum: [open, closed] }
+        author: { type: string }
+        created_at: { type: string, format: date-time }
+    Pull:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: integer }
+        title: { type: string }
+        body: { type: string }
+        state: { type: string, enum: [open, closed, merging, merged] }
+        author: { type: string }
+        created_at: { type: string, format: date-time }
+        base_branch: { type: string }
+        head_branch: { type: string }
+        merge_sha: { type: [string, "null"] }

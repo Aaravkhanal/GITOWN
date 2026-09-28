@@ -1,0 +1,25 @@
+{
+  "name": "gitown",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace apps/web",
+    "format": "prettier --write apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",
+    "format:check": "prettier --check apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",
+    "test:e2e": "playwright test",
+    "test:operations": "node --test tests/operations/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "prettier": "3.9.9"
+  }
+}

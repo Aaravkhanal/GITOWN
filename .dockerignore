@@ -1,0 +1,11 @@
+.git
+.data
+.tools
+node_modules
+**/.next
+**/.next-e2e
+.env
+.env.*
+test-results
+playwright-report
+*.log

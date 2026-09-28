@@ -1,6 +1,6 @@
 # GITOWN — Product and Engineering Blueprint
 
-> Status: planning only  
+> Status: first implementation in progress; see [implementation status](docs/STATUS.md) for verified scope  
 > Repository: `https://github.com/Aaravkhanal/GITOWN`  
 > Ownership: an original, independent project owned by Aarav Khanal  
 > Working principle: build a dependable Git collaboration platform in deliberate stages instead of attempting every GitHub feature at once.
@@ -639,4 +639,4 @@ Implementation should use primary specifications and official documentation:
 
 ---
 
-**Next decision:** approve or revise this blueprint. After approval, begin Phase 0 and the first vertical implementation slice; do not scaffold the entire future system at once.
+**Current direction:** the first vertical slice has been implemented. Continue with the next milestones in [README.md](README.md) and use [implementation status](docs/STATUS.md) to distinguish delivered features from the remaining blueprint.
