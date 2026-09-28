@@ -2160,6 +2160,60 @@ textarea {
   margin: 0 0 12px;
   font-size: 13px;
 }
+.pull-reviews {
+  padding: 18px;
+  margin: 14px 0;
+}
+.review-heading,
+.review-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.review-heading h3,
+.review-heading p {
+  margin: 0;
+}
+.review-list {
+  display: grid;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.review-row {
+  justify-content: flex-start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.review-row > div {
+  flex: 1;
+}
+.review-row p {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+}
+.review-row .badge {
+  margin-left: 8px;
+}
+.review-mark {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.review-mark.approved {
+  color: var(--green);
+}
+.review-mark.changes_requested {
+  color: #e8a15b;
+}
+.review-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.review-form .button {
+  justify-self: end;
+}
 .pull-heading > div {
   display: flex;
   align-items: center;

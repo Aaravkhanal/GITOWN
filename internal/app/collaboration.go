@@ -62,6 +62,16 @@ type PullComment struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type PullReview struct {
+	ID        string    `json:"id"`
+	State     string    `json:"state"`
+	Body      string    `json:"body"`
+	Reviewer  string    `json:"reviewer"`
+	HeadSHA   string    `json:"head_sha"`
+	Stale     bool      `json:"stale"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at`
 
 func scanPull(row scanner) (Pull, error) {
@@ -705,7 +715,9 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 	} else {
 		diffError = "A branch no longer exists."
 	}
-	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_error": diffError, "mergeable": mergeable})
+	u := a.user(r)
+	canReview := u != nil && repo.CanWrite && u.Username != p.Author && p.State == "open"
+	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_error": diffError, "mergeable": mergeable, "can_review": canReview})
 }
 
 func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
@@ -837,6 +849,102 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 201, comment)
+}
+
+func (a *App) pullReviews(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	currentHead, _ := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	rows, err := a.db.Query(r.Context(), `SELECT rv.id,rv.state,rv.body,u.username,rv.head_sha,rv.created_at FROM pull_reviews rv JOIN users u ON u.id=rv.reviewer_id WHERE rv.pull_request_id=$1 ORDER BY rv.created_at,rv.id LIMIT 200`, p.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	reviews := []PullReview{}
+	for rows.Next() {
+		var review PullReview
+		if err = rows.Scan(&review.ID, &review.State, &review.Body, &review.Reviewer, &review.HeadSHA, &review.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		review.Stale = currentHead == "" || review.HeadSHA != currentHead
+		reviews = append(reviews, review)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, reviews)
+}
+
+func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	if p.Author == u.Username {
+		fail(w, 403, "self_review", "Authors cannot formally review their own unite request.")
+		return
+	}
+	if p.State != "open" {
+		fail(w, 409, "not_open", "Only open unite requests can be reviewed.")
+		return
+	}
+	var in struct {
+		State   string `json:"state"`
+		Body    string `json:"body"`
+		HeadSHA string `json:"head_sha"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Body = strings.TrimSpace(in.Body)
+	if (in.State != "approved" && in.State != "changes_requested" && in.State != "commented") || len(in.Body) > 10000 || len(in.HeadSHA) != 40 {
+		fail(w, 422, "validation_failed", "Choose approve, request changes, or comment, with a body up to 10,000 characters.")
+		return
+	}
+	if in.State != "approved" && in.Body == "" {
+		fail(w, 422, "review_body_required", "A review comment is required when requesting changes or commenting.")
+		return
+	}
+	currentHead, err := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	if err != nil || currentHead != in.HeadSHA {
+		fail(w, 409, "stale_review", "The head branch changed. Refresh before reviewing the latest code.")
+		return
+	}
+	review := PullReview{ID: auth.ID(), State: in.State, Body: in.Body, Reviewer: u.Username, HeadSHA: currentHead}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	err = tx.QueryRow(r.Context(), `INSERT INTO pull_reviews(id,pull_request_id,reviewer_id,state,body,head_sha) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, review.ID, p.ID, u.ID, review.State, review.Body, review.HeadSHA).Scan(&review.CreatedAt)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull.reviewed."+review.State, fmt.Sprintf("%s/%s#%d@%s", repo.Owner, repo.Name, p.Number, currentHead)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, review)
 }
 
 func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {

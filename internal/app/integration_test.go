@@ -310,6 +310,18 @@ func TestPlatformWorkflow(t *testing.T) {
 	if !detail.Mergeable || !strings.Contains(detail.Diff, "Hello from a real Git push") {
 		t.Fatal("missing real pull-request diff")
 	}
+	owner.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "body": "Self approval", "head_sha": detail.HeadSHA}, 403, nil)
+	other.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "head_sha": strings.Repeat("0", 40)}, 409, nil)
+	var review PullReview
+	other.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "body": "Ready to unite.", "head_sha": detail.HeadSHA}, 201, &review)
+	if review.Reviewer != "other" || review.State != "approved" || review.HeadSHA != detail.HeadSHA {
+		t.Fatalf("unexpected formal review: %+v", review)
+	}
+	var reviews []PullReview
+	owner.request("GET", pullPath+"/reviews", nil, 200, &reviews)
+	if len(reviews) != 1 || reviews[0].Stale {
+		t.Fatalf("current review was not returned: %+v", reviews)
+	}
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": strings.Repeat("0", 40), "base_sha": detail.BaseSHA}, 409, nil)
 	other.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)

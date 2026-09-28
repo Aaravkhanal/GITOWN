@@ -47,6 +47,7 @@ import {
   type Pull,
   type PullDetail,
   type PullComment,
+  type PullReview,
   type RepositoryMember,
 } from "@/lib/api";
 import {
@@ -1739,6 +1740,12 @@ function PullRequestDetail({
         number={number}
         canComment={repo.can_comment}
       />
+      <PullReviews
+        endpoint={endpoint}
+        number={number}
+        headSHA={detail.data.head_sha}
+        canReview={detail.data.can_review}
+      />
       {repo.can_triage &&
         pull.state !== "merged" &&
         pull.state !== "merging" && (
@@ -1934,6 +1941,129 @@ function PullDiscussion({
             disabled={busy || !body.trim()}
           >
             {busy ? "Commenting…" : "Comment"}
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function PullReviews({
+  endpoint,
+  number,
+  headSHA,
+  canReview,
+}: {
+  endpoint: string;
+  number: string;
+  headSHA: string;
+  canReview: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [state, setState] = useState<PullReview["state"]>("approved");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/pulls/${number}/reviews`;
+  const reviews = useData<PullReview[]>(path, version);
+  const current = reviews.data?.filter((review) => !review.stale) || [];
+  const approvals = current.filter(
+    (review) => review.state === "approved",
+  ).length;
+  const changes = current.filter(
+    (review) => review.state === "changes_requested",
+  ).length;
+  return (
+    <section className="panel pull-reviews" aria-label="Formal reviews">
+      <div className="review-heading">
+        <div>
+          <h3>Formal reviews</h3>
+          <p className="muted small-text">
+            {approvals} current approval{approvals === 1 ? "" : "s"} · {changes}{" "}
+            change request{changes === 1 ? "" : "s"}
+          </p>
+        </div>
+        <Badge kind={changes ? "" : approvals ? "green" : ""}>
+          {changes
+            ? "CHANGES REQUESTED"
+            : approvals
+              ? "APPROVED"
+              : "UNREVIEWED"}
+        </Badge>
+      </div>
+      <ErrorMessage error={error || reviews.error} />
+      {reviews.loading ? (
+        <Loading />
+      ) : reviews.data?.length ? (
+        <div className="review-list">
+          {reviews.data.map((review) => (
+            <article className="review-row" key={review.id}>
+              <span className={`review-mark ${review.state}`}>
+                {review.state === "approved" ? (
+                  <Check size={16} />
+                ) : (
+                  <CircleDot size={16} />
+                )}
+              </span>
+              <div>
+                <strong>@{review.reviewer}</strong>{" "}
+                <span>{review.state.replace("_", " ")}</span>
+                {review.stale && <Badge>STALE</Badge>}
+                {review.body && <p>{review.body}</p>}
+              </div>
+              <span className="muted small-text">
+                {date(review.created_at)}
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="muted small-text">No formal reviews yet.</p>
+      )}
+      {canReview && (
+        <form
+          className="review-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            try {
+              await post(path, { state, body, head_sha: headSHA });
+              setBody("");
+              setVersion((value) => value + 1);
+            } catch (reviewError) {
+              setError((reviewError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Decision
+            <select
+              aria-label="Review decision"
+              value={state}
+              onChange={(event) =>
+                setState(event.target.value as PullReview["state"])
+              }
+            >
+              <option value="approved">Approve</option>
+              <option value="changes_requested">Request changes</option>
+              <option value="commented">Comment</option>
+            </select>
+          </label>
+          <label>
+            Review summary
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              maxLength={10000}
+              rows={3}
+              required={state !== "approved"}
+            />
+          </label>
+          <button className="button primary small-button" disabled={busy}>
+            {busy ? "Submitting…" : "Submit review"}
           </button>
         </form>
       )}

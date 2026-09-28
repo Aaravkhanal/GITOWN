@@ -852,6 +852,7 @@ paths:
                   diff: { type: string }
                   diff_error: { type: string }
                   mergeable: { type: boolean }
+                  can_review: { type: boolean }
     patch:
       summary: Close or reopen a pull request with triage permission
       parameters: [{ $ref: "#/components/parameters/Origin" }]
@@ -938,6 +939,60 @@ paths:
               schema: { $ref: "#/components/schemas/PullComment" }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/reviews:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: List formal reviews and whether each targets an outdated head
+      responses:
+        "200":
+          description: Chronological formal reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    state:
+                      {
+                        type: string,
+                        enum: [approved, changes_requested, commented],
+                      }
+                    body: { type: string }
+                    reviewer: { type: string }
+                    head_sha: { type: string }
+                    stale: { type: boolean }
+                    created_at: { type: string, format: date-time }
+    post:
+      summary: Submit a commit-bound formal review with write permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, body, head_sha]
+              properties:
+                state:
+                  {
+                    type: string,
+                    enum: [approved, changes_requested, commented],
+                  }
+                body: { type: string, maxLength: 10000 }
+                head_sha: { type: string, minLength: 40, maxLength: 40 }
+      responses:
+        "201": { description: Formal review submitted }
+        "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
 components:

@@ -108,6 +108,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/pulls/{number}", a.updatePull)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments", a.pullComments)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/comments", a.createPullComment)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews", a.pullReviews)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/reviews", a.createPullReview)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/merge", a.mergePull)
 	mux.HandleFunc("/git/", a.gitHTTP)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -286,6 +286,10 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("These branches can be merged", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByText("No formal reviews yet.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Submit review", exact: true }),
+  ).toHaveCount(0);
   await page
     .getByLabel("Add to the discussion")
     .fill("Ready for a careful review.");

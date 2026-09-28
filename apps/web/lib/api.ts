@@ -76,11 +76,21 @@ export type PullDetail = {
   diff: string;
   diff_error: string;
   mergeable: boolean;
+  can_review: boolean;
 };
 export type PullComment = {
   id: string;
   body: string;
   author: string;
+  created_at: string;
+};
+export type PullReview = {
+  id: string;
+  state: "approved" | "changes_requested" | "commented";
+  body: string;
+  reviewer: string;
+  head_sha: string;
+  stale: boolean;
   created_at: string;
 };
 export type Activity = {
