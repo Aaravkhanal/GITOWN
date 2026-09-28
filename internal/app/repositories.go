@@ -25,6 +25,7 @@ type Repository struct {
 	CanWrite      bool      `json:"can_write"`
 	CanTriage     bool      `json:"can_triage"`
 	CanManage     bool      `json:"can_manage"`
+	CanComment    bool      `json:"can_comment"`
 	Role          string    `json:"role,omitempty"`
 	Archived      bool      `json:"archived"`
 	CloneURL      string    `json:"clone_url"`
@@ -51,6 +52,7 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 	repo.CanWrite = repo.Role == "owner" || repo.Role == "maintain" || repo.Role == "write"
 	repo.CanTriage = repo.CanWrite || repo.Role == "triage"
 	repo.CanManage = repo.Role == "owner"
+	repo.CanComment = u != nil && !repo.Archived
 	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
 	return nil
 }

@@ -15,7 +15,7 @@ This is a **local development alpha**, not the finished GitHub-equivalent MVP. S
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, text previews, README text, and commit history.
 - Same-repository pull requests, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
-- Basic issue creation, descriptions, close/reopen, and activity history.
+- Issue creation, descriptions, close/reopen, chronological discussions, and activity history.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 - A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.
 

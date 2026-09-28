@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -18,6 +19,13 @@ type Issue struct {
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
 	State     string    `json:"state"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type IssueComment struct {
+	ID        string    `json:"id"`
+	Body      string    `json:"body"`
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -183,6 +191,106 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, map[string]string{"state": in.State})
+}
+
+func issueNumber(w http.ResponseWriter, r *http.Request) (int, bool) {
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil || number < 1 {
+		fail(w, 404, "not_found", "Issue not found.")
+		return 0, false
+	}
+	return number, true
+}
+
+func (a *App) issueComments(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	number, ok := issueNumber(w, r)
+	if !ok {
+		return
+	}
+	var exists bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM issues WHERE repository_id=$1 AND number=$2)`, repo.ID, number).Scan(&exists); err != nil {
+		serverError(w, err)
+		return
+	}
+	if !exists {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT c.id,c.body,u.username,c.created_at FROM issue_comments c JOIN issues i ON i.id=c.issue_id JOIN users u ON u.id=c.author_id WHERE i.repository_id=$1 AND i.number=$2 ORDER BY c.created_at,c.id LIMIT 200`, repo.ID, number)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	comments := []IssueComment{}
+	for rows.Next() {
+		var comment IssueComment
+		if err = rows.Scan(&comment.ID, &comment.Body, &comment.Author, &comment.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		comments = append(comments, comment)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, comments)
+}
+
+func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	u := a.requireUser(w, r)
+	if u == nil || !activeRepository(w, repo) {
+		return
+	}
+	number, ok := issueNumber(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Body string `json:"body"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Body = strings.TrimSpace(in.Body)
+	if in.Body == "" || len(in.Body) > 10000 {
+		fail(w, 422, "validation_failed", "A comment between 1 and 10,000 characters is required.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	comment := IssueComment{ID: auth.ID(), Body: in.Body, Author: u.Username}
+	err = tx.QueryRow(r.Context(), `INSERT INTO issue_comments(id,issue_id,author_id,body) SELECT $1,i.id,$2,$3 FROM issues i WHERE i.repository_id=$4 AND i.number=$5 RETURNING created_at`, comment.ID, u.ID, comment.Body, repo.ID, number).Scan(&comment.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.commented',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, comment)
 }
 
 func (a *App) pulls(w http.ResponseWriter, r *http.Request) {

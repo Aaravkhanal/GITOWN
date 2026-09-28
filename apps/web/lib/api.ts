@@ -10,6 +10,7 @@ export type Repo = {
   can_write: boolean;
   can_triage: boolean;
   can_manage: boolean;
+  can_comment: boolean;
   role?: "owner" | "maintain" | "write" | "triage" | "read";
   archived: boolean;
   clone_url: string;
@@ -47,6 +48,12 @@ export type Issue = {
   title: string;
   body: string;
   state: string;
+  author: string;
+  created_at: string;
+};
+export type IssueComment = {
+  id: string;
+  body: string;
   author: string;
   created_at: string;
 };

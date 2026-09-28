@@ -42,6 +42,7 @@ import {
   type Commit,
   type Tree,
   type Issue,
+  type IssueComment,
   type Pull,
   type PullDetail,
   type RepositoryMember,
@@ -244,7 +245,11 @@ export function RepositoryPage({
       ) : tab === "commits" ? (
         <CommitList endpoint={endpoint} branch={branch} />
       ) : tab === "issues" ? (
-        <IssueList endpoint={endpoint} canWrite={r.can_triage} />
+        <IssueList
+          endpoint={endpoint}
+          canTriage={r.can_triage}
+          canComment={r.can_comment}
+        />
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (
@@ -857,10 +862,12 @@ function CommitList({
 
 function IssueList({
   endpoint,
-  canWrite,
+  canTriage,
+  canComment,
 }: {
   endpoint: string;
-  canWrite: boolean;
+  canTriage: boolean;
+  canComment: boolean;
 }) {
   const [version, setVersion] = useState(0);
   const issues = useData<Issue[]>(`${endpoint}/issues`, version);
@@ -892,7 +899,7 @@ function IssueList({
             Closed
           </button>
         </div>
-        {canWrite && (
+        {canTriage && (
           <button
             className="button primary small-button"
             onClick={() => setShowForm(!showForm)}
@@ -994,7 +1001,12 @@ function IssueList({
               {expanded === issue.number && (
                 <div className="issue-body">
                   <p>{issue.body || "No description provided."}</p>
-                  {canWrite && (
+                  <IssueComments
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    canComment={canComment}
+                  />
+                  {canTriage && (
                     <button
                       disabled={busy}
                       className="button small-button"
@@ -1032,6 +1044,82 @@ function IssueList({
         </div>
       )}
     </>
+  );
+}
+
+function IssueComments({
+  endpoint,
+  issueNumber,
+  canComment,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  canComment: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/issues/${issueNumber}/comments`;
+  const comments = useData<IssueComment[]>(path, version);
+  return (
+    <section className="issue-comments" aria-label="Issue discussion">
+      <h4>Discussion</h4>
+      <ErrorMessage error={error || comments.error} />
+      {comments.loading ? (
+        <Loading />
+      ) : comments.data?.length ? (
+        <div className="comment-list">
+          {comments.data.map((comment) => (
+            <article className="issue-comment" key={comment.id}>
+              <div>
+                <strong>@{comment.author}</strong>
+                <span>{date(comment.created_at)}</span>
+              </div>
+              <p>{comment.body}</p>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="muted small-text">No comments yet.</p>
+      )}
+      {canComment && (
+        <form
+          className="comment-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            try {
+              await post(path, { body });
+              setBody("");
+              setVersion((value) => value + 1);
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Add a comment
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              maxLength={10000}
+              rows={3}
+              required
+            />
+          </label>
+          <button
+            className="button primary small-button"
+            disabled={busy || !body.trim()}
+          >
+            {busy ? "Commenting…" : "Comment"}
+          </button>
+        </form>
+      )}
+    </section>
   );
 }
 

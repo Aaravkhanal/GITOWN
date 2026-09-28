@@ -156,6 +156,9 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await expect(
     page.getByText("Keep every change small, useful, and tested."),
   ).toBeVisible();
+  await page.getByLabel("Add a comment").fill("I can discuss this issue.");
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await expect(page.getByText("I can discuss this issue.")).toBeVisible();
   await page.getByRole("button", { name: "Close issue", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "No open issues" }),

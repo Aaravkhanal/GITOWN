@@ -503,6 +503,47 @@ paths:
                 type: object
                 properties:
                   state: { type: string, enum: [open, closed] }
+  /repos/{owner}/{repo}/issues/{number}/comments:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: List up to 200 issue comments visible to repository readers
+      responses:
+        "200":
+          description: Chronological issue discussion
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IssueComment" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add a comment as an authenticated repository reader
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 10000 }
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueComment" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/pulls:
     parameters:
       [
@@ -679,6 +720,7 @@ components:
         can_write: { type: boolean }
         can_triage: { type: boolean }
         can_manage: { type: boolean }
+        can_comment: { type: boolean }
         archived: { type: boolean }
         role:
           type: string
@@ -718,6 +760,13 @@ components:
         title: { type: string }
         body: { type: string }
         state: { type: string, enum: [open, closed] }
+        author: { type: string }
+        created_at: { type: string, format: date-time }
+    IssueComment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        body: { type: string }
         author: { type: string }
         created_at: { type: string, format: date-time }
     Pull:

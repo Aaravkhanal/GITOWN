@@ -2011,6 +2011,50 @@ textarea {
   color: #a3c0ad;
   overflow-wrap: anywhere;
 }
+.issue-comments {
+  margin-top: 20px;
+  border-top: 1px solid #303d34;
+  padding-top: 18px;
+}
+.issue-comments h4 {
+  margin: 0 0 12px;
+  font-size: 12px;
+}
+.comment-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.issue-comment {
+  border: 1px solid #34463a;
+  border-radius: 7px;
+  background: #1d2b22;
+}
+.issue-comment > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #34463a;
+  color: #7fa08a;
+  font-size: 10px;
+}
+.issue-comment p {
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #b5cfbd;
+  font-size: 12px;
+}
+.comment-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.comment-form .button {
+  justify-self: end;
+}
 .pull-row {
   border-bottom: 1px solid #2e3b32;
 }

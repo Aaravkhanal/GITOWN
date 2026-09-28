@@ -267,9 +267,22 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
+	var comment IssueComment
+	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "The first discussion reply."}, 201, &comment)
+	if comment.Author != "owner" || comment.Body != "The first discussion reply." {
+		t.Fatalf("unexpected issue comment: %+v", comment)
+	}
+	var comments []IssueComment
+	owner.request("GET", "/repos/owner/project/issues/1/comments", nil, 200, &comments)
+	if len(comments) != 1 || comments[0].ID != comment.ID {
+		t.Fatalf("issue comments were not returned: %+v", comments)
+	}
+	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": strings.Repeat("x", 10001)}, 422, nil)
+	owner.request("POST", "/repos/owner/project/issues/999/comments", map[string]string{"body": "Missing issue"}, 404, nil)
 	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 200, nil)
 	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "triage"}, 200, &member)
 	other.request("POST", "/repos/owner/project/issues", map[string]string{"title": "Triage issue", "body": "Created by a collaborator"}, 201, nil)
+	other.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
 	other.request("POST", "/repos/owner/project/pulls", map[string]string{"title": "No code permission", "base_branch": "main", "head_branch": "feature"}, 403, nil)
 	owner.request("DELETE", "/repos/owner/project/members/other", nil, 200, nil)
 	other.request("GET", "/repos/owner/project", nil, 404, nil)
@@ -277,6 +290,7 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
+	anon.request("POST", "/repos/owner/public-project/issues/1/comments", map[string]string{"body": "Anonymous reply"}, 401, nil)
 	gitRun("", "", "", true, "ls-remote", server.URL+"/git/owner/public-project.git")
 	var lifecycleRepo Repository
 	owner.request("POST", "/repos", map[string]any{"name": "lifecycle", "visibility": "private", "readme": true}, 201, &lifecycleRepo)
