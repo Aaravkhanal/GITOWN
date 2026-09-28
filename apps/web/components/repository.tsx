@@ -170,7 +170,7 @@ export function RepositoryPage({
           {
             key: "pulls",
             icon: GitPullRequest,
-            label: "Pull requests",
+            label: "Unite requests",
             href: `${basePath}/pulls`,
           },
           {
@@ -445,7 +445,7 @@ function CodeBrowser({
         <h3>Ready to contribute?</h3>
         <p>Clone your repository, make a change, and push a new branch.</p>
         <Link className="text-link" href={`${repoPath(repo)}/pulls`}>
-          Open a pull request <ArrowRight size={14} />
+          Open a unite request <ArrowRight size={14} />
         </Link>
         <div className="mini-tip">
           <Terminal size={16} />
@@ -1339,7 +1339,8 @@ function PullRequestList({
     <>
       <div className="section-heading">
         <h2>
-          Pull requests <span className="count">{pulls.data?.length || 0}</span>
+          Unite requests{" "}
+          <span className="count">{pulls.data?.length || 0}</span>
         </h2>
         {repo.can_write && (
           <button
@@ -1347,7 +1348,7 @@ function PullRequestList({
             onClick={() => setShowForm(!showForm)}
           >
             <Plus size={15} />
-            New pull request
+            New unite request
           </button>
         )}
       </div>
@@ -1438,7 +1439,7 @@ function PullRequestList({
               </button>
               <button className="button primary" disabled={busy}>
                 <GitPullRequest size={16} />
-                {busy ? "Creating…" : "Create pull request"}
+                {busy ? "Creating…" : "Create unite request"}
               </button>
             </div>
           </form>
@@ -1476,7 +1477,7 @@ function PullRequestList({
           <GitPullRequest size={30} />
           <h3>Good changes start a conversation.</h3>
           <p>
-            Push a branch and open a pull request to compare and merge your
+            Push a branch and open a unite request to compare and merge your
             work.
           </p>
         </div>
@@ -1505,7 +1506,7 @@ function PullRequestDetail({
     <>
       <Link className="back-link" href={`${repoPath(repo)}/pulls`}>
         <ArrowLeft size={15} />
-        All pull requests
+        All unite requests
       </Link>
       <div className="pull-heading">
         <h1>
@@ -1552,8 +1553,8 @@ function PullRequestDetail({
               }}
             >
               {pull.state === "open"
-                ? "Close pull request"
-                : "Reopen pull request"}
+                ? "Close unite request"
+                : "Reopen unite request"}
             </button>
           </div>
         )}
@@ -1593,7 +1594,7 @@ function PullRequestDetail({
               onClick={async () => {
                 if (
                   !window.confirm(
-                    `Merge pull request #${number} into ${pull.base_branch}?`,
+                    `Merge unite request #${number} into ${pull.base_branch}?`,
                   )
                 )
                   return;
@@ -1617,7 +1618,7 @@ function PullRequestDetail({
                 ? "Merging…"
                 : pull.state === "merging"
                   ? "Recover merge"
-                  : "Merge pull request"}
+                  : "Merge unite request"}
             </button>
           )}
       </div>
@@ -1670,7 +1671,7 @@ function PullDiscussion({
   return (
     <section
       className="panel issue-comments pull-discussion"
-      aria-label="Pull request discussion"
+      aria-label="Unite request discussion"
     >
       <h3>Discussion</h3>
       <ErrorMessage error={error || comments.error} />

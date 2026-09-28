@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("account, repository, issue, Git token, privacy, and responsive navigation", async ({
+test("account security, project collaboration, Git transport, and responsive navigation", async ({
   page,
   browser,
 }) => {
@@ -25,6 +25,12 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await expect(
     page.getByRole("heading", { name: "Welcome back, Aarav." }),
   ).toBeVisible();
+  await page.getByRole("link", { name: "Signed-in devices" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your active sessions." }),
+  ).toBeVisible();
+  await expect(page.getByText("Current device", { exact: true })).toBeVisible();
+  await page.goto("/");
   await page
     .getByRole("link", { name: "New repository", exact: true })
     .last()
@@ -221,13 +227,13 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   git(["commit", "-m", "Add a welcome message"], work);
   git(["push", "-u", "origin", "feature/welcome"], work);
   await page.reload();
-  await page.getByRole("link", { name: "Pull requests", exact: true }).click();
+  await page.getByRole("link", { name: "Unite requests", exact: true }).click();
   await page
-    .getByRole("button", { name: "New pull request", exact: true })
+    .getByRole("button", { name: "New unite request", exact: true })
     .click();
   await page.getByLabel("Title", { exact: true }).fill("Add a welcome message");
   await page
-    .getByRole("button", { name: "Create pull request", exact: true })
+    .getByRole("button", { name: "Create unite request", exact: true })
     .click();
   await expect(
     page.getByText("These branches can be merged", { exact: true }),
@@ -236,24 +242,24 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
     .getByLabel("Add to the discussion")
     .fill("Ready for a careful review.");
   await page
-    .getByRole("region", { name: "Pull request discussion" })
+    .getByRole("region", { name: "Unite request discussion" })
     .getByRole("button", { name: "Comment", exact: true })
     .click();
   await expect(page.getByText("Ready for a careful review.")).toBeVisible();
-  await page.getByRole("button", { name: "Close pull request" }).click();
+  await page.getByRole("button", { name: "Close unite request" }).click();
   await expect(
-    page.getByRole("button", { name: "Reopen pull request" }),
+    page.getByRole("button", { name: "Reopen unite request" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Reopen pull request" }).click();
+  await page.getByRole("button", { name: "Reopen unite request" }).click();
   await expect(
-    page.getByRole("button", { name: "Close pull request" }),
+    page.getByRole("button", { name: "Close unite request" }),
   ).toBeVisible();
   await expect(page.locator(".diff-panel")).toContainText(
     "A real Git branch, merged from the browser.",
   );
   page.once("dialog", (dialog) => dialog.accept());
   await page
-    .getByRole("button", { name: "Merge pull request", exact: true })
+    .getByRole("button", { name: "Merge unite request", exact: true })
     .click();
   await expect(
     page.getByText("Changes successfully merged", { exact: true }),

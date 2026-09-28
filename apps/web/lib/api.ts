@@ -96,6 +96,15 @@ export type Token = {
   created_at: string;
   expires_at: string;
 };
+export type BrowserSession = {
+  id: string;
+  ip_address: string;
+  user_agent: string;
+  current: boolean;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+};
 
 export async function api<T>(
   path: string,

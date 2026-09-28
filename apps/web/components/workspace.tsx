@@ -41,6 +41,7 @@ import {
   type Activity,
   type Token,
   type DeletedRepository,
+  type BrowserSession,
 } from "@/lib/api";
 import {
   Avatar,
@@ -205,6 +206,11 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <KeyRound size={17} /> Access tokens
               </Link>
               {user && (
+                <Link className="" href="/settings/sessions">
+                  <ShieldCheck size={17} /> Signed-in devices
+                </Link>
+              )}
+              {user && (
                 <Link className="" href="/settings/repositories">
                   <Trash2 size={17} /> Deleted repositories
                 </Link>
@@ -242,6 +248,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <NewRepository />
           ) : section === "settings" && segments[1] === "repositories" ? (
             <DeletedRepositoriesPage />
+          ) : section === "settings" && segments[1] === "sessions" ? (
+            <SessionsPage />
           ) : section === "settings" ? (
             <TokensPage />
           ) : section === "repos" && segments.length >= 3 ? (
@@ -1063,4 +1071,103 @@ function TokensPage() {
       </div>
     </div>
   );
+}
+
+function SessionsPage() {
+  const { user } = useSession();
+  const [version, setVersion] = useState(0);
+  const sessions = useData<BrowserSession[]>(
+    user ? "/user/sessions" : null,
+    version,
+  );
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  if (!user) return <SignInPrompt />;
+  return (
+    <div className="form-page wide-form">
+      <div className="breadcrumb">
+        <span>Settings</span>
+        <ChevronRight size={12} /> Signed-in devices
+      </div>
+      <div className="page-heading">
+        <div>
+          <h1>Your active sessions.</h1>
+          <p>
+            Review where your account is signed in and revoke devices you no
+            longer use.
+          </p>
+        </div>
+        <ShieldCheck size={30} className="muted" />
+      </div>
+      <ErrorMessage error={error || sessions.error} />
+      <div className="panel token-list">
+        {sessions.loading ? (
+          <Loading />
+        ) : sessions.data?.length ? (
+          sessions.data.map((session) => (
+            <div className="token-row" key={session.id}>
+              <ShieldCheck size={19} />
+              <div>
+                <strong>
+                  {session.current
+                    ? "Current device"
+                    : describeDevice(session.user_agent)}
+                </strong>
+                <span>
+                  {session.ip_address || "Unknown address"} · Last active{" "}
+                  {date(session.last_seen_at)} · Expires{" "}
+                  {date(session.expires_at)}
+                </span>
+              </div>
+              {session.current ? (
+                <Badge kind="green">CURRENT</Badge>
+              ) : (
+                <button
+                  className="button danger small-button"
+                  disabled={busy === session.id}
+                  onClick={async () => {
+                    setBusy(session.id);
+                    setError("");
+                    try {
+                      await api(`/user/sessions/${session.id}`, {
+                        method: "DELETE",
+                      });
+                      setVersion((value) => value + 1);
+                    } catch (error) {
+                      setError((error as Error).message);
+                    } finally {
+                      setBusy("");
+                    }
+                  }}
+                >
+                  {busy === session.id ? "Revoking…" : "Revoke"}
+                </button>
+              )}
+            </div>
+          ))
+        ) : (
+          <p className="muted padded">No active sessions.</p>
+        )}
+      </div>
+      <div className="info-box">
+        <ShieldCheck size={20} />
+        <div>
+          <strong>See something unfamiliar?</strong>
+          <p>
+            Revoke that session immediately. Password changes and MFA controls
+            are the next account-security milestone.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function describeDevice(userAgent: string) {
+  if (!userAgent) return "Unknown device";
+  if (userAgent.includes("Firefox")) return "Firefox browser";
+  if (userAgent.includes("Edg/")) return "Edge browser";
+  if (userAgent.includes("Chrome")) return "Chrome browser";
+  if (userAgent.includes("Safari")) return "Safari browser";
+  return "Browser session";
 }

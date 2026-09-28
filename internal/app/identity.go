@@ -113,6 +113,82 @@ type Token struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+type BrowserSession struct {
+	ID         string    `json:"id"`
+	IPAddress  string    `json:"ip_address"`
+	UserAgent  string    `json:"user_agent"`
+	Current    bool      `json:"current"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastSeenAt time.Time `json:"last_seen_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	current := ""
+	if cookie, err := r.Cookie("gitown_session"); err == nil {
+		current = auth.Digest(cookie.Value)
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT id,ip_address,user_agent,(token_hash=$2),created_at,last_seen_at,expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY created_at DESC LIMIT 20`, u.ID, current)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []BrowserSession{}
+	for rows.Next() {
+		var session BrowserSession
+		if err = rows.Scan(&session.ID, &session.IPAddress, &session.UserAgent, &session.Current, &session.CreatedAt, &session.LastSeenAt, &session.ExpiresAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, session)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, items)
+}
+
+func (a *App) deleteSession(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	current := ""
+	if cookie, err := r.Cookie("gitown_session"); err == nil {
+		current = auth.Digest(cookie.Value)
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var tokenHash string
+	err = tx.QueryRow(r.Context(), `DELETE FROM sessions WHERE id=$1 AND user_id=$2 RETURNING token_hash`, r.PathValue("id"), u.ID).Scan(&tokenHash)
+	if err != nil {
+		fail(w, 404, "not_found", "Session not found.")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'session.revoked',$2)`, u.ID, r.PathValue("id")); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	if tokenHash == current {
+		http.SetCookie(w, &http.Cookie{Name: "gitown_session", Value: "", Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	}
+	respond(w, 200, map[string]bool{"ok": true, "current": tokenHash == current})
+}
+
 func (a *App) tokens(w http.ResponseWriter, r *http.Request) {
 	u := a.requireUser(w, r)
 	if u == nil {

@@ -126,6 +126,26 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/Error" }
+  /user/sessions:
+    get:
+      summary: List up to 20 active browser sessions and identify the current one
+      responses:
+        "200":
+          description: Active browser sessions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BrowserSession" }
+  /user/sessions/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: Revoke one owned browser session
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "404": { $ref: "#/components/responses/Error" }
   /user/activity:
     get:
       summary: Read the latest 30 activity records for your account
@@ -925,6 +945,16 @@ components:
         name: { type: string }
         scope: { type: string, enum: ["repo:read", "repo:write"] }
         created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    BrowserSession:
+      type: object
+      properties:
+        id: { type: string }
+        ip_address: { type: string }
+        user_agent: { type: string }
+        current: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
     Issue:
       type: object

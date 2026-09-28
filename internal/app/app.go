@@ -70,6 +70,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/user/tokens", a.createToken)
 	mux.HandleFunc("DELETE /api/v1/user/tokens/{id}", a.deleteToken)
 	mux.HandleFunc("GET /api/v1/user/activity", a.activity)
+	mux.HandleFunc("GET /api/v1/user/sessions", a.sessions)
+	mux.HandleFunc("DELETE /api/v1/user/sessions/{id}", a.deleteSession)
 	mux.HandleFunc("GET /api/v1/user/deleted-repositories", a.deletedRepositories)
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)
@@ -168,10 +170,12 @@ func (a *App) user(r *http.Request) *User {
 		return nil
 	}
 	var u User
-	err = a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, auth.Digest(c.Value)).Scan(&u.ID, &u.Username, &u.DisplayName)
+	digest := auth.Digest(c.Value)
+	err = a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, digest).Scan(&u.ID, &u.Username, &u.DisplayName)
 	if err != nil {
 		return nil
 	}
+	_, _ = a.db.Exec(r.Context(), `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'`, digest)
 	return &u
 }
 func (a *App) requireUser(w http.ResponseWriter, r *http.Request) *User {
@@ -216,7 +220,29 @@ func (a *App) authLimit(w http.ResponseWriter, r *http.Request) bool {
 func (a *App) session(w http.ResponseWriter, r *http.Request, u User) error {
 	secret := auth.Secret("ses_")
 	expires := time.Now().Add(7 * 24 * time.Hour)
-	if _, err := a.db.Exec(r.Context(), `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)`, auth.Digest(secret), u.ID, expires); err != nil {
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	userAgent := r.UserAgent()
+	if len(userAgent) > 300 {
+		userAgent = userAgent[:300]
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM users WHERE id=$1 FOR UPDATE`, u.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id=$1 AND (expires_at<=now() OR token_hash IN (SELECT token_hash FROM sessions WHERE user_id=$1 ORDER BY created_at DESC OFFSET 19))`, u.ID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO sessions(id,token_hash,user_id,expires_at,ip_address,user_agent) VALUES($1,$2,$3,$4,$5,$6)`, auth.ID(), auth.Digest(secret), u.ID, expires, ip, userAgent); err != nil {
+		return err
+	}
+	if err = tx.Commit(r.Context()); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: "gitown_session", Value: secret, Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: 7 * 24 * 3600})

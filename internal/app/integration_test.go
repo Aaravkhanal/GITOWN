@@ -107,6 +107,32 @@ func TestPlatformWorkflow(t *testing.T) {
 	other := testClient{t, server.URL, &http.Client{Jar: jar2}}
 	owner.request("POST", "/auth/register", map[string]string{"username": "owner", "email": "owner@example.test", "password": "owner-long-password", "display_name": "Owner"}, 201, nil)
 	other.request("POST", "/auth/register", map[string]string{"username": "other", "email": "other@example.test", "password": "other-long-password"}, 201, nil)
+	var browserSessions []BrowserSession
+	owner.request("GET", "/user/sessions", nil, 200, &browserSessions)
+	if len(browserSessions) != 1 || !browserSessions[0].Current {
+		t.Fatalf("current browser session was not identified: %+v", browserSessions)
+	}
+	secondJar, _ := cookiejar.New(nil)
+	ownerSecond := testClient{t, server.URL, &http.Client{Jar: secondJar}}
+	ownerSecond.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "owner-long-password"}, 200, nil)
+	owner.request("GET", "/user/sessions", nil, 200, &browserSessions)
+	var otherSessionID string
+	for _, session := range browserSessions {
+		if !session.Current {
+			otherSessionID = session.ID
+		}
+	}
+	if len(browserSessions) != 2 || otherSessionID == "" {
+		t.Fatalf("second browser session was not listed: %+v", browserSessions)
+	}
+	owner.request("DELETE", "/user/sessions/"+otherSessionID, nil, 200, nil)
+	var revokedState struct {
+		User *User `json:"user"`
+	}
+	ownerSecond.request("GET", "/auth/me", nil, 200, &revokedState)
+	if revokedState.User != nil {
+		t.Fatal("revoked browser session remained authenticated")
+	}
 	anon.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "incorrect-password"}, 401, nil)
 	var repo Repository
 	owner.request("POST", "/repos", map[string]any{"name": "project", "description": "Integration repository", "visibility": "private", "readme": true}, 201, &repo)

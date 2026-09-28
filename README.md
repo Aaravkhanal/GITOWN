@@ -6,10 +6,11 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 
 This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
+User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works
 
-- Accounts, login/logout, Argon2id password hashes, expiring browser sessions, and request-origin checks.
+- Accounts, login/logout, Argon2id password hashes, expiring/revocable browser sessions with device visibility, and request-origin checks.
 - Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
 - Personal access tokens with read or write scopes, 30-day expiration, and revocation.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
