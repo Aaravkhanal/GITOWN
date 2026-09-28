@@ -9,6 +9,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
+    "build:cli": "mkdir -p .tools/bin && GOCACHE=$PWD/.tools/go-cache .tools/go/bin/go build -o .tools/bin/gitown ./apps/gitown",
     "typecheck": "npm run typecheck --workspace apps/web",
     "format": "prettier --write apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",
     "format:check": "prettier --check apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",

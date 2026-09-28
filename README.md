@@ -17,6 +17,7 @@ This is a **local development alpha**, not the finished GitHub-equivalent MVP. S
 - Same-repository pull requests, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
 - Basic issue creation, descriptions, close/reopen, and activity history.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
+- A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.
 
 No other forge was cloned or copied. Standard dependencies keep their own licenses and attribution; they do not become contributors to GITOWN's Git history.
 
@@ -61,6 +62,8 @@ git push -u origin feature/first-change
 
 When Git asks, enter your GITOWN username and use the token as the password. Do not paste the token into the remote URL. Your account password is not accepted for Git operations.
 
+You can also use GITOWN's own command names for this workflow. Build the CLI with `npm run build:cli`, then see the [CLI guide](docs/CLI.md).
+
 Open **Pull requests → New pull request**, choose `main` as the base and your feature branch as the comparison, and create it. Inspect the diff, then click **Merge pull request**. Finally:
 
 ```sh
@@ -88,6 +91,7 @@ Compose is provided for local development. Docker was unavailable in the initial
 make check               # Go vet + TypeScript
 make test                # Go unit tests; DB integration tests skip without TEST_DATABASE_URL
 make build              # Go executable + production frontend
+make cli                # Friendly GITOWN command-line client
 
 # With the local development database running:
 TEST_DATABASE_URL='postgres://gitown@127.0.0.1:55432/gitown?sslmode=disable' make test
@@ -105,11 +109,13 @@ GitHub Actions runs the Go checks, production frontend build, and browser workfl
 
 ```text
 apps/server/       Go process and shutdown lifecycle
+apps/gitown/       Friendly GITOWN command-line client
 apps/web/          Next.js interface and typed API client
 internal/app/      HTTP API, access checks, Git gateway, issues, pull requests
 internal/auth/     Argon2id hashes and random credentials
 internal/config/   Environment validation
 internal/gitstore/ Bounded Git subprocesses and safe storage paths
+internal/owncli/   GITOWN-to-Git command vocabulary
 migrations/        Embedded, ordered PostgreSQL migrations
 api/               OpenAPI contract
 deploy/            Container build definitions
