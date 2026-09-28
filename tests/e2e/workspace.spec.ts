@@ -94,6 +94,11 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("Improve the README in GITOWN", { exact: true }),
   ).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "README.md File" }),
+  ).toHaveCount(0);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Description")

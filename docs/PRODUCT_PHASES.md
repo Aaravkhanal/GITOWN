@@ -12,9 +12,9 @@ Remaining gate: verified email, password recovery, TOTP MFA and recovery codes, 
 
 ## Phase 2 — Everyday repository work (partial)
 
-Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing with atomic stale-head protection.
+Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection.
 
-Remaining gate: file rename/delete/upload, sanitized Markdown, syntax highlighting, blame, tags and compare UI, repository code search, import/export, storage accounting and quotas, maintenance, orphan reconciliation, SSH transport, and LFS.
+Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, blame, tags and compare UI, repository code search, import/export, storage accounting and quotas, maintenance, orphan reconciliation, SSH transport, and LFS.
 
 ## Phase 3 — Collaboration and protected delivery (partial)
 

@@ -469,17 +469,52 @@ function CodeBrowser({
                   <History size={14} /> History
                 </button>
                 {repo.can_write && !repo.archived && (
-                  <button
-                    className="button small-button"
-                    onClick={() => {
-                      setEditPath(path);
-                      setDraft(tree.data!.content || "");
-                      setEditError("");
-                      setEditing(true);
-                    }}
-                  >
-                    Edit
-                  </button>
+                  <>
+                    <button
+                      className="button small-button"
+                      onClick={() => {
+                        setEditPath(path);
+                        setDraft(tree.data!.content || "");
+                        setEditError("");
+                        setEditing(true);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="button danger small-button"
+                      disabled={saving}
+                      onClick={async () => {
+                        if (
+                          !window.confirm(
+                            `Delete ${path} from ${branch}? This creates a new commit and preserves its history.`,
+                          )
+                        )
+                          return;
+                        setSaving(true);
+                        setEditError("");
+                        try {
+                          await api(`${endpoint}/contents`, {
+                            method: "DELETE",
+                            body: JSON.stringify({
+                              branch,
+                              path,
+                              message: `Delete ${path}`,
+                              expected_head: tree.data?.sha,
+                            }),
+                          });
+                          setPath(path.split("/").slice(0, -1).join("/"));
+                          setVersion((value) => value + 1);
+                        } catch (deleteError) {
+                          setEditError((deleteError as Error).message);
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  </>
                 )}
               </div>
               {showFileHistory ? (

@@ -181,6 +181,55 @@ func (s *Store) CommitFile(ctx context.Context, id, branch, path string, content
 	return commit, nil
 }
 
+func (s *Store) DeleteFile(ctx context.Context, id, branch, path, message, username, email, expectedHead string) (string, error) {
+	if !validFilePath(path) || strings.TrimSpace(message) == "" {
+		return "", ErrNotFound
+	}
+	head, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return "", err
+	}
+	if head != expectedHead {
+		return "", ErrConflict
+	}
+	kind, err := s.Run(ctx, id, nil, "cat-file", "-t", head+":"+path)
+	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+		return "", ErrNotFound
+	}
+	index, err := os.CreateTemp(s.Root, "gitown-index-*")
+	if err != nil {
+		return "", err
+	}
+	indexPath := index.Name()
+	if err = index.Close(); err != nil {
+		return "", err
+	}
+	if err = os.Remove(indexPath); err != nil {
+		return "", err
+	}
+	defer os.Remove(indexPath)
+	env := []string{"GIT_INDEX_FILE=" + indexPath}
+	if _, err = s.run(ctx, id, nil, env, "read-tree", head); err != nil {
+		return "", err
+	}
+	entry := []byte("0 " + strings.Repeat("0", 40) + "\t" + path + "\x00")
+	if _, err = s.run(ctx, id, bytes.NewReader(entry), env, "update-index", "-z", "--index-info"); err != nil {
+		return "", err
+	}
+	tree, err := s.run(ctx, id, nil, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	commit, err := s.Commit(ctx, id, strings.TrimSpace(string(tree)), []string{head}, message, username, email)
+	if err != nil {
+		return "", err
+	}
+	if _, err = s.Run(ctx, id, nil, "update-ref", "refs/heads/"+branch, commit, expectedHead); err != nil {
+		return "", ErrConflict
+	}
+	return commit, nil
+}
+
 func (s *Store) Init(ctx context.Context, id, name, username, email string, readme bool) error {
 	dir := s.Path(id)
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)

@@ -510,6 +510,26 @@ paths:
                   path: { type: string }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a file with an atomic Git commit
+      description: Requires repository write access. The expected branch head prevents deletion after a concurrent push.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch, path, message, expected_head]
+              properties:
+                branch: { type: string }
+                path: { type: string, maxLength: 4096 }
+                message: { type: string, maxLength: 200 }
+                expected_head: { type: string, minLength: 40, maxLength: 40 }
+      responses:
+        "200": { description: File deletion committed and branch advanced }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/raw:
     parameters:
       [

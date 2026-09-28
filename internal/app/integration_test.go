@@ -187,6 +187,13 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
 		"branch": "main", "path": "../config", "content": "unsafe", "message": "Unsafe browser edit", "expected_head": webCommit.SHA,
 	}, 422, nil)
+	owner.request("DELETE", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "docs/browser.md", "message": "Remove browser guide", "expected_head": webCommit.SHA,
+	}, 200, &webCommit)
+	owner.request("GET", "/repos/owner/project/tree?ref=main&path=docs%2Fbrowser.md", nil, 404, nil)
+	owner.request("DELETE", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "README.md", "message": "Stale delete", "expected_head": strings.Repeat("0", 40),
+	}, 409, nil)
 	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "missing", "role": "read"}, 404, nil)
 	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "owner", "role": "write"}, 422, nil)
 	var member RepositoryMember

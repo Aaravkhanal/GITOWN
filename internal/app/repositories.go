@@ -482,6 +482,45 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_commit',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
 	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
+
+func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		Branch       string `json:"branch"`
+		Path         string `json:"path"`
+		Message      string `json:"message"`
+		ExpectedHead string `json:"expected_head"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Branch = strings.TrimSpace(in.Branch)
+	in.Path = strings.TrimSpace(in.Path)
+	in.Message = strings.TrimSpace(in.Message)
+	if in.Branch == "" || in.Path == "" || in.Message == "" || len(in.Message) > 200 || len(in.ExpectedHead) != 40 {
+		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, and a commit message up to 200 characters.")
+		return
+	}
+	sha, err := a.git.DeleteFile(r.Context(), repo.ID, in.Branch, in.Path, in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
+	if errors.Is(err, gitstore.ErrConflict) {
+		fail(w, 409, "branch_changed", "The branch changed before the file could be deleted. Refresh and try again.")
+		return
+	}
+	if errors.Is(err, gitstore.ErrNotFound) {
+		fail(w, 422, "invalid_path_or_branch", "The branch or file path is invalid.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_delete',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
+	respond(w, 200, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
+}
 func (a *App) commits(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
 	if repo == nil {

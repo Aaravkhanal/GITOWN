@@ -62,6 +62,16 @@ func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	if _, err = s.CommitFile(ctx, id, "main", "docs/guide.md", []byte("stale"), "Stale edit", "Owner", "owner@example.test", head); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale edit returned %v", err)
 	}
+	deleted, err := s.DeleteFile(ctx, id, "main", "docs/guide.md", "Remove guide", "Owner", "owner@example.test", commit)
+	if err != nil || deleted == commit {
+		t.Fatalf("web delete failed: %s %v", deleted, err)
+	}
+	if _, err = s.Browse(ctx, id, "main", "docs/guide.md"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleted file remained readable: %v", err)
+	}
+	if _, err = s.DeleteFile(ctx, id, "main", "README.md", "Stale delete", "Owner", "owner@example.test", commit); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale delete returned %v", err)
+	}
 	for _, unsafe := range []string{"../config", ".git/config", ".GIT/config", "/tmp/file", "dir\\file"} {
 		if _, err = s.CommitFile(ctx, id, "main", unsafe, []byte("bad"), "Bad path", "Owner", "owner@example.test", commit); err == nil {
 			t.Fatalf("accepted unsafe web path %q", unsafe)
