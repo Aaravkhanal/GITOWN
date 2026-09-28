@@ -1523,6 +1523,34 @@ function PullRequestDetail({
       </div>
       {pull.body && <div className="panel pull-description">{pull.body}</div>}
       <ErrorMessage error={error} />
+      {repo.can_triage &&
+        pull.state !== "merged" &&
+        pull.state !== "merging" && (
+          <div className="pull-actions">
+            <button
+              className="button small-button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await patch(`${endpoint}/pulls/${number}`, {
+                    state: pull.state === "open" ? "closed" : "open",
+                  });
+                  setVersion((value) => value + 1);
+                } catch (error) {
+                  setError((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {pull.state === "open"
+                ? "Close pull request"
+                : "Reopen pull request"}
+            </button>
+          </div>
+        )}
       <div className={`merge-panel ${pull.state === "merged" ? "merged" : ""}`}>
         <span className="merge-icon">
           {pull.state === "merged" ? (

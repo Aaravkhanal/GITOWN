@@ -720,6 +720,26 @@ paths:
                   diff: { type: string }
                   diff_error: { type: string }
                   mergeable: { type: boolean }
+    patch:
+      summary: Close or reopen a pull request with triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [open, closed] }
+      responses:
+        "200":
+          description: Updated pull request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pull" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/pulls/{number}/merge:
     parameters:
       [

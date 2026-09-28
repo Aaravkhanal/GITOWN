@@ -2127,6 +2127,11 @@ textarea {
 .pull-heading h1 {
   font-size: 25px;
 }
+.pull-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0;
+}
 .pull-heading > div {
   display: flex;
   align-items: center;

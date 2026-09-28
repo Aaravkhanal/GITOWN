@@ -214,6 +214,12 @@ func TestPlatformWorkflow(t *testing.T) {
 		Mergeable bool   `json:"mergeable"`
 	}
 	pullPath := fmt.Sprintf("/repos/owner/project/pulls/%d", pull.Number)
+	owner.request("PATCH", pullPath, map[string]string{"state": "closed"}, 200, &pull)
+	if pull.State != "closed" {
+		t.Fatalf("pull request was not closed: %+v", pull)
+	}
+	owner.request("PATCH", pullPath, map[string]string{"state": "open"}, 200, &pull)
+	owner.request("PATCH", pullPath, map[string]string{"state": "invalid"}, 422, nil)
 	owner.request("GET", pullPath, nil, 200, &detail)
 	if !detail.Mergeable || !strings.Contains(detail.Diff, "Hello from a real Git push") {
 		t.Fatal("missing real pull-request diff")

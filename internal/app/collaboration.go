@@ -701,6 +701,59 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_error": diffError, "mergeable": mergeable})
 }
 
+func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required.")
+		return
+	}
+	if !activeRepository(w, repo) {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	var in struct {
+		State string `json:"state"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.State != "open" && in.State != "closed" {
+		fail(w, 422, "validation_failed", "State must be open or closed.")
+		return
+	}
+	if p.State == "merged" || p.State == "merging" {
+		fail(w, 409, "pull_not_changeable", "A merged or merging pull request cannot be closed or reopened.")
+		return
+	}
+	u := a.user(r)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `UPDATE pull_requests SET state=$1 WHERE id=$2`, in.State, p.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	p.State = in.State
+	respond(w, 200, p)
+}
+
 func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, true)
 	if repo == nil {

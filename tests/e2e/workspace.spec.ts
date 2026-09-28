@@ -232,6 +232,14 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await expect(
     page.getByText("These branches can be merged", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Close pull request" }).click();
+  await expect(
+    page.getByRole("button", { name: "Reopen pull request" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Reopen pull request" }).click();
+  await expect(
+    page.getByRole("button", { name: "Close pull request" }),
+  ).toBeVisible();
   await expect(page.locator(".diff-panel")).toContainText(
     "A real Git branch, merged from the browser.",
   );
