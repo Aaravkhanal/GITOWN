@@ -55,6 +55,13 @@ type Pull struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+type PullComment struct {
+	ID        string    `json:"id"`
+	Body      string    `json:"body"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at`
 
 func scanPull(row scanner) (Pull, error) {
@@ -752,6 +759,84 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 	}
 	p.State = in.State
 	respond(w, 200, p)
+}
+
+func (a *App) pullComments(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT c.id,c.body,u.username,c.created_at FROM pull_comments c JOIN users u ON u.id=c.author_id WHERE c.pull_request_id=$1 ORDER BY c.created_at,c.id LIMIT 200`, p.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	comments := []PullComment{}
+	for rows.Next() {
+		var comment PullComment
+		if err = rows.Scan(&comment.ID, &comment.Body, &comment.Author, &comment.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		comments = append(comments, comment)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, comments)
+}
+
+func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	u := a.requireUser(w, r)
+	if u == nil || !activeRepository(w, repo) {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	var in struct {
+		Body string `json:"body"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Body = strings.TrimSpace(in.Body)
+	if in.Body == "" || len(in.Body) > 10000 {
+		fail(w, 422, "validation_failed", "A comment between 1 and 10,000 characters is required.")
+		return
+	}
+	comment := PullComment{ID: auth.ID(), Body: in.Body, Author: u.Username}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	err = tx.QueryRow(r.Context(), `INSERT INTO pull_comments(id,pull_request_id,author_id,body) VALUES($1,$2,$3,$4) RETURNING created_at`, comment.ID, p.ID, u.ID, comment.Body).Scan(&comment.CreatedAt)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.commented',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 201, comment)
 }
 
 func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {

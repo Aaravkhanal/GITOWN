@@ -77,6 +77,12 @@ export type PullDetail = {
   diff_error: string;
   mergeable: boolean;
 };
+export type PullComment = {
+  id: string;
+  body: string;
+  author: string;
+  created_at: string;
+};
 export type Activity = {
   id: number;
   action: string;

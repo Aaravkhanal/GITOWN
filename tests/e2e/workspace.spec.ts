@@ -232,6 +232,14 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
   await expect(
     page.getByText("These branches can be merged", { exact: true }),
   ).toBeVisible();
+  await page
+    .getByLabel("Add to the discussion")
+    .fill("Ready for a careful review.");
+  await page
+    .getByRole("region", { name: "Pull request discussion" })
+    .getByRole("button", { name: "Comment", exact: true })
+    .click();
+  await expect(page.getByText("Ready for a careful review.")).toBeVisible();
   await page.getByRole("button", { name: "Close pull request" }).click();
   await expect(
     page.getByRole("button", { name: "Reopen pull request" }),

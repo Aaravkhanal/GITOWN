@@ -767,6 +767,47 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Pull" }
         "409": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/comments:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: List up to 200 pull-request comments visible to repository readers
+      responses:
+        "200":
+          description: Chronological pull-request discussion
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PullComment" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add a comment as an authenticated repository reader
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 10000 }
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullComment" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }
@@ -923,3 +964,10 @@ components:
         base_branch: { type: string }
         head_branch: { type: string }
         merge_sha: { type: [string, "null"] }
+    PullComment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        body: { type: string }
+        author: { type: string }
+        created_at: { type: string, format: date-time }

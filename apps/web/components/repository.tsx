@@ -46,6 +46,7 @@ import {
   type Label,
   type Pull,
   type PullDetail,
+  type PullComment,
   type RepositoryMember,
 } from "@/lib/api";
 import {
@@ -1523,6 +1524,11 @@ function PullRequestDetail({
       </div>
       {pull.body && <div className="panel pull-description">{pull.body}</div>}
       <ErrorMessage error={error} />
+      <PullDiscussion
+        endpoint={endpoint}
+        number={number}
+        canComment={repo.can_comment}
+      />
       {repo.can_triage &&
         pull.state !== "merged" &&
         pull.state !== "merging" && (
@@ -1643,5 +1649,84 @@ function PullRequestDetail({
         </div>
       )}
     </>
+  );
+}
+
+function PullDiscussion({
+  endpoint,
+  number,
+  canComment,
+}: {
+  endpoint: string;
+  number: string;
+  canComment: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/pulls/${number}/comments`;
+  const comments = useData<PullComment[]>(path, version);
+  return (
+    <section
+      className="panel issue-comments pull-discussion"
+      aria-label="Pull request discussion"
+    >
+      <h3>Discussion</h3>
+      <ErrorMessage error={error || comments.error} />
+      {comments.loading ? (
+        <Loading />
+      ) : comments.data?.length ? (
+        <div className="comment-list">
+          {comments.data.map((comment) => (
+            <article className="issue-comment" key={comment.id}>
+              <div>
+                <strong>@{comment.author}</strong>
+                <span>{date(comment.created_at)}</span>
+              </div>
+              <p>{comment.body}</p>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="muted small-text">No discussion yet.</p>
+      )}
+      {canComment && (
+        <form
+          className="comment-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            try {
+              await post(path, { body });
+              setBody("");
+              setVersion((value) => value + 1);
+            } catch (error) {
+              setError((error as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Add to the discussion
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              maxLength={10000}
+              rows={3}
+              required
+            />
+          </label>
+          <button
+            className="button primary small-button"
+            disabled={busy || !body.trim()}
+          >
+            {busy ? "Commenting…" : "Comment"}
+          </button>
+        </form>
+      )}
+    </section>
   );
 }

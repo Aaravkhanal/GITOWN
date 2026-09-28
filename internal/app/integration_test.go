@@ -214,6 +214,20 @@ func TestPlatformWorkflow(t *testing.T) {
 		Mergeable bool   `json:"mergeable"`
 	}
 	pullPath := fmt.Sprintf("/repos/owner/project/pulls/%d", pull.Number)
+	anon.request("GET", pullPath+"/comments", nil, 404, nil)
+	var pullComment PullComment
+	owner.request("POST", pullPath+"/comments", map[string]string{"body": "Please review this change."}, 201, &pullComment)
+	if pullComment.Author != "owner" || pullComment.Body != "Please review this change." {
+		t.Fatalf("unexpected pull comment: %+v", pullComment)
+	}
+	var pullComments []PullComment
+	owner.request("GET", pullPath+"/comments", nil, 200, &pullComments)
+	if len(pullComments) != 1 || pullComments[0].ID != pullComment.ID {
+		t.Fatalf("pull comments were not returned: %+v", pullComments)
+	}
+	other.request("POST", pullPath+"/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
+	owner.request("POST", pullPath+"/comments", map[string]string{"body": strings.Repeat("x", 10001)}, 422, nil)
+	owner.request("POST", "/repos/owner/project/pulls/999/comments", map[string]string{"body": "Missing pull"}, 404, nil)
 	owner.request("PATCH", pullPath, map[string]string{"state": "closed"}, 200, &pull)
 	if pull.State != "closed" {
 		t.Fatalf("pull request was not closed: %+v", pull)
