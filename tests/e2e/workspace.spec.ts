@@ -85,6 +85,15 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("Edited safely in the browser.", { exact: true }),
   ).toBeVisible();
+  const rawLink = page.getByRole("link", { name: "Raw", exact: true });
+  await expect(rawLink).toHaveAttribute(
+    "href",
+    /\/raw\?ref=main&path=README\.md/,
+  );
+  await page.getByRole("button", { name: "History", exact: true }).click();
+  await expect(
+    page.getByText("Improve the README in GITOWN", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Description")

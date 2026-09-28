@@ -51,6 +51,14 @@ func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	if err != nil || created.Content == nil || *created.Content != "# Guide\n" {
 		t.Fatalf("committed file was not readable: %+v %v", created, err)
 	}
+	raw, err := s.Blob(ctx, id, "main", "docs/guide.md")
+	if err != nil || string(raw) != "# Guide\n" {
+		t.Fatalf("raw file was not readable: %q %v", raw, err)
+	}
+	history, err := s.FileCommits(ctx, id, "main", "docs/guide.md")
+	if err != nil || len(history) != 1 || history[0].Message != "Add guide" {
+		t.Fatalf("file history was not returned: %+v %v", history, err)
+	}
 	if _, err = s.CommitFile(ctx, id, "main", "docs/guide.md", []byte("stale"), "Stale edit", "Owner", "owner@example.test", head); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale edit returned %v", err)
 	}

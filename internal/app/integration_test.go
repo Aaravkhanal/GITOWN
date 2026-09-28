@@ -18,6 +18,7 @@ import (
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/Aaravkhanal/GITOWN/internal/config"
+	"github.com/Aaravkhanal/GITOWN/internal/gitstore"
 	"github.com/Aaravkhanal/GITOWN/migrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -173,6 +174,13 @@ func TestPlatformWorkflow(t *testing.T) {
 		t.Fatalf("browser commit did not advance main: %+v", webCommit)
 	}
 	owner.request("GET", "/repos/owner/project/tree?ref=main&path=docs%2Fbrowser.md", nil, 200, nil)
+	owner.request("GET", "/repos/owner/project/raw?ref=main&path=docs%2Fbrowser.md", nil, 200, nil)
+	anon.request("GET", "/repos/owner/project/raw?ref=main&path=docs%2Fbrowser.md", nil, 404, nil)
+	var fileHistory []gitstore.Commit
+	owner.request("GET", "/repos/owner/project/commits?ref=main&path=docs%2Fbrowser.md", nil, 200, &fileHistory)
+	if len(fileHistory) != 1 || fileHistory[0].Message != "Add browser guide" {
+		t.Fatalf("browser file history was not returned: %+v", fileHistory)
+	}
 	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
 		"branch": "main", "path": "docs/stale.md", "content": "stale", "message": "Stale browser edit", "expected_head": webHead,
 	}, 409, nil)

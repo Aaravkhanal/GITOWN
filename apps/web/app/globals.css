@@ -1933,6 +1933,10 @@ textarea {
   line-height: 1.6;
   tab-size: 2;
 }
+
+.file-history {
+  border-top: 1px solid var(--border);
+}
 .code-line {
   display: flex;
   min-height: 21px;

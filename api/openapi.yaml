@@ -510,6 +510,26 @@ paths:
                   path: { type: string }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/raw:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Read or download an exact file from a visible repository
+      parameters:
+        - { name: ref, in: query, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Raw file bytes, limited to 4 MiB
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/commits:
     parameters:
       [
@@ -521,6 +541,12 @@ paths:
       summary: Read the latest 30 commits on a branch
       parameters:
         - { name: ref, in: query, schema: { type: string } }
+        - {
+            name: path,
+            in: query,
+            description: Optional file path whose history should be followed,
+            schema: { type: string },
+          }
       responses:
         "200":
           description: Commit history

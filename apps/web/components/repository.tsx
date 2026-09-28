@@ -291,6 +291,7 @@ function CodeBrowser({
   const [draft, setDraft] = useState("");
   const [editError, setEditError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showFileHistory, setShowFileHistory] = useState(false);
   const query = `?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`;
   const tree = useData<Tree>(
     branch ? `${endpoint}/tree${query}` : null,
@@ -306,6 +307,16 @@ function CodeBrowser({
       : null,
     version,
   );
+  const fileHistory = useData<Commit[]>(
+    showFileHistory && path
+      ? `${endpoint}/commits?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`
+      : null,
+    version,
+  );
+  useEffect(() => {
+    setShowFileHistory(false);
+    setEditing(false);
+  }, [branch, path]);
   const latest = commits.data?.[0];
   return (
     <div className="code-columns">
@@ -443,6 +454,20 @@ function CodeBrowser({
                   text={tree.data.content}
                   label="Copy file contents"
                 />
+                <a
+                  className="button small-button"
+                  href={`/api/v1${endpoint}/raw?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Raw
+                </a>
+                <button
+                  className="button small-button"
+                  onClick={() => setShowFileHistory((value) => !value)}
+                >
+                  <History size={14} /> History
+                </button>
                 {repo.can_write && !repo.archived && (
                   <button
                     className="button small-button"
@@ -457,22 +482,58 @@ function CodeBrowser({
                   </button>
                 )}
               </div>
-              <pre>
-                {tree.data.content.split("\n").map((line, i) => (
-                  <span className="code-line" key={i}>
-                    <span className="line-number" aria-hidden="true">
-                      {i + 1}
+              {showFileHistory ? (
+                <div className="file-history">
+                  <ErrorMessage error={fileHistory.error} />
+                  {fileHistory.loading ? (
+                    <Loading />
+                  ) : fileHistory.data?.length ? (
+                    fileHistory.data.map((commit) => (
+                      <div className="commit-row" key={commit.sha}>
+                        <span className="commit-symbol">
+                          <GitCommitHorizontal size={18} />
+                        </span>
+                        <div>
+                          <strong>{commit.message}</strong>
+                          <p>
+                            {commit.author} changed this file{" "}
+                            {date(commit.date)}
+                          </p>
+                        </div>
+                        <code>{commit.sha.slice(0, 7)}</code>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="muted padded">No file history found.</p>
+                  )}
+                </div>
+              ) : (
+                <pre>
+                  {tree.data.content.split("\n").map((line, i) => (
+                    <span className="code-line" key={i}>
+                      <span className="line-number" aria-hidden="true">
+                        {i + 1}
+                      </span>
+                      <code>{line || " "}</code>
                     </span>
-                    <code>{line || " "}</code>
-                  </span>
-                ))}
-              </pre>
+                  ))}
+                </pre>
+              )}
             </div>
           ) : tree.data?.binary ? (
             <div className="empty-state">
               <File size={26} />
               <h3>Binary file</h3>
-              <p>Clone this repository to open the file locally.</p>
+              <p>
+                Download the raw file or clone the repository to open it
+                locally.
+              </p>
+              <a
+                className="button"
+                href={`/api/v1${endpoint}/raw?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`}
+              >
+                Download raw file
+              </a>
             </div>
           ) : (
             <div className="file-list">

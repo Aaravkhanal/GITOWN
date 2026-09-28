@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"errors"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -408,6 +410,39 @@ func (a *App) tree(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, result)
 }
 
+func (a *App) raw(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	branch := r.URL.Query().Get("ref")
+	if branch == "" {
+		branch = repo.DefaultBranch
+	}
+	path := r.URL.Query().Get("path")
+	content, err := a.git.Blob(r.Context(), repo.ID, branch, path)
+	if errors.Is(err, gitstore.ErrNotFound) {
+		fail(w, 404, "not_found", "Branch or file not found.")
+		return
+	}
+	if errors.Is(err, gitstore.ErrTooLarge) {
+		fail(w, 413, "too_large", "This file is too large for a browser download. Clone the repository instead.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", `inline; filename="`+strings.ReplaceAll(filepath.Base(path), `"`, "")+`"`)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
+}
+
 func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, true)
 	if repo == nil {
@@ -456,7 +491,13 @@ func (a *App) commits(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = repo.DefaultBranch
 	}
-	result, err := a.git.Commits(r.Context(), repo.ID, branch)
+	var result []gitstore.Commit
+	var err error
+	if path := r.URL.Query().Get("path"); path != "" {
+		result, err = a.git.FileCommits(r.Context(), repo.ID, branch, path)
+	} else {
+		result, err = a.git.Commits(r.Context(), repo.ID, branch)
+	}
 	if errors.Is(err, gitstore.ErrNotFound) {
 		respond(w, 200, []gitstore.Commit{})
 		return

@@ -314,12 +314,56 @@ func (s *Store) Browse(ctx context.Context, id, branch, path string) (Tree, erro
 	return t, nil
 }
 
+func (s *Store) Blob(ctx context.Context, id, branch, path string) ([]byte, error) {
+	if !validFilePath(path) {
+		return nil, ErrNotFound
+	}
+	sha, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return nil, err
+	}
+	object := sha + ":" + path
+	kind, err := s.Run(ctx, id, nil, "cat-file", "-t", object)
+	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+		return nil, ErrNotFound
+	}
+	size, err := s.Run(ctx, id, nil, "cat-file", "-s", object)
+	if err != nil {
+		return nil, err
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(size)))
+	if n > MaxOutput {
+		return nil, ErrTooLarge
+	}
+	return s.Run(ctx, id, nil, "cat-file", "blob", object)
+}
+
 func (s *Store) Commits(ctx context.Context, id, branch string) ([]Commit, error) {
 	sha, err := s.Resolve(ctx, id, branch)
 	if err != nil {
 		return nil, err
 	}
 	out, err := s.Run(ctx, id, nil, "log", "-30", "--format=%H%x00%s%x00%an%x00%aI%x00", sha, "--")
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(string(out), "\x00")
+	commits := []Commit{}
+	for i := 0; i+3 < len(parts); i += 4 {
+		commits = append(commits, Commit{SHA: strings.TrimSpace(parts[i]), Message: parts[i+1], Author: parts[i+2], Date: parts[i+3]})
+	}
+	return commits, nil
+}
+
+func (s *Store) FileCommits(ctx context.Context, id, branch, path string) ([]Commit, error) {
+	if !validFilePath(path) {
+		return nil, ErrNotFound
+	}
+	sha, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return nil, err
+	}
+	out, err := s.Run(ctx, id, nil, "log", "-30", "--follow", "--format=%H%x00%s%x00%an%x00%aI%x00", sha, "--", path)
 	if err != nil {
 		return nil, err
 	}
