@@ -114,6 +114,14 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos", map[string]any{"name": "../../escape", "visibility": "private"}, 422, nil)
 	anon.request("GET", "/repos/owner/project", nil, 404, nil)
 	other.request("GET", "/repos/owner/project", nil, 404, nil)
+	other.request("PATCH", "/repos/owner/project", map[string]string{"description": "not yours", "visibility": "public"}, 404, nil)
+	owner.request("PATCH", "/repos/owner/project", map[string]string{"description": strings.Repeat("x", 501), "visibility": "private"}, 422, nil)
+	owner.request("PATCH", "/repos/owner/project", map[string]string{"description": "Now visible", "visibility": "public"}, 200, &repo)
+	if repo.Visibility != "public" || repo.Description != "Now visible" {
+		t.Fatalf("repository settings were not updated: %+v", repo)
+	}
+	anon.request("GET", "/repos/owner/project", nil, 200, nil)
+	owner.request("PATCH", "/repos/owner/project", map[string]string{"description": "Integration repository", "visibility": "private"}, 200, &repo)
 	var anonymousRepos []Repository
 	anon.request("GET", "/repos", nil, 200, &anonymousRepos)
 	if len(anonymousRepos) != 0 {

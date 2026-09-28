@@ -80,6 +80,9 @@ export async function api<T>(
 export function post<T>(path: string, body: unknown) {
   return api<T>(path, { method: "POST", body: JSON.stringify(body) });
 }
+export function patch<T>(path: string, body: unknown) {
+  return api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+}
 export function date(value: string) {
   return new Date(value).toLocaleDateString(undefined, {
     month: "short",

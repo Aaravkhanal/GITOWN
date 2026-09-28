@@ -1138,7 +1138,8 @@ textarea {
   flex-direction: column;
   gap: 12px;
 }
-.form-panel .radio-card {
+.form-panel .radio-card,
+.settings-form .radio-card {
   border: 1px solid #3a463e;
   display: flex;
   flex-direction: row;

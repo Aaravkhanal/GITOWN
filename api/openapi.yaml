@@ -202,6 +202,26 @@ paths:
                   repository: { $ref: "#/components/schemas/Repository" }
                   branches: { type: array, items: { type: string } }
         "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update an owned repository's description and visibility
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description, visibility]
+              properties:
+                description: { type: string, maxLength: 500 }
+                visibility: { type: string, enum: [public, private] }
+      responses:
+        "200":
+          description: Repository updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repository" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/tree:
     parameters:
       [

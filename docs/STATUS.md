@@ -6,7 +6,7 @@ Date: 2026-09-27. This file reports implemented behavior, not aspirational parit
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | Foundation         | Go/Next.js/PostgreSQL, migrations, launcher, health endpoint, JSON startup/error logs, CI definition                                                                    | OpenTelemetry, metrics, deployment verification, migration checksums and rollback tooling                |
 | Identity           | Register/login/logout, salted Argon2id, hashed sessions/tokens, expiry/revocation, login throttling                                                                     | Email verification, MFA, password reset, invitations, per-account/device management                      |
-| Repository storage | Bare Git repositories, generated IDs, optional README, private/public visibility, owner access                                                                          | Collaborator roles, rename/archive/delete, total storage quotas, orphan reconciliation, storage sharding |
+| Repository storage | Bare Git repositories, generated IDs, optional README, private/public visibility, owner access, owner-only description/visibility settings                              | Collaborator roles, rename/archive/delete, total storage quotas, orphan reconciliation, storage sharding |
 | Git transport      | Native smart HTTP, normal Git clients, branches/tags, protocol-v2 forwarding, read/write PAT scopes, 100 MiB request/pack limit, subprocess deadlines/concurrency limit | SSH, per-user/IP Git rate limits, durable post-receive events, process-level OS quotas, LFS              |
 | Code browser       | Trees, text files up to 512 KiB, branch selection, latest 30 commits, README as escaped plain text                                                                      | Markdown rendering/syntax highlighting, tags UI, blame, downloads, full pagination                       |
 | Pull requests      | Same-repository open/list/detail, real diffs, mergeability, merge commit, expected head/base checks, atomic base-ref compare-and-swap, recoverable merge intent         | Reviews/comments/checks, squash/rebase, merge queue, branch permissions, close/reopen PR, pagination     |
@@ -33,7 +33,7 @@ Repository creation writes storage before committing metadata. A failure can lea
 ## Verification performed
 
 - Go race-enabled tests against PostgreSQL and real Git commands.
-- End-to-end account → repository → branch push → PR diff → merge → pull.
+- End-to-end account → repository → settings update → branch push → PR diff → merge → pull.
 - Unauthorized/private access, wrong credentials, read-only token push, revoked tokens, traversal/invalid refs, blocked force pushes and deletion, CSRF origin rejection.
 - PostgreSQL migration reapplication and metadata/Git snapshot restore.
 - Production Next.js compilation and TypeScript validation.

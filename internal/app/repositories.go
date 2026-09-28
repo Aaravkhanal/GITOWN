@@ -170,6 +170,46 @@ func (a *App) repository(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, map[string]any{"repository": repo, "branches": branches})
 }
+
+func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	var in struct {
+		Description string `json:"description"`
+		Visibility  string `json:"visibility"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Description = strings.TrimSpace(in.Description)
+	if len(in.Description) > 500 || (in.Visibility != "private" && in.Visibility != "public") {
+		fail(w, 422, "validation_failed", "Use a description up to 500 characters and select public or private visibility.")
+		return
+	}
+	if _, err := a.db.Exec(
+		r.Context(),
+		`UPDATE repositories SET description=$1, visibility=$2 WHERE id=$3`,
+		in.Description,
+		in.Visibility,
+		repo.ID,
+	); err != nil {
+		serverError(w, err)
+		return
+	}
+	updated, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.id=$1`, repo.ID))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.updated',$2)`, updated.OwnerID, updated.Owner+"/"+updated.Name); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.decorate(&updated, a.user(r))
+	respond(w, 200, updated)
+}
 func (a *App) tree(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
 	if repo == nil {

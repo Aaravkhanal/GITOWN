@@ -44,6 +44,49 @@ test("account, repository, issue, Git token, privacy, and responsive navigation"
       exact: true,
     }),
   ).toBeVisible();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page
+    .getByLabel("Description")
+    .fill("Updated from repository settings.");
+  await page.getByLabel("public").check();
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/v1/repos/${username}/first-project`) &&
+        response.request().method() === "PATCH" &&
+        response.ok(),
+    ),
+    page.getByRole("button", { name: "Save settings" }).click(),
+  ]);
+  await expect(
+    page.getByText("Repository settings saved.", { exact: true }),
+  ).toBeVisible();
+  const publicVisitor = await browser.newContext();
+  const publicVisitorPage = await publicVisitor.newPage();
+  await publicVisitorPage.goto(`/repos/${username}/first-project`);
+  await expect(
+    publicVisitorPage.getByRole("heading", {
+      name: `${username} / first-project`,
+    }),
+  ).toBeVisible();
+  await expect(
+    publicVisitorPage.getByRole("link", { name: "Settings", exact: true }),
+  ).toHaveCount(0);
+  await publicVisitor.close();
+  await page.getByLabel("private").check();
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/v1/repos/${username}/first-project`) &&
+        response.request().method() === "PATCH" &&
+        response.ok(),
+    ),
+    page.getByRole("button", { name: "Save settings" }).click(),
+  ]);
+  await expect(
+    page.getByText("Repository settings saved.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Code", exact: true }).click();
   await page.getByRole("link", { name: "Issues", exact: true }).click();
   await page.getByRole("button", { name: "New issue", exact: true }).click();
   await page

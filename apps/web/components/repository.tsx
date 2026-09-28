@@ -22,10 +22,13 @@ import {
   History,
   LockKeyhole,
   Plus,
+  Save,
+  Settings,
   Terminal,
 } from "lucide-react";
 import {
   api,
+  patch,
   post,
   date,
   repoPath,
@@ -160,6 +163,16 @@ export function RepositoryPage({
             label: "Commits",
             href: `${basePath}/commits`,
           },
+          ...(r.can_write
+            ? [
+                {
+                  key: "settings",
+                  icon: Settings,
+                  label: "Settings",
+                  href: `${basePath}/settings`,
+                },
+              ]
+            : []),
         ].map((item) => (
           <Link
             href={item.href}
@@ -226,6 +239,12 @@ export function RepositoryPage({
           endpoint={endpoint}
           repo={r}
           branches={repo.data.branches}
+        />
+      ) : tab === "settings" && r.can_write ? (
+        <RepositorySettings
+          endpoint={endpoint}
+          repo={r}
+          onSaved={() => setVersion((v) => v + 1)}
         />
       ) : (
         <div className="empty-state">
@@ -440,6 +459,99 @@ function EmptyRepository({ repo }: { repo: Repo }) {
         prompted.
       </p>
     </div>
+  );
+}
+
+function RepositorySettings({
+  endpoint,
+  repo,
+  onSaved,
+}: {
+  endpoint: string;
+  repo: Repo;
+  onSaved: () => void;
+}) {
+  const [visibility, setVisibility] = useState(repo.visibility);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <section className="settings-layout">
+      <div className="section-heading">
+        <div>
+          <h2>Repository settings</h2>
+          <p>Control how this repository appears to you and other users.</p>
+        </div>
+      </div>
+      <form
+        className="panel settings-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          setMessage("");
+          const data = new FormData(event.currentTarget);
+          try {
+            await patch<Repo>(endpoint, {
+              description: data.get("description"),
+              visibility,
+            });
+            setMessage("Repository settings saved.");
+            window.setTimeout(onSaved, 700);
+          } catch (saveError) {
+            setError((saveError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Description
+          <textarea
+            name="description"
+            defaultValue={repo.description}
+            maxLength={500}
+            rows={4}
+          />
+        </label>
+        <div>
+          <span className="label-text">Visibility</span>
+          <div className="visibility-options compact">
+            {(["private", "public"] as const).map((option) => (
+              <label
+                className={`radio-card ${visibility === option ? "chosen" : ""}`}
+                key={option}
+              >
+                <input
+                  type="radio"
+                  name="visibility"
+                  value={option}
+                  checked={visibility === option}
+                  onChange={() => setVisibility(option)}
+                />
+                {option === "private" ? (
+                  <LockKeyhole size={18} />
+                ) : (
+                  <Globe2 size={18} />
+                )}
+                <span>
+                  <strong>{option}</strong>
+                  {option === "private"
+                    ? "Only you can see and clone this repository."
+                    : "Anyone can view and clone this repository."}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {error && <div className="form-error">{error}</div>}
+        {message && <div className="success-box">{message}</div>}
+        <button className="button primary" disabled={busy} type="submit">
+          <Save size={16} />
+          {busy ? "Saving..." : "Save settings"}
+        </button>
+      </form>
+    </section>
   );
 }
 

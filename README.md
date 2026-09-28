@@ -9,14 +9,14 @@ This is a **local development alpha**, not the finished GitHub-equivalent MVP. S
 ## What works
 
 - Accounts, login/logout, Argon2id password hashes, expiring browser sessions, and request-origin checks.
-- Public/private repositories with optional initial README and real bare Git storage.
+- Public/private repositories with optional initial README, editable descriptions/visibility, and real bare Git storage.
 - Personal access tokens with read or write scopes, 30-day expiration, and revocation.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
 - Owner-only writes, private-repository access enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, text previews, README text, and commit history.
 - Same-repository pull requests, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
 - Basic issue creation, descriptions, close/reopen, and activity history.
-- Responsive dashboard, repository filtering, access-token settings, and empty/error states.
+- Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 
 No other forge was cloned or copied. Standard dependencies keep their own licenses and attribution; they do not become contributors to GITOWN's Git history.
 
