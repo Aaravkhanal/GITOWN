@@ -2,6 +2,8 @@
 
 This roadmap converts the long-term blueprint into dependency-ordered delivery milestones. A milestone is complete only when its API, authorization denials, migrations, audit events, UI, documentation, and automated tests are committed together.
 
+For the user-facing numbered product plan and its exact completion gates, see [PRODUCT_PHASES.md](PRODUCT_PHASES.md). The two documents use different views intentionally: this roadmap orders engineering dependencies, while the product plan tracks parity areas.
+
 ## Current product boundary
 
 GITOWN already supports accounts, private/public repositories, role-based collaborators, HTTP Git clone/fetch/push, repository browsing, issues with comments and labels, pull requests with real diffs and race-safe merge commits, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.

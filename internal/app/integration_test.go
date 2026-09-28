@@ -148,6 +148,26 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	anon.request("GET", "/repos/owner/project", nil, 200, nil)
 	owner.request("PATCH", "/repos/owner/project", map[string]string{"description": "Integration repository", "visibility": "private"}, 200, &repo)
+	webHead, err := a.git.Resolve(ctx, repo.ID, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var webCommit struct {
+		SHA string `json:"sha"`
+	}
+	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "docs/browser.md", "content": "# Browser editing\n", "message": "Add browser guide", "expected_head": webHead,
+	}, 201, &webCommit)
+	if webCommit.SHA == "" || webCommit.SHA == webHead {
+		t.Fatalf("browser commit did not advance main: %+v", webCommit)
+	}
+	owner.request("GET", "/repos/owner/project/tree?ref=main&path=docs%2Fbrowser.md", nil, 200, nil)
+	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "docs/stale.md", "content": "stale", "message": "Stale browser edit", "expected_head": webHead,
+	}, 409, nil)
+	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "../config", "content": "unsafe", "message": "Unsafe browser edit", "expected_head": webCommit.SHA,
+	}, 422, nil)
 	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "missing", "role": "read"}, 404, nil)
 	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "owner", "role": "write"}, 422, nil)
 	var member RepositoryMember

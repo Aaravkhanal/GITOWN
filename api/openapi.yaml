@@ -444,6 +444,42 @@ paths:
                         sha: { type: string }
         "404": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/contents:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    put:
+      summary: Create or replace a text file with an atomic Git commit
+      description: Requires repository write access. The expected branch head prevents a browser edit from overwriting a concurrent push.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch, path, content, message, expected_head]
+              properties:
+                branch: { type: string }
+                path: { type: string, maxLength: 4096 }
+                content: { type: string, maxLength: 524288 }
+                message: { type: string, maxLength: 200 }
+                expected_head: { type: string, minLength: 40, maxLength: 40 }
+      responses:
+        "201":
+          description: File commit created and branch advanced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sha: { type: string }
+                  branch: { type: string }
+                  path: { type: string }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/commits:
     parameters:
       [

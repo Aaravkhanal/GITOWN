@@ -1917,6 +1917,22 @@ textarea {
   font-size: 12px;
   line-height: 1.8;
 }
+.web-editor {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.editor-heading label {
+  margin: 0;
+}
+.code-editor {
+  min-height: 320px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  tab-size: 2;
+}
 .code-line {
   display: flex;
   min-height: 21px;

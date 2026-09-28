@@ -2,6 +2,7 @@ package gitstore
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
@@ -40,5 +41,22 @@ func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	}
 	if err = s.Init(ctx, id, "replacement", "Owner", "owner@example.test", true); err == nil {
 		t.Fatal("overwrote existing storage")
+	}
+	head := tree.SHA
+	commit, err := s.CommitFile(ctx, id, "main", "docs/guide.md", []byte("# Guide\n"), "Add guide", "Owner", "owner@example.test", head)
+	if err != nil || commit == head {
+		t.Fatalf("web commit failed: %s %v", commit, err)
+	}
+	created, err := s.Browse(ctx, id, "main", "docs/guide.md")
+	if err != nil || created.Content == nil || *created.Content != "# Guide\n" {
+		t.Fatalf("committed file was not readable: %+v %v", created, err)
+	}
+	if _, err = s.CommitFile(ctx, id, "main", "docs/guide.md", []byte("stale"), "Stale edit", "Owner", "owner@example.test", head); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale edit returned %v", err)
+	}
+	for _, unsafe := range []string{"../config", ".git/config", ".GIT/config", "/tmp/file", "dir\\file"} {
+		if _, err = s.CommitFile(ctx, id, "main", unsafe, []byte("bad"), "Bad path", "Owner", "owner@example.test", commit); err == nil {
+			t.Fatalf("accepted unsafe web path %q", unsafe)
+		}
 	}
 }

@@ -9,7 +9,7 @@ Date: 2026-09-28. This file reports implemented behavior, not aspirational parit
 | Repository storage | Bare Git repositories, generated IDs, optional README, private/public visibility, owner settings, collaborator roles, safe rename, read-only archive, soft deletion and 30-day restore | Automated permanent purge, total storage quotas, orphan reconciliation, storage sharding             |
 | Git transport      | Native smart HTTP, normal Git clients, branches/tags, protocol-v2 forwarding, read/write PAT scopes, 100 MiB request/pack limit, subprocess deadlines/concurrency limit                | SSH, per-user/IP Git rate limits, durable post-receive events, process-level OS quotas, LFS          |
 | Developer CLI      | `gitown` wrapper with bring/track/save/send/sync/unite/move/look commands, Git escape hatch, transparent credentials and exit codes                                                    | Installers, signed release binaries, shell completion, automatic server/token configuration          |
-| Code browser       | Trees, text files up to 512 KiB, branch selection, latest 30 commits, README as escaped plain text                                                                                     | Markdown rendering/syntax highlighting, tags UI, blame, downloads, full pagination                   |
+| Code browser       | Trees, text files up to 512 KiB, branch selection, latest 30 commits, README as escaped plain text, write-gated browser file creation/editing with stale-head protection               | Rename/delete/upload, Markdown rendering/syntax highlighting, tags UI, blame, downloads, pagination  |
 | Pull requests      | Same-repository lifecycle, chronological 200-comment discussions, real diffs, mergeability, merge commits, expected SHA checks, atomic ref update, recoverable merge intent            | Formal/inline reviews, checks, squash/rebase, merge queue, branch permissions, pagination            |
 | Issues             | Create and close/reopen issues, chronological 200-comment discussions, reusable colored labels, and role-gated label assignment                                                        | Comment editing, assignees, milestones, mentions, subscriptions, notifications                       |
 | Audit              | Account, repository, token, issue, PR and receive-transport activity                                                                                                                   | Database-level immutability, durable exact ref-change events, IP/user-agent fields, retention/export |
@@ -34,7 +34,7 @@ Repository creation writes storage before committing metadata. A failure can lea
 ## Verification performed
 
 - Go race-enabled tests against PostgreSQL and real Git commands.
-- End-to-end account → repository → settings/collaborators → role-gated clone/push/triage → PR diff → merge → pull.
+- End-to-end account → repository → browser commit → settings/collaborators → role-gated clone/push/triage → PR diff → merge → pull.
 - Unauthorized/private access, wrong credentials, read-only token push, revoked tokens, traversal/invalid refs, blocked force pushes and deletion, CSRF origin rejection.
 - PostgreSQL migration reapplication and metadata/Git snapshot restore.
 - Production Next.js compilation and TypeScript validation.

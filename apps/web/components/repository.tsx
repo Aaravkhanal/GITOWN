@@ -285,15 +285,26 @@ function CodeBrowser({
   path: string;
   setPath: (path: string) => void;
 }) {
+  const [version, setVersion] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [editPath, setEditPath] = useState("");
+  const [draft, setDraft] = useState("");
+  const [editError, setEditError] = useState("");
+  const [saving, setSaving] = useState(false);
   const query = `?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`;
-  const tree = useData<Tree>(branch ? `${endpoint}/tree${query}` : null);
+  const tree = useData<Tree>(
+    branch ? `${endpoint}/tree${query}` : null,
+    version,
+  );
   const commits = useData<Commit[]>(
     branch ? `${endpoint}/commits?ref=${encodeURIComponent(branch)}` : null,
+    version,
   );
   const readme = useData<Tree>(
     tree.data?.entries.find((e) => e.name.toLowerCase() === "readme.md")
       ? `${endpoint}/tree?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent((path ? path + "/" : "") + tree.data.entries.find((e) => e.name.toLowerCase() === "readme.md")!.name)}`
       : null,
+    version,
   );
   const latest = commits.data?.[0];
   return (
@@ -323,6 +334,23 @@ function CodeBrowser({
                   <code>{latest.sha.slice(0, 7)}</code>
                 </Link>
                 <span className="muted small-text">{date(latest.date)}</span>
+                {repo.can_write && !repo.archived && (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      setEditPath(
+                        path && tree.data?.content === undefined
+                          ? `${path}/`
+                          : "",
+                      );
+                      setDraft("");
+                      setEditError("");
+                      setEditing(true);
+                    }}
+                  >
+                    New file
+                  </button>
+                )}
               </>
             ) : (
               <span className="muted">Repository files</span>
@@ -331,6 +359,78 @@ function CodeBrowser({
           <ErrorMessage error={tree.error} />
           {tree.loading ? (
             <Loading />
+          ) : editing ? (
+            <form
+              className="web-editor"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSaving(true);
+                setEditError("");
+                const data = new FormData(event.currentTarget);
+                try {
+                  await api(`${endpoint}/contents`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                      branch,
+                      path: editPath,
+                      content: draft,
+                      message: data.get("message"),
+                      expected_head: tree.data?.sha,
+                    }),
+                  });
+                  setEditing(false);
+                  setPath(editPath);
+                  setVersion((value) => value + 1);
+                } catch (error) {
+                  setEditError((error as Error).message);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              <ErrorMessage error={editError} />
+              <div className="editor-heading">
+                <label>
+                  File path
+                  <input
+                    value={editPath}
+                    onChange={(event) => setEditPath(event.target.value)}
+                    maxLength={4096}
+                    required
+                    autoFocus
+                  />
+                </label>
+              </div>
+              <label>
+                File contents
+                <textarea
+                  className="code-editor"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  maxLength={524288}
+                  rows={18}
+                />
+              </label>
+              <label>
+                Commit message
+                <input name="message" maxLength={200} required />
+              </label>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => setEditing(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="button primary"
+                  disabled={saving || !editPath.trim()}
+                >
+                  <Save size={15} /> {saving ? "Saving…" : "Save commit"}
+                </button>
+              </div>
+            </form>
           ) : tree.data?.content !== undefined ? (
             <div className="blob-view">
               <div className="blob-header">
@@ -343,6 +443,19 @@ function CodeBrowser({
                   text={tree.data.content}
                   label="Copy file contents"
                 />
+                {repo.can_write && !repo.archived && (
+                  <button
+                    className="button small-button"
+                    onClick={() => {
+                      setEditPath(path);
+                      setDraft(tree.data!.content || "");
+                      setEditError("");
+                      setEditing(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                )}
               </div>
               <pre>
                 {tree.data.content.split("\n").map((line, i) => (

@@ -51,6 +51,27 @@ test("account security, project collaboration, Git transport, and responsive nav
       exact: true,
     }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page
+    .getByLabel("File contents")
+    .fill(
+      "# first-project\n\nWelcome to your new repository on GITOWN.\n\nEdited safely in the browser.\n",
+    );
+  await page.getByLabel("Commit message").fill("Improve the README in GITOWN");
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes(`/api/v1/repos/${username}/first-project/contents`) &&
+        response.request().method() === "PUT" &&
+        response.ok(),
+    ),
+    page.getByRole("button", { name: "Save commit", exact: true }).click(),
+  ]);
+  await expect(
+    page.getByText("Edited safely in the browser.", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Description")

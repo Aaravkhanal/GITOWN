@@ -22,6 +22,7 @@ const MaxBlob = 512 << 10
 
 var ErrTooLarge = errors.New("Git output exceeds display limit")
 var ErrNotFound = errors.New("ref or path does not exist")
+var ErrConflict = errors.New("branch changed")
 var identifier = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
 
 type Store struct {
@@ -92,6 +93,10 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 }
 
 func (s *Store) Run(ctx context.Context, id string, input io.Reader, args ...string) ([]byte, error) {
+	return s.run(ctx, id, input, nil, args...)
+}
+
+func (s *Store) run(ctx context.Context, id string, input io.Reader, extraEnv []string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	select {
@@ -101,7 +106,7 @@ func (s *Store) Run(ctx context.Context, id string, input io.Reader, args ...str
 		return nil, ctx.Err()
 	}
 	cmd := exec.CommandContext(ctx, s.Binary, append([]string{"--git-dir=" + s.Path(id)}, args...)...)
-	cmd.Env = Environment()
+	cmd.Env = append(Environment(), extraEnv...)
 	cmd.Stdin = input
 	var stdout, stderr boundedBuffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -110,6 +115,70 @@ func (s *Store) Run(ctx context.Context, id string, input io.Reader, args ...str
 		return nil, fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return stdout.Bytes(), nil
+}
+
+func validFilePath(path string) bool {
+	if path == "" || len(path) > 4096 || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") || strings.ContainsAny(path, "\x00\r\n\\") || !utf8.ValidString(path) {
+		return false
+	}
+	for _, part := range strings.Split(path, "/") {
+		if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") {
+			return false
+		}
+	}
+	return true
+}
+
+// CommitFile creates a normal Git commit and advances the branch with a
+// compare-and-swap. Concurrent pushes therefore win or return ErrConflict;
+// browser edits never overwrite a branch head they did not inspect.
+func (s *Store) CommitFile(ctx context.Context, id, branch, path string, content []byte, message, username, email, expectedHead string) (string, error) {
+	if !validFilePath(path) || len(content) > MaxBlob || strings.TrimSpace(message) == "" {
+		return "", ErrNotFound
+	}
+	head, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return "", err
+	}
+	if head != expectedHead {
+		return "", ErrConflict
+	}
+	index, err := os.CreateTemp(s.Root, "gitown-index-*")
+	if err != nil {
+		return "", err
+	}
+	indexPath := index.Name()
+	if err = index.Close(); err != nil {
+		return "", err
+	}
+	if err = os.Remove(indexPath); err != nil {
+		return "", err
+	}
+	defer os.Remove(indexPath)
+	env := []string{"GIT_INDEX_FILE=" + indexPath}
+	if _, err = s.run(ctx, id, nil, env, "read-tree", head); err != nil {
+		return "", err
+	}
+	blob, err := s.Run(ctx, id, bytes.NewReader(content), "hash-object", "-w", "--stdin")
+	if err != nil {
+		return "", err
+	}
+	entry := []byte("100644 " + strings.TrimSpace(string(blob)) + "\t" + path + "\x00")
+	if _, err = s.run(ctx, id, bytes.NewReader(entry), env, "update-index", "-z", "--index-info"); err != nil {
+		return "", err
+	}
+	tree, err := s.run(ctx, id, nil, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	commit, err := s.Commit(ctx, id, strings.TrimSpace(string(tree)), []string{head}, message, username, email)
+	if err != nil {
+		return "", err
+	}
+	if _, err = s.Run(ctx, id, nil, "update-ref", "refs/heads/"+branch, commit, expectedHead); err != nil {
+		return "", ErrConflict
+	}
+	return commit, nil
 }
 
 func (s *Store) Init(ctx context.Context, id, name, username, email string, readme bool) error {

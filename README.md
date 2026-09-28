@@ -6,6 +6,7 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 
 This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
+The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works
@@ -15,7 +16,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Personal access tokens with read or write scopes, 30-day expiration, and revocation.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
-- Branch selection, file/directory browsing, text previews, README text, and commit history.
+- Branch selection, file/directory browsing, browser file creation/editing with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository pull requests with close/reopen, discussions, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
 - Issue creation, descriptions, close/reopen, chronological discussions, reusable colored labels, and activity history.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
