@@ -238,6 +238,12 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.locator(".assigned-label .label-chip", { hasText: "idea" }),
   ).toBeVisible();
+  await page.getByLabel("Assign person").selectOption(username);
+  await expect(
+    page
+      .getByRole("region", { name: "Issue assignees" })
+      .getByText(`@${username}`),
+  ).toBeVisible();
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("I can discuss this issue.")).toBeVisible();

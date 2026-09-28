@@ -57,6 +57,10 @@ export type IssueComment = {
   author: string;
   created_at: string;
 };
+export type IssueAssignees = {
+  assigned: Pick<User, "username" | "display_name">[];
+  available: Pick<User, "username" | "display_name">[];
+};
 export type Label = {
   id: string;
   name: string;

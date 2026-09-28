@@ -379,6 +379,14 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
+	var assignees IssueAssignees
+	owner.request("PUT", "/repos/owner/project/issues/1/assignees", map[string]any{"usernames": []string{"owner", "other"}}, 200, &assignees)
+	if len(assignees.Assigned) != 2 {
+		t.Fatalf("issue assignees were not saved: %+v", assignees)
+	}
+	owner.request("GET", "/repos/owner/project/issues/1/assignees", nil, 200, &assignees)
+	owner.request("PUT", "/repos/owner/project/issues/1/assignees", map[string]any{"usernames": []string{"missing"}}, 422, nil)
+	owner.request("GET", "/repos/owner/project/issues/999/assignees", nil, 404, nil)
 	var bugLabel Label
 	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "bug", "color": "#d73a4a", "description": "Something is not working"}, 201, &bugLabel)
 	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "BUG", "color": "d73a4a"}, 409, nil)

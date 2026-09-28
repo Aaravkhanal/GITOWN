@@ -673,6 +673,46 @@ paths:
                 type: object
                 properties:
                   state: { type: string, enum: [open, closed] }
+  /repos/{owner}/{repo}/issues/{number}/assignees:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { $ref: "#/components/parameters/Number" }
+    get:
+      security: []
+      summary: List assigned and eligible repository members
+      responses:
+        "200":
+          description: Issue assignment choices
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueAssignees" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace issue assignees with up to 10 repository members
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usernames]
+              properties:
+                usernames:
+                  type: array
+                  maxItems: 10
+                  uniqueItems: true
+                  items: { type: string }
+      responses:
+        "200":
+          description: Updated assignment choices
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueAssignees" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues/{number}/comments:
     parameters:
       [
@@ -1185,6 +1225,20 @@ components:
         body: { type: string }
         author: { type: string }
         created_at: { type: string, format: date-time }
+    PublicUser:
+      type: object
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+    IssueAssignees:
+      type: object
+      properties:
+        assigned:
+          type: array
+          items: { $ref: "#/components/schemas/PublicUser" }
+        available:
+          type: array
+          items: { $ref: "#/components/schemas/PublicUser" }
     Label:
       type: object
       properties:

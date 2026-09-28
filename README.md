@@ -18,7 +18,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository Unite requests with close/reopen, discussions, formal approve/request-changes reviews tied to exact head commits, owner-configured Merge Guards for fresh approvals and change requests, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
-- Issue creation, descriptions, close/reopen, chronological discussions, reusable colored labels, and activity history.
+- Issue creation, descriptions, close/reopen, assignees, chronological discussions, reusable colored labels, and activity history.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 - A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.
 

@@ -18,9 +18,9 @@ Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, bla
 
 ## Phase 3 — Collaboration and protected delivery (partial)
 
-Shipped foundation: issues, labels and discussions; same-repository Unite requests, diffs, discussions, close/reopen, formal approve/request-changes reviews with stale-head visibility, per-branch Merge Guards requiring fresh approvals and blocking current change requests, merge commits, expected-SHA checks, and interrupted-merge recovery.
+Shipped foundation: issues, assignees, labels and discussions; same-repository Unite requests, diffs, discussions, close/reopen, formal approve/request-changes reviews with stale-head visibility, per-branch Merge Guards requiring fresh approvals and blocking current change requests, merge commits, expected-SHA checks, and interrupted-merge recovery.
 
-Remaining gate: inline reviews, assignees, milestones, mentions, subscriptions, notifications, direct-push rules, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
+Remaining gate: inline reviews, milestones, mentions, subscriptions, notifications, direct-push rules, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
 
 ## Later phases (planned)
 

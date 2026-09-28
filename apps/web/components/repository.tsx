@@ -44,6 +44,7 @@ import {
   type Tree,
   type Issue,
   type IssueComment,
+  type IssueAssignees,
   type Label,
   type Pull,
   type PullDetail,
@@ -1448,6 +1449,11 @@ function IssueList({
                     labels={labels.data || []}
                     canTriage={canTriage}
                   />
+                  <IssueAssigneePicker
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    canTriage={canTriage}
+                  />
                   {canTriage && (
                     <button
                       disabled={busy}
@@ -1486,6 +1492,84 @@ function IssueList({
         </div>
       )}
     </>
+  );
+}
+
+function IssueAssigneePicker({
+  endpoint,
+  issueNumber,
+  canTriage,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  canTriage: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/issues/${issueNumber}/assignees`;
+  const people = useData<IssueAssignees>(path, version);
+  const save = async (usernames: string[]) => {
+    setError("");
+    try {
+      await put<IssueAssignees>(path, { usernames });
+      setVersion((value) => value + 1);
+    } catch (saveError) {
+      setError((saveError as Error).message);
+    }
+  };
+  return (
+    <section className="issue-labels" aria-label="Issue assignees">
+      <h4>Assignees</h4>
+      <ErrorMessage error={error || people.error} />
+      <div className="assigned-labels">
+        {people.data?.assigned.map((user) => (
+          <span className="assigned-label" key={user.username}>
+            <Badge>@{user.username}</Badge>
+            {canTriage && (
+              <button
+                aria-label={`Unassign ${user.username}`}
+                onClick={() =>
+                  save(
+                    people
+                      .data!.assigned.filter(
+                        (item) => item.username !== user.username,
+                      )
+                      .map((item) => item.username),
+                  )
+                }
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        {!people.loading && !people.data?.assigned.length && (
+          <span className="muted small-text">Nobody assigned.</span>
+        )}
+      </div>
+      {canTriage && !!people.data?.available.length && (
+        <label className="label-picker">
+          Assign person
+          <select
+            value=""
+            onChange={(event) => {
+              if (!event.target.value || !people.data) return;
+              void save([
+                ...people.data.assigned.map((item) => item.username),
+                event.target.value,
+              ]);
+            }}
+          >
+            <option value="">Choose a collaborator…</option>
+            {people.data.available.map((user) => (
+              <option key={user.username} value={user.username}>
+                {user.display_name} (@{user.username})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+    </section>
   );
 }
 
