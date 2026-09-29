@@ -6,6 +6,48 @@ import { ArrowUpRight, FolderGit2 } from "lucide-react";
 import { date, put, type Profile, type PublicRepository } from "@/lib/api";
 import { Avatar, Badge, ErrorMessage, Loading, useData } from "./ui";
 
+function EmailPreference() {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const preference = useData<{ email_notifications: string }>(
+    "/user/email-notifications",
+    version,
+  );
+  if (preference.loading) return <Loading />;
+  return (
+    <section className="panel form-panel">
+      <h2>Email updates</h2>
+      <p>
+        Immediate mail is delivered when an SMTP server is configured.
+        Otherwise GITOWN keeps a delivery record. Digest groups messages, and
+        off stops email.
+      </p>
+      <ErrorMessage error={error || preference.error} />
+      <label>
+        Delivery
+        <select
+          value={preference.data?.email_notifications || "immediate"}
+          onChange={async (event) => {
+            setError("");
+            try {
+              await put("/user/email-notifications", {
+                email_notifications: event.target.value,
+              });
+              setVersion((value) => value + 1);
+            } catch (saveError) {
+              setError((saveError as Error).message);
+            }
+          }}
+        >
+          <option value="immediate">Immediate</option>
+          <option value="digest">Digest</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+    </section>
+  );
+}
+
 function RepositoryCards({
   username,
   repositories,
@@ -113,6 +155,19 @@ export function PublicProfile({
       <ErrorMessage error={followError} />
       <section className="panel profile-summary">
         <p>{person.bio || "This builder has not added a bio yet."}</p>
+        {person.skills && <p>Skills: {person.skills}</p>}
+        {person.availability && <p>Availability: {person.availability}</p>}
+        {person.open_to_collaborators && <Badge kind="green">Open to collaborators</Badge>}
+        {!!person.badges?.length && (
+          <p>{person.badges.map((badge) => <Badge key={badge}>{badge}</Badge>)}</p>
+        )}
+        {person.contributions && (
+          <p className="muted small-text">
+            {person.contributions.merged_unites} merged Unite requests ·{" "}
+            {person.contributions.approvals} approvals ·{" "}
+            {person.contributions.closed_issues} closed issues
+          </p>
+        )}
         {person.location && <span>{person.location}</span>}
         {person.website && (
           <a href={person.website} target="_blank" rel="noopener noreferrer">
@@ -201,6 +256,9 @@ export function ProfileSettings({ username }: { username: string }) {
               bio: data.get("bio"),
               website: data.get("website"),
               location: data.get("location"),
+              skills: data.get("skills"),
+              availability: data.get("availability"),
+              open_to_collaborators: data.get("open_to_collaborators") === "on",
             });
             setNotice("Profile saved.");
             setVersion((value) => value + 1);
@@ -248,12 +306,33 @@ export function ProfileSettings({ username }: { username: string }) {
             placeholder="https://example.com"
           />
         </label>
+        <label>
+          Skills
+          <input name="skills" defaultValue={profile.data.skills} maxLength={200} />
+        </label>
+        <label>
+          Availability
+          <input
+            name="availability"
+            defaultValue={profile.data.availability}
+            maxLength={200}
+          />
+        </label>
+        <label className="checkbox-row">
+          <input
+            name="open_to_collaborators"
+            type="checkbox"
+            defaultChecked={profile.data.open_to_collaborators}
+          />
+          Open to collaborators
+        </label>
         <div className="form-actions">
           <button className="button primary" disabled={busy}>
             Save profile
           </button>
         </div>
       </form>
+      <EmailPreference />
       <section className="panel form-panel" aria-label="Repository showcase">
         <h2>Repository showcase</h2>
         <p>

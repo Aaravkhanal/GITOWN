@@ -16,7 +16,7 @@ func receivePacket(payload string) string {
 func TestInspectReceiveCommands(t *testing.T) {
 	zero := strings.Repeat("0", 40)
 	sha := strings.Repeat("a", 40)
-	protected := map[string]bool{"main": true}
+	protected := map[string]string{"main": "unite"}
 	makeBody := func(branch string) []byte {
 		return []byte(receivePacket(zero+" "+sha+" refs/heads/"+branch+"\x00report-status\n") + "0000PACKdata")
 	}
@@ -33,11 +33,11 @@ func TestInspectReceiveCommands(t *testing.T) {
 		{name: "truncated command", body: []byte("0080short"), malformed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			replay, blocked, err := inspectReceiveCommands(bytes.NewReader(tc.body), tc.gzip, protected)
-			if blocked != tc.blocked || (err != nil) != tc.malformed {
-				t.Fatalf("blocked=%t err=%v", blocked, err)
+			replay, blocked, _, err := inspectReceiveCommands(bytes.NewReader(tc.body), tc.gzip, protected)
+			if (blocked != "") != tc.blocked || (err != nil) != tc.malformed {
+				t.Fatalf("blocked=%q err=%v", blocked, err)
 			}
-			if err == nil && !blocked {
+			if err == nil && blocked == "" {
 				got, err := io.ReadAll(replay)
 				if err != nil || !bytes.Equal(got, tc.body) {
 					t.Fatalf("replayed request differs: %v", err)
@@ -53,9 +53,9 @@ func TestInspectReceiveCommands(t *testing.T) {
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}
-	replay, blocked, err := inspectReceiveCommands(bytes.NewReader(compressed.Bytes()), true, protected)
-	if err != nil || blocked {
-		t.Fatalf("gzip request: blocked=%t err=%v", blocked, err)
+	replay, blocked, _, err := inspectReceiveCommands(bytes.NewReader(compressed.Bytes()), true, protected)
+	if err != nil || blocked != "" {
+		t.Fatalf("gzip request: blocked=%q err=%v", blocked, err)
 	}
 	got, err := io.ReadAll(replay)
 	if err != nil || !bytes.Equal(got, compressed.Bytes()) {

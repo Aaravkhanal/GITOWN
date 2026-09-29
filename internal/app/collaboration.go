@@ -15,13 +15,18 @@ import (
 )
 
 type Issue struct {
-	ID        string    `json:"id"`
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	State     string    `json:"state"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string     `json:"id"`
+	Number    int        `json:"number"`
+	Title     string     `json:"title"`
+	Body      string     `json:"body"`
+	State     string     `json:"state"`
+	Author    string     `json:"author"`
+	CreatedAt time.Time  `json:"created_at"`
+	Pinned    bool       `json:"pinned"`
+	Priority  string     `json:"priority"`
+	Iteration string     `json:"iteration"`
+	Estimate  *int       `json:"estimate"`
+	DueDate   *time.Time `json:"due_date"`
 }
 
 type IssueComment struct {
@@ -53,6 +58,8 @@ type Pull struct {
 	MergeSHA     *string   `json:"merge_sha"`
 	ExpectedBase *string   `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
+	Draft        bool      `json:"draft"`
+	MergeMethod  *string   `json:"merge_method"`
 }
 
 type PullComment struct {
@@ -63,20 +70,22 @@ type PullComment struct {
 }
 
 type PullReview struct {
-	ID        string    `json:"id"`
-	State     string    `json:"state"`
-	Body      string    `json:"body"`
-	Reviewer  string    `json:"reviewer"`
-	HeadSHA   string    `json:"head_sha"`
-	Stale     bool      `json:"stale"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	State           string    `json:"state"`
+	Body            string    `json:"body"`
+	Reviewer        string    `json:"reviewer"`
+	HeadSHA         string    `json:"head_sha"`
+	Stale           bool      `json:"stale"`
+	Dismissed       bool      `json:"dismissed"`
+	DismissalReason string    `json:"dismissal_reason,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
-const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at`
+const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at,p.draft,p.merge_method`
 
 func scanPull(row scanner) (Pull, error) {
 	var p Pull
-	err := row.Scan(&p.ID, &p.Number, &p.Title, &p.Body, &p.State, &p.Author, &p.Base, &p.Head, &p.MergeSHA, &p.ExpectedBase, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Number, &p.Title, &p.Body, &p.State, &p.Author, &p.Base, &p.Head, &p.MergeSHA, &p.ExpectedBase, &p.CreatedAt, &p.Draft, &p.MergeMethod)
 	return p, err
 }
 
@@ -85,7 +94,20 @@ func (a *App) issues(w http.ResponseWriter, r *http.Request) {
 	if repo == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT i.id,i.number,i.title,i.body,i.state,u.username,i.created_at FROM issues i JOIN users u ON u.id=i.author_id WHERE repository_id=$1 ORDER BY number DESC LIMIT 100`, repo.ID)
+	state := r.URL.Query().Get("state")
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	label := strings.TrimSpace(r.URL.Query().Get("label"))
+	assignee := strings.TrimSpace(r.URL.Query().Get("assignee"))
+	if (state != "" && state != "open" && state != "closed") || len(q) > 100 || len(label) > 50 || (assignee != "" && !slug.MatchString(assignee)) {
+		fail(w, 422, "validation_failed", "Filter by open or closed, a query up to 100 characters, a label, and an assignee username.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT i.id,i.number,i.title,i.body,i.state,u.username,i.created_at,i.pinned,i.priority,i.iteration,i.estimate,i.due_date FROM issues i JOIN users u ON u.id=i.author_id WHERE repository_id=$1
+		AND ($2='' OR i.state=$2)
+		AND ($3='' OR strpos(lower(i.title||' '||i.body), lower($3))>0)
+		AND ($4='' OR EXISTS(SELECT 1 FROM issue_labels il JOIN labels l ON l.id=il.label_id WHERE il.issue_id=i.id AND lower(l.name)=lower($4)))
+		AND ($5='' OR EXISTS(SELECT 1 FROM issue_assignees ia JOIN users au ON au.id=ia.user_id WHERE ia.issue_id=i.id AND au.username=$5))
+		ORDER BY i.pinned DESC, number DESC LIMIT 100`, repo.ID, state, q, label, assignee)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -94,7 +116,7 @@ func (a *App) issues(w http.ResponseWriter, r *http.Request) {
 	items := []Issue{}
 	for rows.Next() {
 		var i Issue
-		if err := rows.Scan(&i.ID, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.CreatedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.CreatedAt, &i.Pinned, &i.Priority, &i.Iteration, &i.Estimate, &i.DueDate); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -369,6 +391,10 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = notifyIssue(r.Context(), tx, issueID, u.ID, "issue_comment"); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, comment.Body, issueID, "", comment.ID); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -677,6 +703,7 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		Body  string `json:"body"`
 		Base  string `json:"base_branch"`
 		Head  string `json:"head_branch"`
+		Draft bool   `json:"draft"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -709,8 +736,8 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	p := Pull{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username, Base: in.Base, Head: in.Head}
-	err = tx.QueryRow(r.Context(), `INSERT INTO pull_requests(id,repository_id,number,author_id,title,body,base_branch,head_branch) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5,$6,$7 FROM pull_requests WHERE repository_id=$2 RETURNING number,created_at`, p.ID, repo.ID, u.ID, p.Title, p.Body, p.Base, p.Head).Scan(&p.Number, &p.CreatedAt)
+	p := Pull{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username, Base: in.Base, Head: in.Head, Draft: in.Draft}
+	err = tx.QueryRow(r.Context(), `INSERT INTO pull_requests(id,repository_id,number,author_id,title,body,base_branch,head_branch,draft) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5,$6,$7,$8 FROM pull_requests WHERE repository_id=$2 RETURNING number,created_at`, p.ID, repo.ID, u.ID, p.Title, p.Body, p.Base, p.Head, p.Draft).Scan(&p.Number, &p.CreatedAt)
 	if conflict(err) {
 		fail(w, 409, "pull_exists", "An open pull request already exists for these branches.")
 		return
@@ -720,6 +747,10 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_subscriptions(pull_request_id,user_id) VALUES($1,$2)`, p.ID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'opened',$3)`, p.ID, u.ID, p.Title); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -761,6 +792,7 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
 	diff := ""
 	diffError := ""
+	diffTruncated := false
 	mergeable := false
 	if e1 == nil && e2 == nil {
 		rangeSpec := base + "..." + head
@@ -771,7 +803,7 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			diffError = "Diff is unavailable or exceeds the display limit. Inspect the branches with Git."
 		} else {
-			diff = string(output)
+			diff, diffTruncated = pageLines(r, string(output))
 		}
 		if p.State == "open" {
 			_, err = a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
@@ -782,7 +814,7 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 	}
 	u := a.user(r)
 	canReview := u != nil && repo.CanWrite && u.Username != p.Author && p.State == "open"
-	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_error": diffError, "mergeable": mergeable, "can_review": canReview})
+	respond(w, 200, map[string]any{"pull": p, "head_sha": head, "base_sha": base, "diff": diff, "diff_truncated": diffTruncated, "diff_error": diffError, "mergeable": mergeable, "can_review": canReview})
 }
 
 func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
@@ -803,11 +835,16 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		State string `json:"state"`
+		Draft *bool  `json:"draft"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if in.State != "open" && in.State != "closed" {
+	if in.State == "" && in.Draft == nil {
+		fail(w, 422, "validation_failed", "Provide a state or draft flag.")
+		return
+	}
+	if in.State != "" && in.State != "open" && in.State != "closed" {
 		fail(w, 422, "validation_failed", "State must be open or closed.")
 		return
 	}
@@ -822,29 +859,46 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `UPDATE pull_requests SET state=$1 WHERE id=$2`, in.State, p.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if p.State != in.State {
-		kind := "pull_closed"
-		if in.State == "open" {
-			kind = "pull_reopened"
-		}
-		if err = notifyPull(r.Context(), tx, p.ID, u.ID, kind); err != nil {
+	if in.State != "" {
+		if _, err = tx.Exec(r.Context(), `UPDATE pull_requests SET state=$1 WHERE id=$2`, in.State, p.ID); err != nil {
 			serverError(w, err)
 			return
 		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+			serverError(w, err)
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind) VALUES($1,$2,$3)`, p.ID, u.ID, in.State); err != nil {
+			serverError(w, err)
+			return
+		}
+		if p.State != in.State {
+			kind := "pull_closed"
+			if in.State == "open" {
+				kind = "pull_reopened"
+			}
+			if err = notifyPull(r.Context(), tx, p.ID, u.ID, kind); err != nil {
+				serverError(w, err)
+				return
+			}
+		}
+		p.State = in.State
+	}
+	if in.Draft != nil {
+		if _, err = tx.Exec(r.Context(), `UPDATE pull_requests SET draft=$1 WHERE id=$2`, *in.Draft, p.ID); err != nil {
+			serverError(w, err)
+			return
+		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'draft',$3)`, p.ID, u.ID, strconv.FormatBool(*in.Draft)); err != nil {
+			serverError(w, err)
+			return
+		}
+		p.Draft = *in.Draft
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
 	}
-	p.State = in.State
 	respond(w, 200, p)
 }
 
@@ -923,6 +977,14 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, comment.Body, "", p.ID, comment.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'comment',$3)`, p.ID, u.ID, comment.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.commented',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -944,7 +1006,7 @@ func (a *App) pullReviews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	currentHead, _ := a.git.Resolve(r.Context(), repo.ID, p.Head)
-	rows, err := a.db.Query(r.Context(), `SELECT rv.id,rv.state,rv.body,u.username,rv.head_sha,rv.created_at FROM pull_reviews rv JOIN users u ON u.id=rv.reviewer_id WHERE rv.pull_request_id=$1 ORDER BY rv.created_at,rv.id LIMIT 200`, p.ID)
+	rows, err := a.db.Query(r.Context(), `SELECT rv.id,rv.state,rv.body,u.username,rv.head_sha,rv.dismissed_at IS NOT NULL,rv.dismissal_reason,rv.created_at FROM pull_reviews rv JOIN users u ON u.id=rv.reviewer_id WHERE rv.pull_request_id=$1 ORDER BY rv.created_at,rv.id LIMIT 200`, p.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -953,7 +1015,7 @@ func (a *App) pullReviews(w http.ResponseWriter, r *http.Request) {
 	reviews := []PullReview{}
 	for rows.Next() {
 		var review PullReview
-		if err = rows.Scan(&review.ID, &review.State, &review.Body, &review.Reviewer, &review.HeadSHA, &review.CreatedAt); err != nil {
+		if err = rows.Scan(&review.ID, &review.State, &review.Body, &review.Reviewer, &review.HeadSHA, &review.Dismissed, &review.DismissalReason, &review.CreatedAt); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -1027,6 +1089,10 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,$3,$4)`, p.ID, u.ID, "review."+review.State, review.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull.reviewed."+review.State, fmt.Sprintf("%s/%s#%d@%s", repo.Owner, repo.Name, p.Number, currentHead)); err != nil {
 		serverError(w, err)
 		return
@@ -1045,8 +1111,10 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 	}
 	u := a.user(r)
 	var in struct {
-		HeadSHA string `json:"head_sha"`
-		BaseSHA string `json:"base_sha"`
+		HeadSHA      string `json:"head_sha"`
+		BaseSHA      string `json:"base_sha"`
+		Method       string `json:"method"`
+		DeleteBranch bool   `json:"delete_branch"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1099,7 +1167,7 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := a.finishMerge(r.Context(), conn, *p, *repo, *u); err != nil {
+		if err := a.finishMerge(r.Context(), conn, *p, *repo, *u, ""); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -1111,39 +1179,73 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "not_open", "This pull request is not open.")
 		return
 	}
+	method := in.Method
+	if method == "" {
+		method = "merge"
+	}
+	if method != "merge" && method != "squash" && method != "rebase" {
+		fail(w, 422, "validation_failed", "Merge method must be merge, squash, or rebase.")
+		return
+	}
+	if p.Draft {
+		fail(w, 409, "draft_pull", "Mark the unite request ready before merging it.")
+		return
+	}
 	base, e1 := a.git.Resolve(r.Context(), repo.ID, p.Base)
 	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
 	if e1 != nil || e2 != nil || head != in.HeadSHA || base != in.BaseSHA {
 		fail(w, 409, "stale_branches", "A branch changed. Refresh the pull request before merging.")
 		return
 	}
-	if !a.enforceReviewRule(w, r, repo, p, head) {
+	if !a.enforceReviewRule(w, r, repo, p, base, head) {
 		return
 	}
-	tree, err := a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
-	if err != nil {
-		fail(w, 409, "merge_conflict", "Resolve merge conflicts locally and push the branch again.")
-		return
+	var sha string
+	if method == "rebase" {
+		sha, err = a.git.Rebase(r.Context(), repo.ID, base, head, u.DisplayName, u.Username+"@users.gitown.local")
+		if err != nil {
+			fail(w, 409, "merge_conflict", "The rebase has conflicts. Resolve them locally and push the branch again.")
+			return
+		}
+	} else {
+		tree, treeErr := a.git.Run(r.Context(), repo.ID, nil, "merge-tree", "--write-tree", base, head)
+		if treeErr != nil {
+			fail(w, 409, "merge_conflict", "Resolve merge conflicts locally and push the branch again.")
+			return
+		}
+		treeSHA := strings.SplitN(strings.TrimSpace(string(tree)), "\n", 2)[0]
+		message := fmt.Sprintf("Merge pull request #%d: %s", p.Number, p.Title)
+		parents := []string{base, head}
+		if method == "squash" {
+			message = fmt.Sprintf("%s (#%d)", p.Title, p.Number)
+			if strings.TrimSpace(p.Body) != "" {
+				message += "\n\n" + p.Body
+			}
+			parents = []string{base}
+		}
+		sha, err = a.git.Commit(r.Context(), repo.ID, treeSHA, parents, message, u.DisplayName, u.Username+"@users.gitown.local")
 	}
-	treeSHA := strings.SplitN(strings.TrimSpace(string(tree)), "\n", 2)[0]
-	sha, err := a.git.Commit(r.Context(), repo.ID, treeSHA, []string{base, head}, fmt.Sprintf("Merge pull request #%d: %s", p.Number, p.Title), u.DisplayName, u.Username+"@users.gitown.local")
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	// Persist the intent before touching refs, so a failed final DB write is recoverable.
-	_, err = conn.Exec(r.Context(), `UPDATE pull_requests SET state='merging',merge_sha=$1,expected_base_sha=$2 WHERE id=$3`, sha, base, p.ID)
+	_, err = conn.Exec(r.Context(), `UPDATE pull_requests SET state='merging',merge_sha=$1,expected_base_sha=$2,merge_method=$3 WHERE id=$4`, sha, base, method, p.ID)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	p.MergeSHA = &sha
 	p.ExpectedBase = &base
+	p.MergeMethod = &method
 	if _, err = a.git.Run(r.Context(), repo.ID, nil, "update-ref", "refs/heads/"+p.Base, sha, base); err != nil {
 		fail(w, 409, "merge_recovery", "The branch moved or the merge was interrupted. Refresh before retrying.")
 		return
 	}
-	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u); err != nil {
+	if in.DeleteBranch && p.Head != p.Base && p.Head != repo.DefaultBranch {
+		_, _ = a.git.Run(r.Context(), repo.ID, nil, "update-ref", "-d", "refs/heads/"+p.Head, head)
+	}
+	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u, method); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -1155,13 +1257,19 @@ type beginner interface {
 	Begin(context.Context) (pgx.Tx, error)
 }
 
-func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Repository, u User) error {
+func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Repository, u User, method string) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE pull_requests SET state='merged',merged_at=now() WHERE id=$1`, p.ID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE pull_requests SET state='merged',merged_at=now(),merge_method=COALESCE(NULLIF($2,''),merge_method) WHERE id=$1`, p.ID, method); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'merged',$3)`, p.ID, u.ID, method); err != nil {
+		return err
+	}
+	if err = a.closeReferencedIssues(ctx, tx, &repo, &p, &u); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.merged',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {

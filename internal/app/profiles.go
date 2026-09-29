@@ -18,18 +18,30 @@ type PublicRepository struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type Contributions struct {
+	MergedUnites       int `json:"merged_unites"`
+	Approvals          int `json:"approvals"`
+	ClosedIssues       int `json:"closed_issues"`
+	PublicRepositories int `json:"public_repositories"`
+}
+
 type Profile struct {
-	Username     string             `json:"username"`
-	DisplayName  string             `json:"display_name"`
-	Bio          string             `json:"bio"`
-	Website      string             `json:"website"`
-	Location     string             `json:"location"`
-	CreatedAt    time.Time          `json:"created_at"`
-	Followers    int                `json:"followers"`
-	Following    int                `json:"following"`
-	Followed     bool               `json:"followed"`
-	Showcase     []PublicRepository `json:"showcase"`
-	Repositories []PublicRepository `json:"repositories"`
+	Username            string             `json:"username"`
+	DisplayName         string             `json:"display_name"`
+	Bio                 string             `json:"bio"`
+	Website             string             `json:"website"`
+	Location            string             `json:"location"`
+	Skills              string             `json:"skills"`
+	Availability        string             `json:"availability"`
+	OpenToCollaborators bool               `json:"open_to_collaborators"`
+	CreatedAt           time.Time          `json:"created_at"`
+	Followers           int                `json:"followers"`
+	Following           int                `json:"following"`
+	Followed            bool               `json:"followed"`
+	Contributions       Contributions      `json:"contributions"`
+	Badges              []string           `json:"badges"`
+	Showcase            []PublicRepository `json:"showcase"`
+	Repositories        []PublicRepository `json:"repositories"`
 }
 
 func (a *App) profile(w http.ResponseWriter, r *http.Request) {
@@ -39,9 +51,9 @@ func (a *App) profile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var userID string
-	p := Profile{Showcase: []PublicRepository{}, Repositories: []PublicRepository{}}
-	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,bio,website,location,created_at FROM users WHERE username=$1`, username).
-		Scan(&userID, &p.Username, &p.DisplayName, &p.Bio, &p.Website, &p.Location, &p.CreatedAt)
+	p := Profile{Showcase: []PublicRepository{}, Repositories: []PublicRepository{}, Badges: []string{}}
+	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,bio,website,location,skills,availability,open_to_collaborators,created_at FROM users WHERE username=$1`, username).
+		Scan(&userID, &p.Username, &p.DisplayName, &p.Bio, &p.Website, &p.Location, &p.Skills, &p.Availability, &p.OpenToCollaborators, &p.CreatedAt)
 	if err == pgx.ErrNoRows {
 		fail(w, 404, "not_found", "Profile not found.")
 		return
@@ -61,6 +73,27 @@ func (a *App) profile(w http.ResponseWriter, r *http.Request) {
 		Scan(&p.Followers, &p.Following, &p.Followed); err != nil {
 		serverError(w, err)
 		return
+	}
+	if err = a.db.QueryRow(r.Context(), `SELECT
+		(SELECT count(*)::int FROM pull_requests p JOIN repositories r ON r.id=p.repository_id WHERE p.author_id=$1 AND p.state='merged' AND r.visibility='public' AND r.deleted_at IS NULL),
+		(SELECT count(*)::int FROM pull_reviews rv JOIN pull_requests p ON p.id=rv.pull_request_id JOIN repositories r ON r.id=p.repository_id WHERE rv.reviewer_id=$1 AND rv.state='approved' AND rv.dismissed_at IS NULL AND r.visibility='public' AND r.deleted_at IS NULL),
+		(SELECT count(*)::int FROM issues i JOIN repositories r ON r.id=i.repository_id WHERE i.author_id=$1 AND i.state='closed' AND r.visibility='public' AND r.deleted_at IS NULL),
+		(SELECT count(*)::int FROM repositories r WHERE r.owner_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL)`, userID).
+		Scan(&p.Contributions.MergedUnites, &p.Contributions.Approvals, &p.Contributions.ClosedIssues, &p.Contributions.PublicRepositories); err != nil {
+		serverError(w, err)
+		return
+	}
+	if p.Contributions.MergedUnites > 0 {
+		p.Badges = append(p.Badges, "Merged a Unite request")
+	}
+	if p.Contributions.Approvals > 0 {
+		p.Badges = append(p.Badges, "Reviewed a Unite request")
+	}
+	if p.Contributions.ClosedIssues > 0 {
+		p.Badges = append(p.Badges, "Closed an issue")
+	}
+	if p.Contributions.PublicRepositories > 0 {
+		p.Badges = append(p.Badges, "Maintains a public repository")
 	}
 	showcase, err := a.publicProfileRepositories(r, `SELECT r.id,r.name,r.description,(r.archived_at IS NOT NULL),r.created_at
 		FROM profile_repositories pr JOIN repositories r ON r.id=pr.repository_id
@@ -173,10 +206,13 @@ func (a *App) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		DisplayName string `json:"display_name"`
-		Bio         string `json:"bio"`
-		Website     string `json:"website"`
-		Location    string `json:"location"`
+		DisplayName         string  `json:"display_name"`
+		Bio                 string  `json:"bio"`
+		Website             string  `json:"website"`
+		Location            string  `json:"location"`
+		Skills              *string `json:"skills"`
+		Availability        *string `json:"availability"`
+		OpenToCollaborators *bool   `json:"open_to_collaborators"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -185,8 +221,16 @@ func (a *App) updateProfile(w http.ResponseWriter, r *http.Request) {
 	in.Bio = strings.TrimSpace(in.Bio)
 	in.Website = strings.TrimSpace(in.Website)
 	in.Location = strings.TrimSpace(in.Location)
-	if in.DisplayName == "" || len(in.DisplayName) > 80 || len(in.Bio) > 500 || len(in.Website) > 300 || len(in.Location) > 100 || !validProfileWebsite(in.Website) {
-		fail(w, 422, "validation_failed", "Use a display name up to 80 characters, bio up to 500, location up to 100, and an optional HTTPS website.")
+	if in.Skills != nil {
+		trimmed := strings.TrimSpace(*in.Skills)
+		in.Skills = &trimmed
+	}
+	if in.Availability != nil {
+		trimmed := strings.TrimSpace(*in.Availability)
+		in.Availability = &trimmed
+	}
+	if in.DisplayName == "" || len(in.DisplayName) > 80 || len(in.Bio) > 500 || len(in.Website) > 300 || len(in.Location) > 100 || !validProfileWebsite(in.Website) || (in.Skills != nil && len(*in.Skills) > 200) || (in.Availability != nil && len(*in.Availability) > 200) {
+		fail(w, 422, "validation_failed", "Use a display name up to 80 characters, bio up to 500, location up to 100, skills and availability up to 200, and an optional HTTPS website.")
 		return
 	}
 	tx, err := a.db.Begin(r.Context())
@@ -195,7 +239,7 @@ func (a *App) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `UPDATE users SET display_name=$1,bio=$2,website=$3,location=$4 WHERE id=$5`, in.DisplayName, in.Bio, in.Website, in.Location, u.ID); err != nil {
+	if _, err = tx.Exec(r.Context(), `UPDATE users SET display_name=$1,bio=$2,website=$3,location=$4,skills=COALESCE($5,skills),availability=COALESCE($6,availability),open_to_collaborators=COALESCE($7,open_to_collaborators) WHERE id=$8`, in.DisplayName, in.Bio, in.Website, in.Location, in.Skills, in.Availability, in.OpenToCollaborators, u.ID); err != nil {
 		serverError(w, err)
 		return
 	}

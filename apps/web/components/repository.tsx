@@ -69,6 +69,13 @@ import {
   useData,
 } from "./ui";
 import { BoardView } from "./board";
+import {
+  CommentEdit,
+  IssuePlanning,
+  OwnerDelivery,
+  SubscriptionMode,
+  UnitePanel,
+} from "./collaboration";
 
 export function RepositoryPage({
   owner,
@@ -899,6 +906,18 @@ function IssueTemplateSettings({
             />
           </label>
           <label>
+            Kind
+            <select
+              aria-label={`Template ${index + 1} kind`}
+              value={template.kind || "custom"}
+              onChange={(event) => update(index, "kind", event.target.value)}
+            >
+              <option value="custom">Custom</option>
+              <option value="bug">Bug</option>
+              <option value="feature">Feature</option>
+            </select>
+          </label>
+          <label>
             Suggested description
             <textarea
               aria-label={`Template ${index + 1} body`}
@@ -926,7 +945,10 @@ function IssueTemplateSettings({
           type="button"
           disabled={busy || archived || current.length >= 10}
           onClick={() =>
-            setDraft([...current, { name: "", title: "", body: "" }])
+            setDraft([
+              ...current,
+              { name: "", title: "", body: "", kind: "custom" },
+            ])
           }
         >
           Add issue template
@@ -1059,6 +1081,13 @@ function RepositorySettings({
         />
       )}
       <IssueTemplateSettings endpoint={endpoint} archived={repo.archived} />
+      {repo.can_manage && (
+        <OwnerDelivery
+          endpoint={endpoint}
+          homepage={repo.homepage}
+          stack={repo.stack}
+        />
+      )}
       <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       <div className="panel lifecycle-settings">
         <div className="section-heading">
@@ -1201,6 +1230,16 @@ function BranchRuleSettings({
               block_changes_requested:
                 data.get("block_changes_requested") === "on",
               require_unite: data.get("require_unite") === "on",
+              require_resolved: data.get("require_resolved") === "on",
+              require_up_to_date: data.get("require_up_to_date") === "on",
+              restrict_push: data.get("restrict_push") === "on",
+              require_signed: data.get("require_signed") === "on",
+              require_maintainer_approval:
+                data.get("require_maintainer_approval") === "on",
+              required_checks: String(data.get("required_checks") || "")
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
             },
           );
           setMessage("Branch rule saved.");
@@ -1273,6 +1312,60 @@ function BranchRuleSettings({
             />
             Require a Unite request; reject direct Git pushes and browser edits
             to this branch
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`resolved-${branch}-${version}`}
+              name="require_resolved"
+              type="checkbox"
+              defaultChecked={rule.data?.require_resolved ?? false}
+            />
+            Require conversations on the current head to be resolved
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`uptodate-${branch}-${version}`}
+              name="require_up_to_date"
+              type="checkbox"
+              defaultChecked={rule.data?.require_up_to_date ?? false}
+            />
+            Require the branch to contain the latest base commit
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`restrict-${branch}-${version}`}
+              name="restrict_push"
+              type="checkbox"
+              defaultChecked={rule.data?.restrict_push ?? false}
+            />
+            Only the owner or a maintainer can push or edit this branch
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`signed-${branch}-${version}`}
+              name="require_signed"
+              type="checkbox"
+              defaultChecked={rule.data?.require_signed ?? false}
+            />
+            Require signed commits on the Unite request
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`maintainer-${branch}-${version}`}
+              name="require_maintainer_approval"
+              type="checkbox"
+              defaultChecked={rule.data?.require_maintainer_approval ?? false}
+            />
+            Require an approval from the owner or a maintainer
+          </label>
+          <label>
+            Required check contexts
+            <input
+              key={`checks-${branch}-${version}`}
+              name="required_checks"
+              defaultValue={(rule.data?.required_checks || []).join(", ")}
+              placeholder="ci, lint"
+            />
           </label>
           {error && <div className="form-error">{error}</div>}
           {message && <div className="success-box">{message}</div>}
@@ -1488,13 +1581,18 @@ function IssueList({
   canComment: boolean;
 }) {
   const [version, setVersion] = useState(0);
-  const issues = useData<Issue[]>(`${endpoint}/issues`, version);
   const [showForm, setShowForm] = useState(false);
   const [showLabelForm, setShowLabelForm] = useState(false);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("open");
+  const [textQuery, setTextQuery] = useState("");
+  const [labelFilter, setLabelFilter] = useState("");
+  const issues = useData<Issue[]>(
+    `${endpoint}/issues?${new URLSearchParams({ q: textQuery, label: labelFilter })}`,
+    version,
+  );
   const [expanded, setExpanded] = useState<number | null>(null);
   const labels = useData<Label[]>(`${endpoint}/labels`, version);
   const milestones = useData<Milestone[]>(`${endpoint}/milestones`, version);
@@ -1552,6 +1650,26 @@ function IssueList({
             </button>
           </div>
         )}
+      </div>
+      <div className="filter-row">
+        <input
+          aria-label="Search issues"
+          placeholder="Search issues"
+          value={textQuery}
+          onChange={(event) => setTextQuery(event.target.value)}
+        />
+        <select
+          aria-label="Filter by label"
+          value={labelFilter}
+          onChange={(event) => setLabelFilter(event.target.value)}
+        >
+          <option value="">All labels</option>
+          {labels.data?.map((label) => (
+            <option key={label.id} value={label.name}>
+              {label.name}
+            </option>
+          ))}
+        </select>
       </div>
       <ErrorMessage
         error={error || issues.error || labels.error || milestones.error}
@@ -1855,6 +1973,15 @@ function IssueList({
               {expanded === issue.number && (
                 <div className="issue-body">
                   <p>{issue.body || "No description provided."}</p>
+                  {issue.pinned && <Badge>Pinned</Badge>}
+                  {issue.priority && issue.priority !== "none" && (
+                    <Badge>{issue.priority}</Badge>
+                  )}
+                  <IssuePlanning
+                    endpoint={endpoint}
+                    issue={issue}
+                    canTriage={canTriage}
+                  />
                   <IssueComments
                     endpoint={endpoint}
                     issueNumber={issue.number}
@@ -2106,36 +2233,19 @@ function IssueSubscription({
   canSubscribe: boolean;
   refreshVersion: number;
 }) {
-  const [version, setVersion] = useState(0);
-  const [error, setError] = useState("");
   const path = `${endpoint}/issues/${issueNumber}/subscription`;
-  const subscription = useData<{ subscribed: boolean }>(
-    path,
-    version + refreshVersion,
-  );
+  const subscription = useData<{ subscribed: boolean }>(path, refreshVersion);
   if (!canSubscribe) return null;
   return (
     <section className="issue-labels" aria-label="Issue updates">
       <h4>Updates</h4>
-      <ErrorMessage error={error || subscription.error} />
+      <ErrorMessage error={subscription.error} />
       <p className="muted small-text">
-        Get inbox updates when someone comments or changes this issue.
+        Get inbox updates when someone comments or changes this issue. Watch
+        receives every update, participate receives the ones you joined, and
+        ignore stays quiet.
       </p>
-      <button
-        className="button small-button"
-        disabled={subscription.loading}
-        onClick={async () => {
-          setError("");
-          try {
-            await put(path, { subscribed: !subscription.data?.subscribed });
-            setVersion((value) => value + 1);
-          } catch (saveError) {
-            setError((saveError as Error).message);
-          }
-        }}
-      >
-        {subscription.data?.subscribed ? "Unfollow issue" : "Follow issue"}
-      </button>
+      <SubscriptionMode path={path} version={refreshVersion} />
     </section>
   );
 }
@@ -2342,6 +2452,10 @@ function IssueComments({
                 <span>{date(comment.created_at)}</span>
               </div>
               <p>{comment.body}</p>
+              <CommentEdit
+                path={`${path}/${comment.id}`}
+                initial={comment.body}
+              />
             </article>
           ))}
         </div>
@@ -2448,6 +2562,7 @@ function PullRequestList({
                   body: data.get("body"),
                   base_branch: data.get("base_branch"),
                   head_branch: data.get("head_branch"),
+                  draft: data.get("draft") === "on",
                 });
                 router.push(`${repoPath(repo)}/pulls/${pull.number}`);
               } catch (error) {
@@ -2496,6 +2611,9 @@ function PullRequestList({
                 rows={4}
                 maxLength={20000}
               />
+            </label>
+            <label className="checkbox-row">
+              <input name="draft" type="checkbox" /> Create as a draft
             </label>
             <div className="form-actions">
               <button
@@ -2567,6 +2685,8 @@ function PullRequestDetail({
   const detail = useData<PullDetail>(`${endpoint}/pulls/${number}`, version);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [mergeMethod, setMergeMethod] = useState("merge");
+  const [deleteBranch, setDeleteBranch] = useState(false);
   if (detail.loading) return <Loading />;
   if (!detail.data) return <ErrorMessage error={detail.error} />;
   const { pull, mergeable, diff, diff_error } = detail.data;
@@ -2593,10 +2713,18 @@ function PullRequestDetail({
       </div>
       {pull.body && <div className="panel pull-description">{pull.body}</div>}
       <ErrorMessage error={error} />
+      {pull.draft && <Badge>Draft</Badge>}
       <PullSubscription
         endpoint={endpoint}
         number={number}
         canSubscribe={repo.can_comment}
+      />
+      <UnitePanel
+        endpoint={endpoint}
+        number={number}
+        canTriage={repo.can_triage}
+        canComment={repo.can_comment}
+        headSHA={detail.data.head_sha}
       />
       <PullDiscussion
         endpoint={endpoint}
@@ -2635,6 +2763,28 @@ function PullRequestDetail({
                 ? "Close unite request"
                 : "Reopen unite request"}
             </button>
+            {pull.state === "open" && (
+              <button
+                className="button small-button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await patch(`${endpoint}/pulls/${number}`, {
+                      draft: !pull.draft,
+                    });
+                    setVersion((value) => value + 1);
+                  } catch (saveError) {
+                    setError((saveError as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {pull.draft ? "Mark ready" : "Convert to draft"}
+              </button>
+            )}
           </div>
         )}
       <div className={`merge-panel ${pull.state === "merged" ? "merged" : ""}`}>
@@ -2667,10 +2817,36 @@ function PullRequestDetail({
         </div>
         {repo.can_write &&
           (pull.state === "open" || pull.state === "merging") && (
+            <div className="merge-choices">
+              <label>
+                Merge method
+                <select
+                  value={mergeMethod}
+                  onChange={(event) => setMergeMethod(event.target.value)}
+                  disabled={pull.state === "merging"}
+                >
+                  <option value="merge">Merge commit</option>
+                  <option value="squash">Squash</option>
+                  <option value="rebase">Rebase</option>
+                </select>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={deleteBranch}
+                  onChange={(event) => setDeleteBranch(event.target.checked)}
+                />
+                Delete the source branch after merging
+              </label>
             <button
-              disabled={busy || (!mergeable && pull.state !== "merging")}
+              disabled={
+                busy ||
+                pull.draft ||
+                (!mergeable && pull.state !== "merging")
+              }
               className="button primary"
               onClick={async () => {
+                if (pull.draft) return;
                 if (
                   !window.confirm(
                     `Merge unite request #${number} into ${pull.base_branch}?`,
@@ -2683,6 +2859,8 @@ function PullRequestDetail({
                   await post(`${endpoint}/pulls/${number}/merge`, {
                     head_sha: detail.data!.head_sha,
                     base_sha: detail.data!.base_sha,
+                    method: mergeMethod,
+                    delete_branch: deleteBranch,
                   });
                   setVersion((v) => v + 1);
                 } catch (error) {
@@ -2695,10 +2873,13 @@ function PullRequestDetail({
               <GitMerge size={16} />
               {busy
                 ? "Merging…"
-                : pull.state === "merging"
-                  ? "Recover merge"
-                  : "Merge unite request"}
+                : pull.draft
+                  ? "Drafts cannot merge"
+                  : pull.state === "merging"
+                    ? "Recover merge"
+                    : "Merge unite request"}
             </button>
+            </div>
           )}
       </div>
       <div className="section-heading">
@@ -2741,33 +2922,19 @@ function PullSubscription({
   number: string;
   canSubscribe: boolean;
 }) {
-  const [version, setVersion] = useState(0);
-  const [error, setError] = useState("");
   const path = `${endpoint}/pulls/${number}/subscription`;
-  const subscription = useData<{ subscribed: boolean }>(path, version);
+  const subscription = useData<{ subscribed: boolean }>(path);
   if (!canSubscribe) return null;
   return (
     <section className="issue-labels" aria-label="Unite updates">
       <h4>Updates</h4>
-      <ErrorMessage error={error || subscription.error} />
+      <ErrorMessage error={subscription.error} />
       <p className="muted small-text">
         Get inbox updates for comments, reviews, state changes, and merges.
+        Watch receives every update, participate receives the ones you joined,
+        and ignore stays quiet.
       </p>
-      <button
-        className="button small-button"
-        disabled={subscription.loading}
-        onClick={async () => {
-          setError("");
-          try {
-            await put(path, { subscribed: !subscription.data?.subscribed });
-            setVersion((value) => value + 1);
-          } catch (saveError) {
-            setError((saveError as Error).message);
-          }
-        }}
-      >
-        {subscription.data?.subscribed ? "Unfollow Unite" : "Follow Unite"}
-      </button>
+      <SubscriptionMode path={path} version={0} />
     </section>
   );
 }
@@ -2805,6 +2972,10 @@ function PullDiscussion({
                 <span>{date(comment.created_at)}</span>
               </div>
               <p>{comment.body}</p>
+              <CommentEdit
+                path={`${path}/${comment.id}`}
+                initial={comment.body}
+              />
             </article>
           ))}
         </div>

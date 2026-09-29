@@ -126,6 +126,26 @@ func (a *App) updateIssueAssignees(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	previous := map[string]bool{}
+	prows, err := tx.Query(r.Context(), `SELECT user_id::text FROM issue_assignees WHERE issue_id=$1`, issueID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	for prows.Next() {
+		var id string
+		if err = prows.Scan(&id); err != nil {
+			prows.Close()
+			serverError(w, err)
+			return
+		}
+		previous[id] = true
+	}
+	prows.Close()
+	if err = prows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `DELETE FROM issue_assignees WHERE issue_id=$1`, issueID); err != nil {
 		serverError(w, err)
 		return
@@ -148,6 +168,34 @@ func (a *App) updateIssueAssignees(w http.ResponseWriter, r *http.Request) {
 	names := append([]string(nil), in.Usernames...)
 	sort.Strings(names)
 	u := a.user(r)
+	crows, err := tx.Query(r.Context(), `SELECT user_id::text FROM issue_assignees WHERE issue_id=$1`, issueID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	var fresh []string
+	for crows.Next() {
+		var id string
+		if err = crows.Scan(&id); err != nil {
+			crows.Close()
+			serverError(w, err)
+			return
+		}
+		if !previous[id] {
+			fresh = append(fresh, id)
+		}
+	}
+	crows.Close()
+	if err = crows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	for _, id := range fresh {
+		if err = notifyDirect(r.Context(), tx, id, u.ID, repo.ID, issueID, "", "assignment", "assignment:issue:"+issueID+":"+id); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.assignees_updated',$2)`, u.ID, fmt.Sprintf("%s/%s#%d [%s]", repo.Owner, repo.Name, number, joinNames(names))); err != nil {
 		serverError(w, err)
 		return

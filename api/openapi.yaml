@@ -25,6 +25,7 @@ paths:
             in: query,
             schema: { type: integer, minimum: 0, maximum: 1000 },
           }
+        - { name: available, in: query, schema: { type: string, enum: ["1"] } }
       responses:
         "200":
           description: Up to 25 matching builders and a next-page flag
@@ -32,6 +33,73 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BuilderSearch" }
         "422": { $ref: "#/components/responses/Error" }
+  /search/work:
+    get:
+      security: []
+      summary: Search public issues and Unite requests
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - {
+            name: offset,
+            in: query,
+            schema: { type: integer, minimum: 0, maximum: 1000 },
+          }
+      responses:
+        "200":
+          description: Up to 25 matching work items
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkSearch" }
+        "422": { $ref: "#/components/responses/Error" }
+  /user/invitations:
+    get:
+      summary: List invitations addressed to the signed-in account
+      responses:
+        "200": { description: Invitations }
+  /user/invitations/{id}/accept:
+    post:
+      summary: Accept an invitation for the matching account
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Accepted }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/email-notifications:
+    get:
+      summary: Read email delivery preference
+      responses:
+        "200": { description: immediate, digest, or off }
+    put:
+      summary: Set email delivery to immediate, digest, or off
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Saved preference }
+  /email/unsubscribe:
+    get:
+      security: []
+      summary: Turn email off with a one-time unsubscribe token
+      parameters:
+        - { name: token, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Email turned off }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/threads:
+    get:
+      summary: List inline review conversations
+      responses:
+        "200": { description: Threads, including outdated and resolved state }
+    post:
+      summary: Comment on an exact file, side, and line of the current head
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Conversation created }
+        "409": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/planning:
+    put:
+      summary: Set pin, priority, estimate, due date, iteration, or duplicate
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Planning saved }
   /search/repositories:
     get:
       security: []
@@ -1483,7 +1551,7 @@ paths:
         { $ref: "#/components/parameters/Number" },
       ]
     post:
-      summary: Merge with a merge commit or resume a persisted merge intent (owner only)
+      summary: Merge, squash, or rebase a ready Unite request, or resume a persisted merge intent
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1495,6 +1563,8 @@ paths:
               properties:
                 head_sha: { type: string }
                 base_sha: { type: string }
+                method: { type: string, enum: [merge, squash, rebase] }
+                delete_branch: { type: boolean }
       responses:
         "200":
           description: Merged pull request; retries of already merged requests are idempotent
@@ -1723,6 +1793,24 @@ components:
         location: { type: string }
         followers: { type: integer, minimum: 0 }
         repositories: { type: integer, minimum: 0 }
+        open_to_collaborators: { type: boolean }
+    WorkSearch:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [issue, unite] }
+              owner: { type: string }
+              repository: { type: string }
+              number: { type: integer }
+              title: { type: string }
+              preview: { type: string }
+              state: { type: string }
+        has_more: { type: boolean }
     RepositorySearch:
       type: object
       required: [items, has_more]
@@ -1831,6 +1919,19 @@ components:
         bio: { type: string }
         website: { type: string }
         location: { type: string }
+        skills: { type: string, maxLength: 200 }
+        availability: { type: string, maxLength: 200 }
+        open_to_collaborators: { type: boolean }
+        contributions:
+          type: object
+          properties:
+            merged_unites: { type: integer, minimum: 0 }
+            approvals: { type: integer, minimum: 0 }
+            closed_issues: { type: integer, minimum: 0 }
+            public_repositories: { type: integer, minimum: 0 }
+        badges:
+          type: array
+          items: { type: string }
         created_at: { type: string, format: date-time }
         followers: { type: integer, minimum: 0 }
         following: { type: integer, minimum: 0 }
@@ -1848,6 +1949,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 80 }
         title: { type: string, maxLength: 200 }
         body: { type: string, maxLength: 10000 }
+        kind: { type: string, enum: [bug, feature, custom] }
     Issue:
       type: object
       properties:

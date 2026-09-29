@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,15 +32,17 @@ type Repository struct {
 	Role          string    `json:"role,omitempty"`
 	Archived      bool      `json:"archived"`
 	CloneURL      string    `json:"clone_url"`
+	Homepage      string    `json:"homepage"`
+	Stack         string    `json:"stack"`
 }
 
-const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL)`
+const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL),r.homepage,r.stack`
 
 type scanner interface{ Scan(...any) error }
 
 func scanRepo(row scanner) (Repository, error) {
 	var r Repository
-	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived)
+	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived, &r.Homepage, &r.Stack)
 	return r, err
 }
 func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
@@ -466,7 +469,7 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, content up to 512 KiB, and a commit message up to 200 characters.")
 		return
 	}
-	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch) {
+	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch, repo.Role) {
 		return
 	}
 	sha, err := a.git.CommitFile(r.Context(), repo.ID, in.Branch, in.Path, []byte(in.Content), in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
@@ -508,7 +511,7 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, and a commit message up to 200 characters.")
 		return
 	}
-	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch) {
+	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch, repo.Role) {
 		return
 	}
 	sha, err := a.git.DeleteFile(r.Context(), repo.ID, in.Branch, in.Path, in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
@@ -536,12 +539,21 @@ func (a *App) commits(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = repo.DefaultBranch
 	}
+	skip := 0
+	if raw := r.URL.Query().Get("skip"); raw != "" {
+		var convErr error
+		skip, convErr = strconv.Atoi(raw)
+		if convErr != nil || skip < 0 || skip > 5000 {
+			fail(w, 422, "validation_failed", "Skip must be between zero and 5000.")
+			return
+		}
+	}
 	var result []gitstore.Commit
 	var err error
 	if path := r.URL.Query().Get("path"); path != "" {
 		result, err = a.git.FileCommits(r.Context(), repo.ID, branch, path)
 	} else {
-		result, err = a.git.Commits(r.Context(), repo.ID, branch)
+		result, err = a.git.History(r.Context(), repo.ID, branch, skip)
 	}
 	if errors.Is(err, gitstore.ErrNotFound) {
 		respond(w, 200, []gitstore.Commit{})

@@ -45,7 +45,9 @@ import {
   type DeletedRepository,
   type BrowserSession,
   type BuilderSearch,
+  type WorkSearch,
 } from "@/lib/api";
+import { InvitationsPage } from "./collaboration";
 import {
   Avatar,
   Badge,
@@ -217,6 +219,14 @@ export function Workspace({ segments }: { segments: string[] }) {
                   <Bell size={17} /> Inbox
                 </Link>
               )}
+              {user && (
+                <Link
+                  className={section === "invitations" ? "selected" : ""}
+                  href="/invitations"
+                >
+                  <Plus size={17} /> Invitations
+                </Link>
+              )}
               <Link className={section === "new" ? "selected" : ""} href="/new">
                 <FolderGit2 size={17} /> New repository{" "}
                 <Plus className="trailing" size={15} />
@@ -286,6 +296,12 @@ export function Workspace({ segments }: { segments: string[] }) {
           ) : section === "inbox" ? (
             user ? (
               <Inbox />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "invitations" ? (
+            user ? (
+              <InvitationsPage />
             ) : (
               <SignInPrompt />
             )
@@ -428,6 +444,8 @@ function Dashboard({ explore }: { explore: boolean }) {
   const [topic, setTopic] = useState("");
   const [offset, setOffset] = useState(0);
   const [builderOffset, setBuilderOffset] = useState(0);
+  const [workOffset, setWorkOffset] = useState(0);
+  const [availableOnly, setAvailableOnly] = useState(false);
   useEffect(() => {
     if (explore) {
       setFilter(new URLSearchParams(window.location.search).get("q") || "");
@@ -445,7 +463,16 @@ function Dashboard({ explore }: { explore: boolean }) {
   );
   const builders = useData<BuilderSearch>(
     explore
-      ? `/search/builders?${new URLSearchParams({ q: filter, offset: String(builderOffset) })}`
+      ? `/search/builders?${new URLSearchParams({
+          q: filter,
+          offset: String(builderOffset),
+          ...(availableOnly ? { available: "1" } : {}),
+        })}`
+      : null,
+  );
+  const work = useData<WorkSearch>(
+    explore
+      ? `/search/work?${new URLSearchParams({ q: filter, offset: String(workOffset) })}`
       : null,
   );
   const visible = explore
@@ -593,6 +620,7 @@ function Dashboard({ explore }: { explore: boolean }) {
                   setFilter(e.target.value);
                   setOffset(0);
                   setBuilderOffset(0);
+                  setWorkOffset(0);
                 }}
               />
             </div>
@@ -773,10 +801,69 @@ function Dashboard({ explore }: { explore: boolean }) {
       {explore && (
         <section className="builder-discovery">
           <div className="section-heading">
-            <h2>Builders</h2>
+            <h2>Issues and Unite requests</h2>
             <span className="muted small-text">
-              Find people to follow and collaborate with.
+              Public work that matches your search.
             </span>
+          </div>
+          <ErrorMessage error={work.error} />
+          {work.loading ? (
+            <Loading />
+          ) : work.data?.items.length ? (
+            <div className="repo-list">
+              {work.data.items.map((item) => (
+                <Link
+                  className="repo-card"
+                  key={`${item.kind}-${item.owner}-${item.repository}-${item.number}`}
+                  href={`/repos/${item.owner}/${item.repository}/${item.kind === "unite" ? "pulls" : "issues"}/${item.number}`}
+                >
+                  <div className="repo-card-main">
+                    <h3>
+                      {item.title}{" "}
+                      <span className="muted">#{item.number}</span>
+                    </h3>
+                    <p>
+                      {item.owner}/{item.repository} · {item.kind} · {item.state}
+                    </p>
+                    {item.preview && <p>{item.preview}</p>}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No matching issues or Unite requests.</p>
+          )}
+          {(workOffset > 0 || work.data?.has_more) && (
+            <div className="form-actions">
+              <button
+                className="button"
+                disabled={workOffset === 0}
+                onClick={() => setWorkOffset(Math.max(0, workOffset - 25))}
+              >
+                Previous work
+              </button>
+              <button
+                className="button"
+                disabled={!work.data?.has_more}
+                onClick={() => setWorkOffset(workOffset + 25)}
+              >
+                Next work
+              </button>
+            </div>
+          )}
+          <div className="section-heading">
+            <h2>Builders</h2>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={availableOnly}
+                onChange={(event) => {
+                  setAvailableOnly(event.target.checked);
+                  setBuilderOffset(0);
+                }}
+              />
+              Open to collaborators
+            </label>
           </div>
           <ErrorMessage error={builders.error} />
           {builders.loading ? (
@@ -798,6 +885,9 @@ function Dashboard({ explore }: { explore: boolean }) {
                       <span>{builder.repositories} public repositories</span>
                       <span>{builder.followers} followers</span>
                       {builder.location && <span>{builder.location}</span>}
+                      {builder.open_to_collaborators && (
+                        <span>Open to collaborators</span>
+                      )}
                     </div>
                   </div>
                   <ArrowUpRight className="card-arrow" size={18} />

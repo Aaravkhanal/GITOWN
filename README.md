@@ -17,7 +17,10 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
-- Same-repository Unite requests with close/reopen, discussions, formal approve/request-changes reviews tied to exact head commits, owner-configured Merge Guards for fresh approvals, change requests, and optional Require Unite direct-push protection, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
+- Same-repository Unite requests with drafts, close/reopen, discussions, inline line comments, requested reviewers, formal approve/request-changes reviews tied to exact head commits, review dismissal, owner-configured Merge Guards, squash/rebase/merge, optional source-branch deletion, actual Git diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery.
+- Repository invitations, ownership-transfer confirmation, and an email outbox that uses SMTP only when it is configured.
+- Issue planning with priority, iteration, estimates, due dates, duplicates, comment editing, and board, table, and roadmap views.
+- Explore search across public issues and Unite requests, profile skills and availability, and watch/participate/ignore notifications.
 - Issue and Unite following with inbox updates for discussions, reviews, state changes, and merges.
 - Issue creation, descriptions, close/reopen, assignees, milestones with due dates and progress, chronological discussions, reusable colored labels, and activity history.
 - Public builder profiles with bio, location, HTTPS website, public repository listings, and a six-repository showcase.

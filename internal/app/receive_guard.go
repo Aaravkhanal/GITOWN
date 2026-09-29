@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/hex"
 	"errors"
 	"io"
@@ -11,35 +10,25 @@ import (
 	"strings"
 )
 
-var errMalformedReceive = errors.New("malformed Git receive request")
-
-func (a *App) protectedBranches(ctx context.Context, repositoryID string) (map[string]bool, error) {
-	rows, err := a.db.Query(ctx, `SELECT branch FROM repository_branch_rules WHERE repository_id=$1 AND require_unite`, repositoryID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	branches := map[string]bool{}
-	for rows.Next() {
-		var branch string
-		if err = rows.Scan(&branch); err != nil {
-			return nil, err
-		}
-		branches[branch] = true
-	}
-	return branches, rows.Err()
+type refUpdate struct {
+	Old string
+	New string
+	Ref string
 }
+
+var errMalformedReceive = errors.New("malformed Git receive request")
 
 // Inspect the receive-pack command prefix, then replay the exact original
 // bytes to Git. Git clients may gzip the request; the replay remains compressed.
-func inspectReceiveCommands(body io.Reader, compressed bool, protected map[string]bool) (io.Reader, bool, error) {
+func inspectReceiveCommands(body io.Reader, compressed bool, protected map[string]string) (io.Reader, string, []refUpdate, error) {
 	var original bytes.Buffer
+	var updates []refUpdate
 	tee := io.TeeReader(body, &original)
 	var commands io.Reader = tee
 	if compressed {
 		decoded, err := gzip.NewReader(tee)
 		if err != nil {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		defer decoded.Close()
 		commands = decoded
@@ -48,24 +37,24 @@ func inspectReceiveCommands(body io.Reader, compressed bool, protected map[strin
 	for count := 0; count < 1024; count++ {
 		var header [4]byte
 		if _, err := io.ReadFull(commands, header[:]); err != nil {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		length, err := strconv.ParseUint(string(header[:]), 16, 16)
 		if err != nil {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		if length == 0 {
 			if !seenCommand {
-				return nil, false, errMalformedReceive
+				return nil, "", nil, errMalformedReceive
 			}
-			return io.MultiReader(bytes.NewReader(original.Bytes()), body), false, nil
+			return io.MultiReader(bytes.NewReader(original.Bytes()), body), "", updates, nil
 		}
 		if length < 4 || length > 65520 {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		payload := make([]byte, int(length)-4)
 		if _, err = io.ReadFull(commands, payload); err != nil {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		command := string(bytes.SplitN(payload, []byte{0}, 2)[0])
 		parts := strings.Fields(command)
@@ -73,14 +62,15 @@ func inspectReceiveCommands(body io.Reader, compressed bool, protected map[strin
 			continue
 		}
 		if len(parts) != 3 || !validObjectID(parts[0]) || !validObjectID(parts[1]) || !strings.HasPrefix(parts[2], "refs/") {
-			return nil, false, errMalformedReceive
+			return nil, "", nil, errMalformedReceive
 		}
 		seenCommand = true
-		if strings.HasPrefix(parts[2], "refs/heads/") && protected[strings.TrimPrefix(parts[2], "refs/heads/")] {
-			return nil, true, nil
+		updates = append(updates, refUpdate{Old: parts[0], New: parts[1], Ref: parts[2]})
+		if strings.HasPrefix(parts[2], "refs/heads/") && protected[strings.TrimPrefix(parts[2], "refs/heads/")] != "" {
+			return nil, strings.TrimPrefix(parts[2], "refs/heads/"), nil, nil
 		}
 	}
-	return nil, false, errMalformedReceive
+	return nil, "", nil, errMalformedReceive
 }
 
 func validObjectID(value string) bool {

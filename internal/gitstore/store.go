@@ -267,6 +267,41 @@ func (s *Store) Init(ctx context.Context, id, name, username, email string, read
 	return err
 }
 
+// Rebase replays commits that are on head and not on base. A branch that already
+// contains base fast-forwards. Conflicting replay leaves the base branch unchanged.
+func (s *Store) Rebase(ctx context.Context, id, base, head, username, email string) (string, error) {
+	if _, err := s.Run(ctx, id, nil, "merge-base", "--is-ancestor", base, head); err == nil {
+		return head, nil
+	}
+	mergeBase, err := s.Run(ctx, id, nil, "merge-base", base, head)
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp(s.Root, "rebase-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	if _, err = s.Run(ctx, id, nil, "worktree", "add", "--detach", dir, base); err != nil {
+		return "", err
+	}
+	defer s.Run(context.Background(), id, nil, "worktree", "remove", "--force", dir)
+	cmd := exec.CommandContext(ctx, s.Binary, "-C", dir, "-c", "user.name="+username, "-c", "user.email="+email, "rebase", "--onto", base, strings.TrimSpace(string(mergeBase)), head)
+	cmd.Env = Environment()
+	cmd.WaitDelay = time.Second
+	if err = cmd.Run(); err != nil {
+		abort := exec.CommandContext(ctx, s.Binary, "-C", dir, "rebase", "--abort")
+		abort.Env = Environment()
+		_ = abort.Run()
+		return "", fmt.Errorf("rebase conflict: %w", err)
+	}
+	out, err := exec.CommandContext(ctx, s.Binary, "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (s *Store) Commit(ctx context.Context, id, tree string, parents []string, message, username, email string) (string, error) {
 	args := []string{"-c", "user.name=" + username, "-c", "user.email=" + email, "commit-tree", tree}
 	for _, p := range parents {
@@ -388,11 +423,18 @@ func (s *Store) Blob(ctx context.Context, id, branch, path string) ([]byte, erro
 }
 
 func (s *Store) Commits(ctx context.Context, id, branch string) ([]Commit, error) {
+	return s.History(ctx, id, branch, 0)
+}
+
+func (s *Store) History(ctx context.Context, id, branch string, skip int) ([]Commit, error) {
+	if skip < 0 || skip > 5000 {
+		return nil, ErrNotFound
+	}
 	sha, err := s.Resolve(ctx, id, branch)
 	if err != nil {
 		return nil, err
 	}
-	out, err := s.Run(ctx, id, nil, "log", "-30", "--format=%H%x00%s%x00%an%x00%aI%x00", sha, "--")
+	out, err := s.Run(ctx, id, nil, "log", "-30", "--skip="+strconv.Itoa(skip), "--format=%H%x00%s%x00%an%x00%aI%x00", sha, "--")
 	if err != nil {
 		return nil, err
 	}

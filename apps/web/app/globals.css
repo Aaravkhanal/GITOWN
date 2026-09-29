@@ -788,6 +788,26 @@ hr {
   padding: 13px;
   margin-top: 10px;
 }
+.board-card[draggable="true"] {
+  cursor: grab;
+}
+.board-column.drop-target {
+  outline: 2px solid var(--green);
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.data-table th,
+.data-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.merge-choices {
+  display: grid;
+  gap: 8px;
+}
 .board-card strong {
   display: block;
   overflow-wrap: anywhere;

@@ -9,6 +9,7 @@ type IssueTemplate struct {
 	Name  string `json:"name"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	Kind  string `json:"kind"`
 }
 
 func (a *App) issueTemplates(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +17,7 @@ func (a *App) issueTemplates(w http.ResponseWriter, r *http.Request) {
 	if repo == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT name,title,body FROM issue_templates WHERE repository_id=$1 ORDER BY position`, repo.ID)
+	rows, err := a.db.Query(r.Context(), `SELECT name,title,body,kind FROM issue_templates WHERE repository_id=$1 ORDER BY position`, repo.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -25,7 +26,7 @@ func (a *App) issueTemplates(w http.ResponseWriter, r *http.Request) {
 	templates := []IssueTemplate{}
 	for rows.Next() {
 		var template IssueTemplate
-		if err = rows.Scan(&template.Name, &template.Title, &template.Body); err != nil {
+		if err = rows.Scan(&template.Name, &template.Title, &template.Body, &template.Kind); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -65,8 +66,11 @@ func (a *App) updateIssueTemplates(w http.ResponseWriter, r *http.Request) {
 		template.Name = strings.TrimSpace(template.Name)
 		template.Title = strings.TrimSpace(template.Title)
 		template.Body = strings.TrimSpace(template.Body)
+		if template.Kind == "" {
+			template.Kind = "custom"
+		}
 		folded := strings.ToLower(template.Name)
-		if template.Name == "" || len(template.Name) > 80 || len(template.Title) > 200 || len(template.Body) > 10000 || seen[folded] {
+		if template.Name == "" || len(template.Name) > 80 || len(template.Title) > 200 || len(template.Body) > 10000 || seen[folded] || (template.Kind != "bug" && template.Kind != "feature" && template.Kind != "custom") {
 			fail(w, 422, "validation_failed", "Use distinct template names up to 80 characters, titles up to 200, and bodies up to 10000.")
 			return
 		}
@@ -88,7 +92,7 @@ func (a *App) updateIssueTemplates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for index, template := range in.Templates {
-		if _, err = tx.Exec(r.Context(), `INSERT INTO issue_templates(repository_id,name,title,body,position) VALUES($1,$2,$3,$4,$5)`, repo.ID, template.Name, template.Title, template.Body, index+1); err != nil {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO issue_templates(repository_id,name,title,body,position,kind) VALUES($1,$2,$3,$4,$5,$6)`, repo.ID, template.Name, template.Title, template.Body, index+1, template.Kind); err != nil {
 			serverError(w, err)
 			return
 		}

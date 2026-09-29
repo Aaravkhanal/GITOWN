@@ -12,10 +12,20 @@ export type Profile = {
   bio: string;
   website: string;
   location: string;
+  skills: string;
+  availability: string;
+  open_to_collaborators: boolean;
   created_at: string;
   followers: number;
   following: number;
   followed: boolean;
+  contributions: {
+    merged_unites: number;
+    approvals: number;
+    closed_issues: number;
+    public_repositories: number;
+  };
+  badges: string[];
   showcase: PublicRepository[];
   repositories: PublicRepository[];
 };
@@ -34,6 +44,8 @@ export type Repo = {
   role?: "owner" | "maintain" | "write" | "triage" | "read";
   archived: boolean;
   clone_url: string;
+  homepage?: string;
+  stack?: string;
 };
 export type SparkState = { count: number; sparked: boolean };
 export type TopicState = { topics: string[] };
@@ -46,6 +58,7 @@ export type BuilderSearch = {
     location: string;
     followers: number;
     repositories: number;
+    open_to_collaborators: boolean;
   }[];
   has_more: boolean;
 };
@@ -84,8 +97,18 @@ export type Issue = {
   state: string;
   author: string;
   created_at: string;
+  pinned?: boolean;
+  priority?: string;
+  iteration?: string;
+  estimate?: number | null;
+  due_date?: string | null;
 };
-export type IssueTemplate = { name: string; title: string; body: string };
+export type IssueTemplate = {
+  name: string;
+  title: string;
+  body: string;
+  kind?: "bug" | "feature" | "custom";
+};
 export type LinkedIssue = {
   number: number;
   title: string;
@@ -102,6 +125,11 @@ export type BoardItem = {
   state: "open" | "closed";
   status: "todo" | "progress" | "done";
   author: string;
+  priority: string;
+  iteration: string;
+  pinned: boolean;
+  estimate: number | null;
+  due_date: string | null;
 };
 export type Notification = {
   id: number;
@@ -113,7 +141,15 @@ export type Notification = {
     | "pull_review"
     | "pull_closed"
     | "pull_reopened"
-    | "pull_merged";
+    | "pull_merged"
+    | "mention"
+    | "assignment"
+    | "review_request"
+    | "invitation"
+    | "ownership_transfer"
+    | "check_success"
+    | "check_failure"
+    | string;
   actor: string;
   owner: string;
   repository: string;
@@ -168,12 +204,15 @@ export type Pull = Issue & {
   base_branch: string;
   head_branch: string;
   merge_sha?: string;
+  draft?: boolean;
+  merge_method?: string;
 };
 export type PullDetail = {
   pull: Pull;
   head_sha: string;
   base_sha: string;
   diff: string;
+  diff_truncated?: boolean;
   diff_error: string;
   mergeable: boolean;
   can_review: boolean;
@@ -198,7 +237,36 @@ export type BranchRule = {
   required_approvals: number;
   block_changes_requested: boolean;
   require_unite: boolean;
+  require_resolved: boolean;
+  require_up_to_date: boolean;
+  restrict_push: boolean;
+  require_signed: boolean;
+  require_maintainer_approval: boolean;
+  required_checks: string[];
   updated_at: string;
+};
+export type Invitation = {
+  id: string;
+  owner: string;
+  repository: string;
+  email: string;
+  username: string;
+  role: string;
+  status: string;
+  expires_at: string;
+  created_at: string;
+};
+export type WorkSearch = {
+  items: {
+    kind: string;
+    owner: string;
+    repository: string;
+    number: number;
+    title: string;
+    preview: string;
+    state: string;
+  }[];
+  has_more: boolean;
 };
 export type Activity = {
   id: number;

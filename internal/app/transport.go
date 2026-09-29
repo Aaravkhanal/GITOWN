@@ -2,6 +2,7 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -73,23 +74,37 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestBody := io.Reader(http.MaxBytesReader(w, r.Body, 100<<20))
+	var updates []refUpdate
 	if write && r.Method == "POST" {
-		protected, err := a.protectedBranches(r.Context(), repo.ID)
+		protected, err := a.blockedPushBranches(r.Context(), repo.ID, role)
 		if err != nil {
 			serverError(w, err)
 			return
 		}
-		if len(protected) > 0 {
-			var blocked bool
-			requestBody, blocked, err = inspectReceiveCommands(requestBody, r.Header.Get("Content-Encoding") == "gzip", protected)
-			if err != nil {
+		raw, err := io.ReadAll(requestBody)
+		if err != nil {
+			http.Error(w, "Could not read Git receive request.", 400)
+			return
+		}
+		replay, blocked, parsed, inspectErr := inspectReceiveCommands(bytes.NewReader(raw), r.Header.Get("Content-Encoding") == "gzip", protected)
+		if inspectErr != nil {
+			if len(protected) > 0 {
 				http.Error(w, "Could not validate Git receive request.", 400)
 				return
 			}
-			if blocked {
-				http.Error(w, "This branch requires a Unite request; direct pushes are disabled.", 403)
-				return
+			requestBody = bytes.NewReader(raw)
+		} else if blocked != "" {
+			message := "Direct pushes to this branch are disabled."
+			if protected[blocked] == "unite" {
+				message = "This branch requires a Unite request; direct pushes are disabled."
+			} else if protected[blocked] == "restricted" {
+				message = "Only the owner or a maintainer can push to this branch."
 			}
+			http.Error(w, message, 403)
+			return
+		} else {
+			requestBody = replay
+			updates = parsed
 		}
 	}
 	select {
@@ -164,5 +179,13 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		auditCtx, auditCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer auditCancel()
 		_, _ = a.db.Exec(auditCtx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'git.receive_completed',$2)`, u.ID, repo.Owner+"/"+repo.Name)
+		for _, update := range updates {
+			if !strings.HasPrefix(update.Ref, "refs/heads/") {
+				continue
+			}
+			branch := strings.TrimPrefix(update.Ref, "refs/heads/")
+			_, _ = a.db.Exec(auditCtx, `INSERT INTO pull_events(pull_request_id,actor_id,kind,body)
+				SELECT id,$2,'push',$3 FROM pull_requests WHERE repository_id=$1 AND head_branch=$4 AND state='open'`, repo.ID, u.ID, update.Old+".."+update.New, branch)
+		}
 	}
 }

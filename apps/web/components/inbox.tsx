@@ -5,7 +5,7 @@ import { useState } from "react";
 import { date, put, type Notification } from "@/lib/api";
 import { Badge, ErrorMessage, Loading, useData } from "./ui";
 
-const actions: Record<Notification["kind"], string> = {
+const actions: Record<string, string> = {
   issue_comment: "commented on",
   issue_closed: "closed",
   issue_reopened: "reopened",
@@ -14,6 +14,13 @@ const actions: Record<Notification["kind"], string> = {
   pull_closed: "closed",
   pull_reopened: "reopened",
   pull_merged: "merged",
+  mention: "mentioned you on",
+  assignment: "assigned you to",
+  review_request: "requested your review on",
+  invitation: "invited you to",
+  ownership_transfer: "offered ownership of",
+  check_success: "reported a successful check on",
+  check_failure: "reported a failed check on",
 };
 
 export function Inbox() {
@@ -31,7 +38,25 @@ export function Inbox() {
             Updates from issues and Unite requests you follow or have joined.
           </p>
         </div>
-        <Badge>{unread} unread</Badge>
+        <div className="heading-actions">
+          <Badge>{unread} unread</Badge>
+          {unread > 0 && (
+            <button
+              className="button small-button"
+              onClick={async () => {
+                setError("");
+                try {
+                  await put("/user/notifications/read", {});
+                  setVersion((value) => value + 1);
+                } catch (saveError) {
+                  setError((saveError as Error).message);
+                }
+              }}
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
       </div>
       <ErrorMessage error={error || notifications.error} />
       {notifications.loading ? (
@@ -45,9 +70,14 @@ export function Inbox() {
             >
               <div>
                 <Link
-                  href={`/repos/${item.owner}/${item.repository}/${item.pull ? `pulls/${item.pull}` : `issues/${item.issue}`}`}
+                  href={
+                    item.kind === "invitation" || item.kind === "ownership_transfer"
+                      ? "/invitations"
+                      : `/repos/${item.owner}/${item.repository}/${item.pull ? `pulls/${item.pull}` : `issues/${item.issue}`}`
+                  }
                 >
-                  <strong>@{item.actor}</strong> {actions[item.kind]}{" "}
+                  <strong>@{item.actor}</strong>{" "}
+                  {actions[item.kind] || "updated"}{" "}
                   <strong>{item.title}</strong>
                 </Link>
                 <p>

@@ -20,15 +20,25 @@ Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, bla
 
 Shipped foundation: issues, assignees, labels, milestones with due dates and progress, discussions, issue following, Unite following, and an in-app inbox for issue and Unite events; same-repository Unite requests, diffs, discussions, close/reopen, formal approve/request-changes reviews with stale-head visibility, per-branch Merge Guards requiring fresh approvals and blocking current change requests, optional direct-push/browser-edit protection that requires Unite for a branch, merge commits, expected-SHA checks, and interrupted-merge recovery.
 
-Remaining gate: inline reviews, mentions and broader notification sources, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
+Shipped in this slice: draft Unite requests, inline comments on an exact commit/file/side/line with replies, resolution, and outdated marking, requested reviewers, review dismissal with an audit event, squash/rebase/merge plus optional source-branch deletion, Unite assignees/labels/linked issues, auto-close from the Unite body, linked issues, and commit messages when no blocker is open, a timeline, diff pagination, invitations with a durable email outbox, and ownership-transfer confirmation. Branch rules can require resolved conversations, an up-to-date branch, owner or maintainer approval, successful check contexts, signed commits, and owner/maintainer-only pushes. The same rules apply to browser edits, API merges, and HTTPS pushes. Require Unite stays off unless an owner enables it. Force pushes and branch deletions stay rejected globally.
+
+Remaining gate: a merge queue, forks (Remixes), cross-repository Unite requests, and SSH. Crews do not exist, so maintainer approval means the owner or a member with the maintain role. Email is stored in an outbox and is handed to SMTP only when GITOWN_SMTP_ADDR and GITOWN_SMTP_FROM are set; without SMTP, immediate messages are recorded as sent and are not delivered to an inbox.
 
 ## Phase 4 — Boards and planning (partial)
 
-Shipped foundation: a repository issue board with To do, In progress, and Done columns, synchronized with issue close/reopen actions; owner-managed issue templates prefill new issues; same-repository issue dependencies reject cycles and block completion while prerequisites remain open. Remaining gate: configurable project boards, iterations, and saved views.
+Shipped foundation: a repository issue board with To do, In progress, and Done columns, synchronized with issue close/reopen actions; owner-managed issue templates prefill new issues; same-repository issue dependencies reject cycles and block completion while prerequisites remain open.
+
+Shipped in this slice: comment editing with history, label and text filtering, bug/feature/custom template kinds, duplicate marking, pinning, issue transfer between repositories the same owner controls, priority, estimate, due date, and iteration, saved searches, and board, table, and roadmap views with drag-and-drop on the three columns. Dependencies remain the sub-issue model. `#42` references are listed from the issue body and comments. Closing keywords in a Unite request or its commits can close an issue.
+
+Remaining gate: district-wide boards. Districts are not implemented, so boards stay inside one repository.
 
 ## Phase 5 — Social and discovery (partial)
 
-Shipped foundation: public builder profiles, configurable repository showcases, one-click repository Sparks with visible counts, builder follows with counts and self-follow protection, a public following feed for repository creation/Sparks/issues/Unite requests, owner-managed repository topics, public repository text/topic search with Spark sorting and 30-day trending, and paged public builder search by username/name/bio. Remaining gate: richer activity events and broader advanced search across code, issues, and Unite requests.
+Shipped foundation: public builder profiles, configurable repository showcases, one-click repository Sparks with visible counts, builder follows with counts and self-follow protection, a public following feed for repository creation/Sparks/issues/Unite requests, owner-managed repository topics, public repository text/topic search with Spark sorting and 30-day trending, and paged public builder search by username/name/bio.
+
+Shipped in this slice: watch, participate, and ignore subscription modes; mentions; assignment, review-request, merge, check, invitation, and ownership notifications; mark-all-read; configurable email preference with unsubscribe tokens; profile skills, availability, and open-to-collaborators; contribution counts and badges computed from public merged Unite requests, approvals, closed issues, and public repositories; repository homepage and tech stack; Explore search for public issues and Unite requests; and an open-to-collaborators builder filter.
+
+Remaining gate: code search, custom domains, release download counts, and district boards. Badges are not commit counts.
 
 ## Later phases (planned)
 

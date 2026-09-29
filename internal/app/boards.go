@@ -3,17 +3,23 @@ package app
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 type BoardItem struct {
-	IssueID string `json:"issue_id"`
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	State   string `json:"state"`
-	Status  string `json:"status"`
-	Author  string `json:"author"`
+	IssueID   string     `json:"issue_id"`
+	Number    int        `json:"number"`
+	Title     string     `json:"title"`
+	State     string     `json:"state"`
+	Status    string     `json:"status"`
+	Author    string     `json:"author"`
+	Priority  string     `json:"priority"`
+	Iteration string     `json:"iteration"`
+	Pinned    bool       `json:"pinned"`
+	Estimate  *int       `json:"estimate"`
+	DueDate   *time.Time `json:"due_date"`
 }
 
 func (a *App) board(w http.ResponseWriter, r *http.Request) {
@@ -23,9 +29,9 @@ func (a *App) board(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := a.db.Query(r.Context(), `SELECT i.id,i.number,i.title,i.state,
 		CASE WHEN i.state='closed' THEN 'done' ELSE COALESCE(NULLIF(bs.status,'done'),'todo') END,
-		u.username FROM issues i JOIN users u ON u.id=i.author_id
+		u.username,i.priority,i.iteration,i.pinned,i.estimate,i.due_date FROM issues i JOIN users u ON u.id=i.author_id
 		LEFT JOIN issue_board_status bs ON bs.issue_id=i.id
-		WHERE i.repository_id=$1 ORDER BY i.number DESC LIMIT 100`, repo.ID)
+		WHERE i.repository_id=$1 ORDER BY i.pinned DESC, i.number DESC LIMIT 100`, repo.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -34,7 +40,7 @@ func (a *App) board(w http.ResponseWriter, r *http.Request) {
 	items := []BoardItem{}
 	for rows.Next() {
 		var item BoardItem
-		if err = rows.Scan(&item.IssueID, &item.Number, &item.Title, &item.State, &item.Status, &item.Author); err != nil {
+		if err = rows.Scan(&item.IssueID, &item.Number, &item.Title, &item.State, &item.Status, &item.Author, &item.Priority, &item.Iteration, &item.Pinned, &item.Estimate, &item.DueDate); err != nil {
 			serverError(w, err)
 			return
 		}
