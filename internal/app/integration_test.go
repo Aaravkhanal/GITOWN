@@ -511,6 +511,18 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	owner.request("GET", "/repos/owner/public-project", nil, 200, &publicRepoDetail)
 	publicRepo := publicRepoDetail.Repository
+	var templates []IssueTemplate
+	owner.request("PUT", "/repos/owner/public-project/issue-templates", map[string]any{"templates": []IssueTemplate{{Name: "Bug report", Title: "Bug: ", Body: "Steps to reproduce"}}}, 200, &templates)
+	if len(templates) != 1 || templates[0].Name != "Bug report" {
+		t.Fatalf("issue template not saved: %+v", templates)
+	}
+	owner.request("PUT", "/repos/owner/public-project/issue-templates", map[string]any{"templates": []IssueTemplate{{Name: "Bug", Body: "One"}, {Name: "bug", Body: "Two"}}}, 422, nil)
+	other.request("PUT", "/repos/owner/public-project/issue-templates", map[string]any{"templates": []IssueTemplate{}}, 403, nil)
+	anon.request("GET", "/repos/owner/public-project/issue-templates", nil, 200, &templates)
+	if len(templates) != 1 {
+		t.Fatalf("public issue templates are unavailable: %+v", templates)
+	}
+	anon.request("GET", "/repos/owner/project/issue-templates", nil, 404, nil)
 	var topicState TopicState
 	owner.request("PUT", "/repos/owner/public-project/topics", map[string]any{"topics": []string{"Go", "open-source"}}, 200, &topicState)
 	if len(topicState.Topics) != 2 || topicState.Topics[0] != "go" || topicState.Topics[1] != "open-source" {

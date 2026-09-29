@@ -26,6 +26,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Owner-managed repository topics for describing and organizing projects.
 - Public repository discovery with server-backed text/topic search, recent/name/Spark/30-day-trending sorting, and 25-result pages.
 - Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
+- Owner-managed issue templates that prefill titles and descriptions for recurring work.
 - Issue following with an in-app inbox for comments and close/reopen updates.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 - A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.

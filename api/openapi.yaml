@@ -844,6 +844,48 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issue-templates:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Read ordered issue templates on a visible repository
+      responses:
+        "200":
+          description: Up to ten issue templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IssueTemplate" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace the owned repository's issue templates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [templates]
+              properties:
+                templates:
+                  type: array
+                  maxItems: 10
+                  items: { $ref: "#/components/schemas/IssueTemplate" }
+      responses:
+        "200":
+          description: Updated templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IssueTemplate" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues:
     parameters:
       [
@@ -1678,6 +1720,13 @@ components:
         repositories:
           type: array
           items: { $ref: "#/components/schemas/PublicRepository" }
+    IssueTemplate:
+      type: object
+      required: [name, title, body]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        title: { type: string, maxLength: 200 }
+        body: { type: string, maxLength: 10000 }
     Issue:
       type: object
       properties:

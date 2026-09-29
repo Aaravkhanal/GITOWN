@@ -74,6 +74,7 @@ export type Issue = {
   author: string;
   created_at: string;
 };
+export type IssueTemplate = { name: string; title: string; body: string };
 export type BoardItem = {
   issue_id: string;
   number: number;

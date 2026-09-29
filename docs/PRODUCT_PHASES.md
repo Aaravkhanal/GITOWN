@@ -24,7 +24,7 @@ Remaining gate: inline reviews, mentions, Unite subscriptions and broader notifi
 
 ## Phase 4 — Boards and planning (partial)
 
-Shipped foundation: a repository issue board with To do, In progress, and Done columns, synchronized with issue close/reopen actions. Remaining gate: configurable project boards, iterations, dependencies, templates, and saved views.
+Shipped foundation: a repository issue board with To do, In progress, and Done columns, synchronized with issue close/reopen actions; owner-managed issue templates prefill new issues. Remaining gate: configurable project boards, iterations, dependencies, and saved views.
 
 ## Phase 5 — Social and discovery (partial)
 

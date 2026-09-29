@@ -47,6 +47,7 @@ import {
   type Commit,
   type Tree,
   type Issue,
+  type IssueTemplate,
   type IssueComment,
   type IssueAssignees,
   type Milestone,
@@ -839,6 +840,127 @@ function EmptyRepository({ repo }: { repo: Repo }) {
   );
 }
 
+function IssueTemplateSettings({
+  endpoint,
+  archived,
+}: {
+  endpoint: string;
+  archived: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const templates = useData<IssueTemplate[]>(
+    `${endpoint}/issue-templates`,
+    version,
+  );
+  const [draft, setDraft] = useState<IssueTemplate[] | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const current = draft ?? templates.data ?? [];
+  function update(index: number, field: keyof IssueTemplate, value: string) {
+    setDraft(
+      current.map((template, position) =>
+        position === index ? { ...template, [field]: value } : template,
+      ),
+    );
+  }
+  return (
+    <section className="panel form-panel" aria-label="Issue templates">
+      <h2>Issue templates</h2>
+      <p>
+        Create up to ten starting points for recurring work. Anyone with
+        issue-creation permission can use them.
+      </p>
+      <ErrorMessage error={error || templates.error} />
+      {notice && (
+        <p role="status" className="green-text">
+          {notice}
+        </p>
+      )}
+      {current.map((template, index) => (
+        <div className="panel form-panel" key={index}>
+          <label>
+            Template name
+            <input
+              aria-label={`Template ${index + 1} name`}
+              value={template.name}
+              maxLength={80}
+              onChange={(event) => update(index, "name", event.target.value)}
+            />
+          </label>
+          <label>
+            Suggested title
+            <input
+              aria-label={`Template ${index + 1} title`}
+              value={template.title}
+              maxLength={200}
+              onChange={(event) => update(index, "title", event.target.value)}
+            />
+          </label>
+          <label>
+            Suggested description
+            <textarea
+              aria-label={`Template ${index + 1} body`}
+              value={template.body}
+              maxLength={10000}
+              rows={4}
+              onChange={(event) => update(index, "body", event.target.value)}
+            />
+          </label>
+          <button
+            className="button"
+            type="button"
+            disabled={busy || archived}
+            onClick={() =>
+              setDraft(current.filter((_, position) => position !== index))
+            }
+          >
+            Remove template
+          </button>
+        </div>
+      ))}
+      <div className="form-actions">
+        <button
+          className="button"
+          type="button"
+          disabled={busy || archived || current.length >= 10}
+          onClick={() =>
+            setDraft([...current, { name: "", title: "", body: "" }])
+          }
+        >
+          Add issue template
+        </button>
+        <button
+          className="button primary"
+          type="button"
+          disabled={busy || archived || !templates.data}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            setNotice("");
+            try {
+              await put(`${endpoint}/issue-templates`, { templates: current });
+              setDraft(null);
+              setVersion((value) => value + 1);
+              setNotice("Issue templates saved.");
+            } catch (cause) {
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Could not save issue templates.",
+              );
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Save issue templates
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function RepositorySettings({
   endpoint,
   repo,
@@ -935,6 +1057,7 @@ function RepositorySettings({
           defaultBranch={repo.default_branch}
         />
       )}
+      <IssueTemplateSettings endpoint={endpoint} archived={repo.archived} />
       <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       <div className="panel lifecycle-settings">
         <div className="section-heading">
@@ -1363,6 +1486,12 @@ function IssueList({
   const [expanded, setExpanded] = useState<number | null>(null);
   const labels = useData<Label[]>(`${endpoint}/labels`, version);
   const milestones = useData<Milestone[]>(`${endpoint}/milestones`, version);
+  const templates = useData<IssueTemplate[]>(
+    `${endpoint}/issue-templates`,
+    version,
+  );
+  const [issueTitle, setIssueTitle] = useState("");
+  const [issueBody, setIssueBody] = useState("");
   const filtered = issues.data?.filter((i) => i.state === filter) || [];
   return (
     <>
@@ -1606,6 +1735,8 @@ function IssueList({
                 body: data.get("body"),
               });
               setShowForm(false);
+              setIssueTitle("");
+              setIssueBody("");
               setVersion((v) => v + 1);
               setFilter("open");
             } catch (error) {
@@ -1616,10 +1747,37 @@ function IssueList({
           }}
         >
           <h2>Give your idea a starting point.</h2>
+          {!!templates.data?.length && (
+            <label>
+              Start from template
+              <select
+                aria-label="Issue template"
+                defaultValue=""
+                onChange={(event) => {
+                  const selected = templates.data?.find(
+                    (template) => template.name === event.target.value,
+                  );
+                  if (selected) {
+                    setIssueTitle(selected.title);
+                    setIssueBody(selected.body);
+                  }
+                }}
+              >
+                <option value="">Blank issue</option>
+                {templates.data.map((template) => (
+                  <option key={template.name} value={template.name}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Title
             <input
               name="title"
+              value={issueTitle}
+              onChange={(event) => setIssueTitle(event.target.value)}
               placeholder="What needs to happen?"
               maxLength={200}
               required
@@ -1630,6 +1788,8 @@ function IssueList({
             Description
             <textarea
               name="body"
+              value={issueBody}
+              onChange={(event) => setIssueBody(event.target.value)}
               placeholder="Add context, a plan, or steps to reproduce…"
               maxLength={20000}
               rows={5}

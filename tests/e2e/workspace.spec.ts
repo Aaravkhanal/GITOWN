@@ -128,6 +128,14 @@ test("account security, project collaboration, Git transport, and responsive nav
       .getByRole("region", { name: "Repository topics" })
       .getByText("collaboration"),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Add issue template" }).click();
+  await page.getByRole("textbox", { name: "Template 1 name" }).fill("Idea");
+  await page.getByRole("textbox", { name: "Template 1 title" }).fill("Idea: ");
+  await page
+    .getByRole("textbox", { name: "Template 1 body" })
+    .fill("Describe the idea.");
+  await page.getByRole("button", { name: "Save issue templates" }).click();
+  await expect(page.getByText("Issue templates saved.")).toBeVisible();
   await page.goto("/explore?topic=collaboration");
   await expect(
     page.getByRole("link", { name: /first-project/ }).first(),
@@ -265,10 +273,14 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(page.locator(".label-chip", { hasText: "idea" })).toBeVisible();
   await page.getByRole("button", { name: "New issue", exact: true }).click();
   await page
+    .getByRole("combobox", { name: "Issue template" })
+    .selectOption("Idea");
+  await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Idea:");
+  await page
     .getByLabel("Title", { exact: true })
     .fill("Design the next feature");
   await page
-    .getByLabel("Description", { exact: true })
+    .getByRole("textbox", { name: "Description", exact: true })
     .fill("Keep every change small, useful, and tested.");
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
   await page
