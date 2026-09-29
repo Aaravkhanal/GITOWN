@@ -86,6 +86,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}", a.repository)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/spark", a.spark)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/spark", a.updateSpark)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/topics", a.topics)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/topics", a.updateTopics)
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}", a.updateRepository)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}", a.deleteRepository)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/rename", a.renameRepository)

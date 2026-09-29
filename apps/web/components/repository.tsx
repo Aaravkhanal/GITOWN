@@ -43,6 +43,7 @@ import {
   repoPath,
   type Repo,
   type SparkState,
+  type TopicState,
   type Commit,
   type Tree,
   type Issue,
@@ -151,6 +152,12 @@ export function RepositoryPage({
           <Archive size={17} /> This repository is archived and read-only.
         </div>
       )}
+      <RepositoryTopics
+        endpoint={endpoint}
+        canManage={r.can_manage}
+        archived={r.archived}
+        settings={tab === "settings"}
+      />
       {clone && (
         <div className="clone-panel panel">
           <div>
@@ -333,6 +340,82 @@ function SparkButton({ endpoint }: { endpoint: string }) {
         </span>
       )}
     </div>
+  );
+}
+
+function RepositoryTopics({
+  endpoint,
+  canManage,
+  archived,
+  settings,
+}: {
+  endpoint: string;
+  canManage: boolean;
+  archived: boolean;
+  settings: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const topics = useData<TopicState>(`${endpoint}/topics`, version);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <section aria-label="Repository topics">
+      {!!topics.data?.topics.length && (
+        <div className="repo-meta">
+          {topics.data.topics.map((topic) => (
+            <Badge key={topic}>{topic}</Badge>
+          ))}
+        </div>
+      )}
+      {settings && canManage && !archived && (
+        <div className="panel settings-form">
+          <h2>Topics</h2>
+          <p>
+            Help builders discover this repository. Add up to ten
+            comma-separated topics.
+          </p>
+          <label>
+            Repository topics
+            <input
+              aria-label="Repository topics"
+              value={draft ?? topics.data?.topics.join(", ") ?? ""}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="go, open-source, developer-tools"
+            />
+          </label>
+          <ErrorMessage error={error} />
+          <button
+            className="button"
+            disabled={busy || !topics.data}
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await put(`${endpoint}/topics`, {
+                  topics: (draft ?? topics.data?.topics.join(",") ?? "")
+                    .split(",")
+                    .map((topic) => topic.trim())
+                    .filter(Boolean),
+                });
+                setDraft(null);
+                setVersion((value) => value + 1);
+              } catch (cause) {
+                setError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Could not save topics.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Save topics
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

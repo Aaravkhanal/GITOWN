@@ -511,6 +511,18 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	owner.request("GET", "/repos/owner/public-project", nil, 200, &publicRepoDetail)
 	publicRepo := publicRepoDetail.Repository
+	var topicState TopicState
+	owner.request("PUT", "/repos/owner/public-project/topics", map[string]any{"topics": []string{"Go", "open-source"}}, 200, &topicState)
+	if len(topicState.Topics) != 2 || topicState.Topics[0] != "go" || topicState.Topics[1] != "open-source" {
+		t.Fatalf("repository topics not normalized: %+v", topicState)
+	}
+	owner.request("PUT", "/repos/owner/public-project/topics", map[string]any{"topics": []string{"go", "GO"}}, 422, nil)
+	other.request("PUT", "/repos/owner/public-project/topics", map[string]any{"topics": []string{"other"}}, 403, nil)
+	anon.request("GET", "/repos/owner/public-project/topics", nil, 200, &topicState)
+	if len(topicState.Topics) != 2 {
+		t.Fatalf("public topics are unavailable: %+v", topicState)
+	}
+	anon.request("GET", "/repos/owner/project/topics", nil, 404, nil)
 	var spark SparkState
 	owner.request("GET", "/repos/owner/public-project/spark", nil, 200, &spark)
 	if spark.Count != 0 || spark.Sparked {

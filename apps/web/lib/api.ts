@@ -36,6 +36,7 @@ export type Repo = {
   clone_url: string;
 };
 export type SparkState = { count: number; sparked: boolean };
+export type TopicState = { topics: string[] };
 export type DeletedRepository = {
   id: string;
   owner: string;
