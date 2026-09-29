@@ -23,6 +23,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Repository Sparks: signed-in users can appreciate visible repositories; everyone with access can see the count.
 - Builder follows: discover who follows a public profile and follow or unfollow other builders.
 - Owner-managed repository topics for describing and organizing projects.
+- Public repository discovery with server-backed text/topic search, recent/name/Spark sorting, and 25-result pages.
 - Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
 - Issue following with an in-app inbox for comments and close/reopen updates.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.

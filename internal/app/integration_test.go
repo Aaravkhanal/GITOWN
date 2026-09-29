@@ -523,6 +523,23 @@ func TestPlatformWorkflow(t *testing.T) {
 		t.Fatalf("public topics are unavailable: %+v", topicState)
 	}
 	anon.request("GET", "/repos/owner/project/topics", nil, 404, nil)
+	var search RepositorySearch
+	anon.request("GET", "/search/repositories?q=public-project&topic=go&sort=name", nil, 200, &search)
+	if len(search.Items) != 1 || search.Items[0].ID != publicRepo.ID || search.HasMore {
+		t.Fatalf("public topic search is wrong: %+v", search)
+	}
+	anon.request("GET", "/search/repositories?q=project&topic=not-found", nil, 200, &search)
+	if len(search.Items) != 0 {
+		t.Fatalf("search ignored topic filter: %+v", search)
+	}
+	anon.request("GET", "/search/repositories?q=project&offset=-1", nil, 422, nil)
+	anon.request("GET", "/search/repositories?sort=random", nil, 422, nil)
+	anon.request("GET", "/search/repositories?q=project", nil, 200, &search)
+	for _, item := range search.Items {
+		if item.ID == repo.ID {
+			t.Fatal("private repository appeared in public search")
+		}
+	}
 	var spark SparkState
 	owner.request("GET", "/repos/owner/public-project/spark", nil, 200, &spark)
 	if spark.Count != 0 || spark.Sparked {

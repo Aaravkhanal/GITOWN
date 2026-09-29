@@ -364,7 +364,12 @@ function RepositoryTopics({
       {!!topics.data?.topics.length && (
         <div className="repo-meta">
           {topics.data.topics.map((topic) => (
-            <Badge key={topic}>{topic}</Badge>
+            <Link
+              key={topic}
+              href={`/explore?topic=${encodeURIComponent(topic)}`}
+            >
+              <Badge>{topic}</Badge>
+            </Link>
           ))}
         </div>
       )}

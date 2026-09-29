@@ -400,7 +400,7 @@ function DeletedRepositoriesPage() {
 function Dashboard({ explore }: { explore: boolean }) {
   const { user } = useSession();
   const repos = useData<Repo[]>(
-    `/repos${!explore && user ? "?mine=true" : ""}`,
+    explore ? null : `/repos${user ? "?mine=true" : ""}`,
   );
   const activity = useData<Activity[]>(
     user && !explore ? "/user/activity" : null,
@@ -408,23 +408,38 @@ function Dashboard({ explore }: { explore: boolean }) {
   const [filter, setFilter] = useState("");
   const [visibility, setVisibility] = useState("all");
   const [sort, setSort] = useState("recent");
+  const [topic, setTopic] = useState("");
+  const [offset, setOffset] = useState(0);
   useEffect(() => {
-    if (explore)
+    if (explore) {
       setFilter(new URLSearchParams(window.location.search).get("q") || "");
+      setTopic(new URLSearchParams(window.location.search).get("topic") || "");
+    }
   }, [explore]);
-  const visible = (repos.data || [])
-    .filter(
-      (r) =>
-        `${r.owner}/${r.name} ${r.description}`
-          .toLowerCase()
-          .includes(filter.toLowerCase()) &&
-        (visibility === "all" || r.visibility === visibility),
-    )
-    .sort((a, b) =>
-      sort === "name"
-        ? a.name.localeCompare(b.name)
-        : b.created_at.localeCompare(a.created_at),
-    );
+  const searchParams = new URLSearchParams({
+    q: filter,
+    topic,
+    sort,
+    offset: String(offset),
+  });
+  const search = useData<{ items: Repo[]; has_more: boolean }>(
+    explore ? `/search/repositories?${searchParams}` : null,
+  );
+  const visible = explore
+    ? search.data?.items || []
+    : (repos.data || [])
+        .filter(
+          (r) =>
+            `${r.owner}/${r.name} ${r.description}`
+              .toLowerCase()
+              .includes(filter.toLowerCase()) &&
+            (visibility === "all" || r.visibility === visibility),
+        )
+        .sort((a, b) =>
+          sort === "name"
+            ? a.name.localeCompare(b.name)
+            : b.created_at.localeCompare(a.created_at),
+        );
   return (
     <>
       <div className="breadcrumb">
@@ -528,7 +543,11 @@ function Dashboard({ explore }: { explore: boolean }) {
           <div className="section-heading">
             <h2>
               {explore ? "Repositories" : "Your repositories"}
-              <span className="count">{repos.data?.length ?? 0}</span>
+              <span className="count">
+                {explore
+                  ? `${search.data?.items.length ?? 0}${search.data?.has_more ? "+" : ""}`
+                  : (repos.data?.length ?? 0)}
+              </span>
             </h2>
             <span className="muted small-text">
               A little progress, every day.
@@ -541,29 +560,52 @@ function Dashboard({ explore }: { explore: boolean }) {
                 aria-label="Filter repositories"
                 placeholder="Find a repository…"
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
+                onChange={(e) => {
+                  setFilter(e.target.value);
+                  setOffset(0);
+                }}
               />
             </div>
-            <select
-              aria-label="Repository visibility"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-            >
-              <option value="all">Visibility</option>
-              <option value="private">Private</option>
-              <option value="public">Public</option>
-            </select>
+            {!explore && (
+              <select
+                aria-label="Repository visibility"
+                value={visibility}
+                onChange={(e) => {
+                  setVisibility(e.target.value);
+                  setOffset(0);
+                }}
+              >
+                <option value="all">Visibility</option>
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </select>
+            )}
+            {explore && (
+              <input
+                aria-label="Filter by topic"
+                placeholder="Topic…"
+                value={topic}
+                onChange={(event) => {
+                  setTopic(event.target.value);
+                  setOffset(0);
+                }}
+              />
+            )}
             <select
               aria-label="Sort repositories"
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(e) => {
+                setSort(e.target.value);
+                setOffset(0);
+              }}
             >
               <option value="recent">Recent</option>
               <option value="name">Name</option>
+              {explore && <option value="sparks">Most Sparked</option>}
             </select>
           </div>
-          <ErrorMessage error={repos.error} />
-          {repos.loading ? (
+          <ErrorMessage error={explore ? search.error : repos.error} />
+          {(explore ? search.loading : repos.loading) ? (
             <Loading />
           ) : visible.length ? (
             <div className="repo-list">
@@ -622,6 +664,24 @@ function Dashboard({ explore }: { explore: boolean }) {
               <Link className="button" href={user ? "/new" : "/register"}>
                 <Plus size={16} /> Create a repository
               </Link>
+            </div>
+          )}
+          {explore && (offset > 0 || search.data?.has_more) && (
+            <div className="form-actions">
+              <button
+                className="button"
+                disabled={offset === 0}
+                onClick={() => setOffset(Math.max(0, offset - 25))}
+              >
+                Previous
+              </button>
+              <button
+                className="button"
+                disabled={!search.data?.has_more}
+                onClick={() => setOffset(offset + 25)}
+              >
+                Next
+              </button>
             </div>
           )}
         </section>

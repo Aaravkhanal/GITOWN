@@ -128,6 +128,10 @@ test("account security, project collaboration, Git transport, and responsive nav
       .getByRole("region", { name: "Repository topics" })
       .getByText("collaboration"),
   ).toBeVisible();
+  await page.goto("/explore?topic=collaboration");
+  await expect(
+    page.getByRole("link", { name: /first-project/ }).first(),
+  ).toBeVisible();
   await page.goto(`/repos/${username}/first-project`);
   await page.getByRole("button", { name: "Spark · 0" }).click();
   await expect(page.getByRole("button", { name: "Sparked · 1" })).toBeVisible();

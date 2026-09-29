@@ -13,6 +13,30 @@ servers:
 security:
   - session: []
 paths:
+  /search/repositories:
+    get:
+      security: []
+      summary: Search public repositories with pagination
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: topic, in: query, schema: { type: string } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [recent, name, sparks] },
+          }
+        - {
+            name: offset,
+            in: query,
+            schema: { type: integer, minimum: 0, maximum: 1000 },
+          }
+      responses:
+        "200":
+          description: Up to 25 matching repositories and a next-page flag
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositorySearch" }
+        "422": { $ref: "#/components/responses/Error" }
   /users/{username}/profile:
     parameters:
       - { name: username, in: path, required: true, schema: { type: string } }
@@ -1525,6 +1549,14 @@ components:
                   code: { type: string }
                   message: { type: string }
   schemas:
+    RepositorySearch:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Repository" }
+        has_more: { type: boolean }
     SparkState:
       type: object
       required: [count, sparked]
