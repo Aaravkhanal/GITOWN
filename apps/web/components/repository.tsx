@@ -48,6 +48,7 @@ import {
   type Tree,
   type Issue,
   type IssueTemplate,
+  type IssueDependencies,
   type IssueComment,
   type IssueAssignees,
   type Milestone,
@@ -1860,6 +1861,12 @@ function IssueList({
                     issueNumber={issue.number}
                     canTriage={canTriage}
                   />
+                  <IssueDependenciesPicker
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    issues={issues.data || []}
+                    canTriage={canTriage}
+                  />
                   <IssueSubscription
                     endpoint={endpoint}
                     issueNumber={issue.number}
@@ -1971,6 +1978,109 @@ function IssueMilestonePicker({
         </span>
       )}
     </section>
+  );
+}
+
+function IssueDependenciesPicker({
+  endpoint,
+  issueNumber,
+  issues,
+  canTriage,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  issues: Issue[];
+  canTriage: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const dependencies = useData<IssueDependencies>(
+    `${endpoint}/issues/${issueNumber}/dependencies`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const selected =
+    dependencies.data?.blocked_by.map((item) => item.number) || [];
+  async function save(numbers: number[]) {
+    setBusy(true);
+    setError("");
+    try {
+      await put(`${endpoint}/issues/${issueNumber}/dependencies`, {
+        blocked_by: numbers,
+      });
+      setVersion((value) => value + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not update blockers.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div
+      className="issue-meta-section"
+      aria-label={`Dependencies for issue #${issueNumber}`}
+    >
+      <strong>Dependencies</strong>
+      <ErrorMessage error={error || dependencies.error} />
+      {dependencies.data?.blocked_by.length ? (
+        <p>
+          Blocked by{" "}
+          {dependencies.data.blocked_by.map((item) => (
+            <span key={item.number} className="label-catalog-item">
+              #{item.number} {item.title} ({item.state}){" "}
+              {canTriage && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={`Remove blocker #${item.number}`}
+                  onClick={() =>
+                    save(selected.filter((number) => number !== item.number))
+                  }
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </p>
+      ) : (
+        <p className="muted">No blockers.</p>
+      )}
+      {!!dependencies.data?.blocks.length && (
+        <p>
+          Blocks{" "}
+          {dependencies.data.blocks
+            .map((item) => `#${item.number} ${item.title}`)
+            .join(", ")}
+        </p>
+      )}
+      {canTriage && (
+        <select
+          aria-label={`Add blocker to issue #${issueNumber}`}
+          disabled={busy || !dependencies.data || selected.length >= 20}
+          value=""
+          onChange={(event) => {
+            if (event.target.value)
+              save([...selected, Number(event.target.value)]);
+          }}
+        >
+          <option value="">Add blocker…</option>
+          {issues
+            .filter(
+              (issue) =>
+                issue.number !== issueNumber &&
+                !selected.includes(issue.number),
+            )
+            .map((issue) => (
+              <option key={issue.number} value={issue.number}>
+                #{issue.number} {issue.title}
+              </option>
+            ))}
+        </select>
+      )}
+    </div>
   );
 }
 

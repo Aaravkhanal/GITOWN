@@ -488,6 +488,19 @@ func TestPlatformWorkflow(t *testing.T) {
 	if len(ownerNotifications) == 0 || ownerNotifications[0].Actor != "other" || ownerNotifications[0].Kind != "issue_comment" {
 		t.Fatalf("issue author did not receive collaborator update: %+v", ownerNotifications)
 	}
+	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "open"}, 200, nil)
+	var dependencies IssueDependencies
+	other.request("PUT", "/repos/owner/project/issues/1/dependencies", map[string]any{"blocked_by": []int{2}}, 200, &dependencies)
+	if len(dependencies.BlockedBy) != 1 || dependencies.BlockedBy[0].Number != 2 {
+		t.Fatalf("issue blocker was not saved: %+v", dependencies)
+	}
+	other.request("PUT", "/repos/owner/project/issues/2/dependencies", map[string]any{"blocked_by": []int{1}}, 409, nil)
+	other.request("PUT", "/repos/owner/project/issues/1/dependencies", map[string]any{"blocked_by": []int{999}}, 422, nil)
+	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 409, nil)
+	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "done"}, 409, nil)
+	other.request("PATCH", "/repos/owner/project/issues/2", map[string]string{"state": "closed"}, 200, nil)
+	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 200, nil)
+	anon.request("GET", "/repos/owner/project/issues/1/dependencies", nil, 404, nil)
 	other.request("PUT", "/repos/owner/project/issues/1/subscription", map[string]bool{"subscribed": false}, 200, &subscription)
 	if subscription.Subscribed {
 		t.Fatal("collaborator could not unsubscribe")

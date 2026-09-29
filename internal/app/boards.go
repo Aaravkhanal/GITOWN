@@ -79,6 +79,10 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
 	var issueID, previousState string
 	if err = tx.QueryRow(r.Context(), `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID, &previousState); err == pgx.ErrNoRows {
 		fail(w, 404, "not_found", "Issue not found.")
@@ -89,6 +93,15 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 	}
 	state := "open"
 	if in.Status == "done" {
+		blocked, blockerErr := hasOpenBlockers(r.Context(), tx, issueID)
+		if blockerErr != nil {
+			serverError(w, blockerErr)
+			return
+		}
+		if blocked {
+			fail(w, 409, "open_blockers", "Close this issue's blockers before marking it Done.")
+			return
+		}
 		state = "closed"
 	}
 	if _, err = tx.Exec(r.Context(), `UPDATE issues SET state=$1 WHERE id=$2`, state, issueID); err != nil {

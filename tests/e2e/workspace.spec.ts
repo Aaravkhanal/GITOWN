@@ -367,7 +367,32 @@ test("account security, project collaboration, Git transport, and responsive nav
   ).toBeVisible();
   await page.getByRole("button", { name: "Mark read" }).click();
   await expect(page.getByText("0 unread")).toBeVisible();
+  const blockerIssue = await page.request.post(
+    `${appOrigin}/api/v1/repos/${username}/first-project/issues`,
+    {
+      headers: { Origin: appOrigin },
+      data: { title: "Prepare the prerequisite" },
+    },
+  );
+  expect(blockerIssue.ok()).toBeTruthy();
   await page.goto(`/repos/${username}/first-project/issues`);
+  await page
+    .getByRole("button", { name: "Design the next feature", exact: true })
+    .click();
+  await page.getByLabel("Add blocker to issue #1").selectOption("2");
+  await expect(
+    page.getByRole("button", { name: "Remove blocker #2" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Remove blocker #2" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove blocker #2" }),
+  ).toHaveCount(0);
+  const closeBlocker = await page.request.patch(
+    `${appOrigin}/api/v1/repos/${username}/first-project/issues/2`,
+    { headers: { Origin: appOrigin }, data: { state: "closed" } },
+  );
+  expect(closeBlocker.ok()).toBeTruthy();
+  await page.reload();
   await page
     .getByRole("button", { name: "Design the next feature", exact: true })
     .click();

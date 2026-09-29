@@ -206,10 +206,28 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var previousState string
-	if err = tx.QueryRow(r.Context(), `SELECT state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&previousState); err != nil && err != pgx.ErrNoRows {
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
 		serverError(w, err)
 		return
+	}
+	var issueID, previousState string
+	if err = tx.QueryRow(r.Context(), `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID, &previousState); err == pgx.ErrNoRows {
+		fail(w, 404, "not_found", "Issue not found.")
+		return
+	} else if err != nil {
+		serverError(w, err)
+		return
+	}
+	if in.State == "closed" {
+		blocked, blockerErr := hasOpenBlockers(r.Context(), tx, issueID)
+		if blockerErr != nil {
+			serverError(w, blockerErr)
+			return
+		}
+		if blocked {
+			fail(w, 409, "open_blockers", "Close this issue's blockers before closing the issue.")
+			return
+		}
 	}
 	result, err := tx.Exec(r.Context(), `UPDATE issues SET state=$1 WHERE repository_id=$2 AND number=$3`, in.State, repo.ID, number)
 	if err != nil {
@@ -218,11 +236,6 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.RowsAffected() == 0 {
 		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	var issueID string
-	if err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&issueID); err != nil {
-		serverError(w, err)
 		return
 	}
 	kind := "issue_closed"

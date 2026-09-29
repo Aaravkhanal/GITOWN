@@ -940,6 +940,47 @@ paths:
                 type: object
                 properties:
                   state: { type: string, enum: [open, closed] }
+  /repos/{owner}/{repo}/issues/{number}/dependencies:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: Read what blocks this issue and what this issue blocks
+      responses:
+        "200":
+          description: Issue dependency links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueDependencies" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Replace up to 20 blockers; rejects cycles and cross-repository links
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked_by]
+              properties:
+                blocked_by:
+                  type: array
+                  maxItems: 20
+                  uniqueItems: true
+                  items: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated dependency links
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueDependencies" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues/{number}/assignees:
     parameters:
       - { $ref: "#/components/parameters/Owner" }
@@ -1749,6 +1790,21 @@ components:
       properties:
         username: { type: string }
         display_name: { type: string }
+    LinkedIssue:
+      type: object
+      properties:
+        number: { type: integer }
+        title: { type: string }
+        state: { type: string, enum: [open, closed] }
+    IssueDependencies:
+      type: object
+      properties:
+        blocked_by:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedIssue" }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedIssue" }
     IssueAssignees:
       type: object
       properties:

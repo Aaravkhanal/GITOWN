@@ -75,6 +75,15 @@ export type Issue = {
   created_at: string;
 };
 export type IssueTemplate = { name: string; title: string; body: string };
+export type LinkedIssue = {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+};
+export type IssueDependencies = {
+  blocked_by: LinkedIssue[];
+  blocks: LinkedIssue[];
+};
 export type BoardItem = {
   issue_id: string;
   number: number;
