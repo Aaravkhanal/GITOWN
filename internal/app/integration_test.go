@@ -542,6 +542,21 @@ func TestPlatformWorkflow(t *testing.T) {
 	if publicProfile.Bio != "Building in the open" || len(publicProfile.Showcase) != 1 || publicProfile.Showcase[0].ID != publicRepo.ID || len(publicProfile.Repositories) != 1 {
 		t.Fatalf("public profile exposed wrong repositories: %+v", publicProfile)
 	}
+	owner.request("PUT", "/users/owner/follow", map[string]bool{"followed": true}, 422, nil)
+	anon.request("PUT", "/users/owner/follow", map[string]bool{"followed": true}, 401, nil)
+	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": true}, 200, &publicProfile)
+	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": true}, 200, &publicProfile)
+	if publicProfile.Followers != 1 || !publicProfile.Followed {
+		t.Fatalf("follow state was not saved idempotently: %+v", publicProfile)
+	}
+	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)
+	if publicProfile.Followers != 1 || publicProfile.Followed {
+		t.Fatalf("anonymous viewer follow state is wrong: %+v", publicProfile)
+	}
+	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": false}, 200, &publicProfile)
+	if publicProfile.Followers != 0 || publicProfile.Followed {
+		t.Fatalf("unfollow failed: %+v", publicProfile)
+	}
 	owner.request("PATCH", "/repos/owner/public-project", map[string]string{"description": "Private for now", "visibility": "private"}, 200, nil)
 	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)
 	if len(publicProfile.Showcase) != 0 || len(publicProfile.Repositories) != 0 {

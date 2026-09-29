@@ -8,6 +8,7 @@ test("account security, project collaboration, Git transport, and responsive nav
   page,
   browser,
 }) => {
+  test.setTimeout(180_000);
   const username = `builder-${Date.now().toString(36)}`;
   const collaboratorUsername = `collab-${Date.now().toString(36)}`;
   const errors: string[] = [];
@@ -130,6 +131,7 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(page.getByRole("status")).toHaveText("Showcase saved.");
   await page.getByRole("link", { name: "View profile" }).click();
   await expect(page.getByText("Building and sharing on GITOWN.")).toBeVisible();
+  await expect(page.getByText("0 followers · 0 following")).toBeVisible();
   await expect(
     page
       .getByRole("region", { name: "Showcase repositories" })

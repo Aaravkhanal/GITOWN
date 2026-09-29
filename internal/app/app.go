@@ -67,6 +67,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", a.me)
 	mux.HandleFunc("GET /api/v1/users/{username}/profile", a.profile)
+	mux.HandleFunc("PUT /api/v1/users/{username}/follow", a.updateFollow)
 	mux.HandleFunc("PUT /api/v1/user/profile", a.updateProfile)
 	mux.HandleFunc("PUT /api/v1/user/showcase", a.updateShowcase)
 	mux.HandleFunc("GET /api/v1/user/notifications", a.notifications)

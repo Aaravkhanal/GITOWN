@@ -13,6 +13,9 @@ export type Profile = {
   website: string;
   location: string;
   created_at: string;
+  followers: number;
+  following: number;
+  followed: boolean;
   showcase: PublicRepository[];
   repositories: PublicRepository[];
 };

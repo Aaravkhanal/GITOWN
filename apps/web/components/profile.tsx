@@ -47,8 +47,12 @@ export function PublicProfile({
   username: string;
   currentUsername?: string;
 }) {
+  const [version, setVersion] = useState(0);
+  const [followError, setFollowError] = useState("");
+  const [busy, setBusy] = useState(false);
   const profile = useData<Profile>(
     `/users/${encodeURIComponent(username)}/profile`,
+    version,
   );
   if (profile.loading) return <Loading />;
   if (profile.error || !profile.data)
@@ -66,12 +70,47 @@ export function PublicProfile({
             </p>
           </div>
         </div>
-        {currentUsername === person.username && (
+        {currentUsername === person.username ? (
           <Link className="button" href="/settings/profile">
             Edit profile
           </Link>
+        ) : currentUsername ? (
+          <button
+            className="button"
+            disabled={busy}
+            aria-pressed={person.followed}
+            onClick={async () => {
+              setBusy(true);
+              setFollowError("");
+              try {
+                await put(
+                  `/users/${encodeURIComponent(person.username)}/follow`,
+                  { followed: !person.followed },
+                );
+                setVersion((value) => value + 1);
+              } catch (error) {
+                setFollowError(
+                  error instanceof Error
+                    ? error.message
+                    : "Could not update follow.",
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {person.followed ? "Following" : "Follow builder"}
+          </button>
+        ) : (
+          <Link className="button" href="/login">
+            Sign in to follow
+          </Link>
         )}
       </div>
+      <p className="muted small-text">
+        {person.followers} followers · {person.following} following
+      </p>
+      <ErrorMessage error={followError} />
       <section className="panel profile-summary">
         <p>{person.bio || "This builder has not added a bio yet."}</p>
         {person.location && <span>{person.location}</span>}

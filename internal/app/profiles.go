@@ -25,6 +25,9 @@ type Profile struct {
 	Website      string             `json:"website"`
 	Location     string             `json:"location"`
 	CreatedAt    time.Time          `json:"created_at"`
+	Followers    int                `json:"followers"`
+	Following    int                `json:"following"`
+	Followed     bool               `json:"followed"`
 	Showcase     []PublicRepository `json:"showcase"`
 	Repositories []PublicRepository `json:"repositories"`
 }
@@ -47,6 +50,18 @@ func (a *App) profile(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	viewerID := ""
+	if viewer := a.user(r); viewer != nil {
+		viewerID = viewer.ID
+	}
+	if err = a.db.QueryRow(r.Context(), `SELECT
+		(SELECT count(*)::int FROM user_follows WHERE followed_id=$1),
+		(SELECT count(*)::int FROM user_follows WHERE follower_id=$1),
+		EXISTS(SELECT 1 FROM user_follows WHERE followed_id=$1 AND follower_id::text=$2)`, userID, viewerID).
+		Scan(&p.Followers, &p.Following, &p.Followed); err != nil {
+		serverError(w, err)
+		return
+	}
 	showcase, err := a.publicProfileRepositories(r, `SELECT r.id,r.name,r.description,(r.archived_at IS NOT NULL),r.created_at
 		FROM profile_repositories pr JOIN repositories r ON r.id=pr.repository_id
 		WHERE pr.user_id=$1 AND r.owner_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY pr.position`, userID)
@@ -63,6 +78,68 @@ func (a *App) profile(w http.ResponseWriter, r *http.Request) {
 	}
 	p.Repositories = repos
 	respond(w, 200, p)
+}
+
+func (a *App) updateFollow(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	username := r.PathValue("username")
+	if !slug.MatchString(username) {
+		fail(w, 404, "not_found", "Profile not found.")
+		return
+	}
+	var in struct {
+		Followed *bool `json:"followed"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Followed == nil {
+		fail(w, 422, "validation_failed", "Choose whether to follow this builder.")
+		return
+	}
+	var followedID string
+	if err := a.db.QueryRow(r.Context(), `SELECT id FROM users WHERE username=$1`, username).Scan(&followedID); err == pgx.ErrNoRows {
+		fail(w, 404, "not_found", "Profile not found.")
+		return
+	} else if err != nil {
+		serverError(w, err)
+		return
+	}
+	if u.ID == followedID {
+		fail(w, 422, "validation_failed", "You cannot follow yourself.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if *in.Followed {
+		_, err = tx.Exec(r.Context(), `INSERT INTO user_follows(follower_id,followed_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, u.ID, followedID)
+	} else {
+		_, err = tx.Exec(r.Context(), `DELETE FROM user_follows WHERE follower_id=$1 AND followed_id=$2`, u.ID, followedID)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	action := "profile.unfollowed"
+	if *in.Followed {
+		action = "profile.followed"
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, action, username); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.profile(w, r)
 }
 
 func (a *App) publicProfileRepositories(r *http.Request, query, userID string) ([]PublicRepository, error) {

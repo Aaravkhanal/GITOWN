@@ -26,6 +26,30 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Profile" }
         "404": { $ref: "#/components/responses/Error" }
+  /users/{username}/follow:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+    put:
+      summary: Follow or unfollow another builder
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [followed]
+              properties:
+                followed: { type: boolean }
+      responses:
+        "200":
+          description: Updated public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /user/profile:
     put:
       summary: Update your public profile
@@ -1561,6 +1585,9 @@ components:
         website: { type: string }
         location: { type: string }
         created_at: { type: string, format: date-time }
+        followers: { type: integer, minimum: 0 }
+        following: { type: integer, minimum: 0 }
+        followed: { type: boolean }
         showcase:
           type: array
           items: { $ref: "#/components/schemas/PublicRepository" }
