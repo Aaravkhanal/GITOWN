@@ -32,6 +32,7 @@ export type Repo = {
   archived: boolean;
   clone_url: string;
 };
+export type SparkState = { count: number; sparked: boolean };
 export type DeletedRepository = {
   id: string;
   owner: string;

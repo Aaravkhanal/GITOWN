@@ -511,6 +511,30 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	owner.request("GET", "/repos/owner/public-project", nil, 200, &publicRepoDetail)
 	publicRepo := publicRepoDetail.Repository
+	var spark SparkState
+	owner.request("GET", "/repos/owner/public-project/spark", nil, 200, &spark)
+	if spark.Count != 0 || spark.Sparked {
+		t.Fatalf("unexpected initial Spark: %+v", spark)
+	}
+	owner.request("PUT", "/repos/owner/public-project/spark", map[string]bool{"sparked": true}, 200, &spark)
+	if spark.Count != 1 || !spark.Sparked {
+		t.Fatalf("owner Spark was not saved: %+v", spark)
+	}
+	other.request("PUT", "/repos/owner/public-project/spark", map[string]bool{"sparked": true}, 200, &spark)
+	other.request("PUT", "/repos/owner/public-project/spark", map[string]bool{"sparked": true}, 200, &spark)
+	if spark.Count != 2 || !spark.Sparked {
+		t.Fatalf("duplicate Spark changed count: %+v", spark)
+	}
+	other.request("PUT", "/repos/owner/public-project/spark", map[string]bool{"sparked": false}, 200, &spark)
+	if spark.Count != 1 || spark.Sparked {
+		t.Fatalf("Spark removal failed: %+v", spark)
+	}
+	anon.request("GET", "/repos/owner/public-project/spark", nil, 200, &spark)
+	if spark.Count != 1 || spark.Sparked {
+		t.Fatalf("anonymous Spark state leaked identity: %+v", spark)
+	}
+	anon.request("PUT", "/repos/owner/public-project/spark", map[string]bool{"sparked": true}, 401, nil)
+	anon.request("GET", "/repos/owner/project/spark", nil, 404, nil)
 	owner.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{publicRepo.ID}}, 200, nil)
 	other.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{publicRepo.ID}}, 422, nil)
 	var publicProfile Profile

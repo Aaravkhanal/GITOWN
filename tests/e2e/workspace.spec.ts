@@ -118,6 +118,9 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("Repository settings saved.", { exact: true }),
   ).toBeVisible();
+  await page.goto(`/repos/${username}/first-project`);
+  await page.getByRole("button", { name: "Spark · 0" }).click();
+  await expect(page.getByRole("button", { name: "Sparked · 1" })).toBeVisible();
   await page.goto("/settings/profile");
   await page.getByLabel("Bio").fill("Building and sharing on GITOWN.");
   await page.getByRole("button", { name: "Save profile" }).click();

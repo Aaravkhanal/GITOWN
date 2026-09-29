@@ -1655,9 +1655,16 @@ textarea {
   color: #a5c6ae;
   flex-shrink: 0;
 }
-.repository-heading > div {
+.repository-heading > div:not(.toolbar-actions) {
   flex: 1;
   min-width: 0;
+}
+.repository-heading .toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 .repository-heading p {
   margin: 7px 0 0;

@@ -26,6 +26,7 @@ import {
   Plus,
   Save,
   Settings,
+  Sparkles,
   Terminal,
   Trash2,
   UserPlus,
@@ -41,6 +42,7 @@ import {
   date,
   repoPath,
   type Repo,
+  type SparkState,
   type Commit,
   type Tree,
   type Issue,
@@ -136,10 +138,13 @@ export function RepositoryPage({
           </div>
           <p>{r.description || "A home for your next great idea."}</p>
         </div>
-        <button className="button" onClick={() => setClone(!clone)}>
-          <Terminal size={16} />
-          Clone repository
-        </button>
+        <div className="toolbar-actions">
+          <SparkButton endpoint={endpoint} />
+          <button className="button" onClick={() => setClone(!clone)}>
+            <Terminal size={16} />
+            Clone repository
+          </button>
+        </div>
       </div>
       {r.archived && (
         <div className="archive-banner">
@@ -288,6 +293,46 @@ export function RepositoryPage({
         </div>
       )}
     </>
+  );
+}
+
+function SparkButton({ endpoint }: { endpoint: string }) {
+  const [version, setVersion] = useState(0);
+  const state = useData<SparkState>(`${endpoint}/spark`, version);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function toggle() {
+    if (!state.data || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await put(`${endpoint}/spark`, { sparked: !state.data.sparked });
+      setVersion((value) => value + 1);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not update Spark.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div>
+      <button
+        className="button"
+        onClick={toggle}
+        disabled={busy || !state.data}
+        aria-pressed={state.data?.sparked || false}
+      >
+        <Sparkles size={16} /> {state.data?.sparked ? "Sparked" : "Spark"} ·{" "}
+        {state.data?.count ?? 0}
+      </button>
+      {error && (
+        <span className="error-text" role="alert">
+          {error}
+        </span>
+      )}
+    </div>
   );
 }
 

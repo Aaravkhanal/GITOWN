@@ -410,6 +410,41 @@ paths:
         "200": { description: Repository scheduled for deletion }
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/spark:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Read a visible repository's Spark count and viewer state
+      responses:
+        "200":
+          description: Spark state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SparkState" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Spark or un-Spark a visible repository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sparked]
+              properties:
+                sparked: { type: boolean }
+      responses:
+        "200":
+          description: Updated Spark state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SparkState" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/rename:
     parameters:
       [
@@ -1435,6 +1470,12 @@ components:
                   code: { type: string }
                   message: { type: string }
   schemas:
+    SparkState:
+      type: object
+      required: [count, sparked]
+      properties:
+        count: { type: integer, minimum: 0 }
+        sparked: { type: boolean }
     User:
       type: object
       properties:
