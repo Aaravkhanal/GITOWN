@@ -18,9 +18,9 @@ Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, bla
 
 ## Phase 3 — Collaboration and protected delivery (partial)
 
-Shipped foundation: issues, assignees, labels, milestones with due dates and progress, discussions, issue following, and an in-app inbox for issue events; same-repository Unite requests, diffs, discussions, close/reopen, formal approve/request-changes reviews with stale-head visibility, per-branch Merge Guards requiring fresh approvals and blocking current change requests, merge commits, expected-SHA checks, and interrupted-merge recovery.
+Shipped foundation: issues, assignees, labels, milestones with due dates and progress, discussions, issue following, and an in-app inbox for issue events; same-repository Unite requests, diffs, discussions, close/reopen, formal approve/request-changes reviews with stale-head visibility, per-branch Merge Guards requiring fresh approvals and blocking current change requests, optional direct-push/browser-edit protection that requires Unite for a branch, merge commits, expected-SHA checks, and interrupted-merge recovery.
 
-Remaining gate: inline reviews, mentions, Unite subscriptions and broader notifications, direct-push rules, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
+Remaining gate: inline reviews, mentions, Unite subscriptions and broader notifications, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
 
 ## Phase 4 — Boards and planning (partial)
 

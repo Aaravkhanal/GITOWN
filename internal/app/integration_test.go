@@ -377,6 +377,22 @@ func TestPlatformWorkflow(t *testing.T) {
 	if err != nil || currentBase != detail.BaseSHA {
 		t.Fatal("conflict changed base history")
 	}
+	owner.request("PUT", "/repos/owner/project/branch-rules?branch=main", map[string]any{"required_approvals": 1, "block_changes_requested": true, "require_unite": true}, 200, &rule)
+	if !rule.RequireUnite {
+		t.Fatal("required Unite rule was not saved")
+	}
+	if err = os.WriteFile(filepath.Join(work, "hello.txt"), []byte("Direct push should be blocked\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(work, "", "", true, "commit", "-am", "Attempt protected push")
+	gitRun(work, "owner", writeToken, false, "push", "origin", "main")
+	gitRun(work, "owner", writeToken, true, "push", "origin", "HEAD:refs/heads/unprotected-feature")
+	owner.request("PUT", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "blocked.txt", "content": "Cannot bypass Unite", "message": "Attempt browser edit", "expected_head": currentBase,
+	}, 409, nil)
+	owner.request("DELETE", "/repos/owner/project/contents", map[string]string{
+		"branch": "main", "path": "hello.txt", "message": "Attempt browser delete", "expected_head": currentBase,
+	}, 409, nil)
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
 	var subscription struct {

@@ -1200,6 +1200,7 @@ function BranchRuleSettings({
               required_approvals: Number(data.get("required_approvals")),
               block_changes_requested:
                 data.get("block_changes_requested") === "on",
+              require_unite: data.get("require_unite") === "on",
             },
           );
           setMessage("Branch rule saved.");
@@ -1262,6 +1263,16 @@ function BranchRuleSettings({
               defaultChecked={rule.data?.block_changes_requested ?? true}
             />
             Block merging while a current review requests changes
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`unite-${branch}-${version}`}
+              name="require_unite"
+              type="checkbox"
+              defaultChecked={rule.data?.require_unite ?? false}
+            />
+            Require a Unite request; reject direct Git pushes and browser edits
+            to this branch
           </label>
           {error && <div className="form-error">{error}</div>}
           {message && <div className="success-box">{message}</div>}

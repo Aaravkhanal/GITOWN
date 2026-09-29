@@ -466,6 +466,9 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, content up to 512 KiB, and a commit message up to 200 characters.")
 		return
 	}
+	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch) {
+		return
+	}
 	sha, err := a.git.CommitFile(r.Context(), repo.ID, in.Branch, in.Path, []byte(in.Content), in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
 	if errors.Is(err, gitstore.ErrConflict) {
 		fail(w, 409, "branch_changed", "The branch changed while you were editing. Refresh the file and apply your changes again.")
@@ -503,6 +506,9 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 	in.Message = strings.TrimSpace(in.Message)
 	if in.Branch == "" || in.Path == "" || in.Message == "" || len(in.Message) > 200 || len(in.ExpectedHead) != 40 {
 		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, and a commit message up to 200 characters.")
+		return
+	}
+	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch) {
 		return
 	}
 	sha, err := a.git.DeleteFile(r.Context(), repo.ID, in.Branch, in.Path, in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)

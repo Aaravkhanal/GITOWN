@@ -177,6 +177,7 @@ export type BranchRule = {
   branch: string;
   required_approvals: number;
   block_changes_requested: boolean;
+  require_unite: boolean;
   updated_at: string;
 };
 export type Activity = {

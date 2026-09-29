@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,10 +10,30 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func (a *App) directPushProtected(ctx context.Context, repoID, branch string) (bool, error) {
+	var protected bool
+	err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM repository_branch_rules WHERE repository_id=$1 AND branch=$2 AND require_unite)`, repoID, branch).Scan(&protected)
+	return protected, err
+}
+
+func (a *App) allowBrowserBranchEdit(w http.ResponseWriter, r *http.Request, repoID, branch string) bool {
+	protected, err := a.directPushProtected(r.Context(), repoID, branch)
+	if err != nil {
+		serverError(w, err)
+		return false
+	}
+	if protected {
+		fail(w, 409, "branch_requires_unite", "This branch requires a Unite request. Edit a feature branch and merge it instead.")
+		return false
+	}
+	return true
+}
+
 type BranchRule struct {
 	Branch                string    `json:"branch"`
 	RequiredApprovals     int       `json:"required_approvals"`
 	BlockChangesRequested bool      `json:"block_changes_requested"`
+	RequireUnite          bool      `json:"require_unite"`
 	UpdatedAt             time.Time `json:"updated_at"`
 }
 
@@ -31,7 +52,7 @@ func (a *App) branchRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule := BranchRule{Branch: branch, BlockChangesRequested: true}
-	err := a.db.QueryRow(r.Context(), `SELECT required_approvals,block_changes_requested,updated_at FROM repository_branch_rules WHERE repository_id=$1 AND branch=$2`, repo.ID, branch).Scan(&rule.RequiredApprovals, &rule.BlockChangesRequested, &rule.UpdatedAt)
+	err := a.db.QueryRow(r.Context(), `SELECT required_approvals,block_changes_requested,require_unite,updated_at FROM repository_branch_rules WHERE repository_id=$1 AND branch=$2`, repo.ID, branch).Scan(&rule.RequiredApprovals, &rule.BlockChangesRequested, &rule.RequireUnite, &rule.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		respond(w, 200, rule)
 		return
@@ -60,6 +81,7 @@ func (a *App) updateBranchRule(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		RequiredApprovals     int  `json:"required_approvals"`
 		BlockChangesRequested bool `json:"block_changes_requested"`
+		RequireUnite          bool `json:"require_unite"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -68,14 +90,14 @@ func (a *App) updateBranchRule(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Required approvals must be between 0 and 10.")
 		return
 	}
-	rule := BranchRule{Branch: branch, RequiredApprovals: in.RequiredApprovals, BlockChangesRequested: in.BlockChangesRequested}
-	err := a.db.QueryRow(r.Context(), `INSERT INTO repository_branch_rules(repository_id,branch,required_approvals,block_changes_requested) VALUES($1,$2,$3,$4) ON CONFLICT(repository_id,branch) DO UPDATE SET required_approvals=excluded.required_approvals,block_changes_requested=excluded.block_changes_requested,updated_at=now() RETURNING updated_at`, repo.ID, branch, rule.RequiredApprovals, rule.BlockChangesRequested).Scan(&rule.UpdatedAt)
+	rule := BranchRule{Branch: branch, RequiredApprovals: in.RequiredApprovals, BlockChangesRequested: in.BlockChangesRequested, RequireUnite: in.RequireUnite}
+	err := a.db.QueryRow(r.Context(), `INSERT INTO repository_branch_rules(repository_id,branch,required_approvals,block_changes_requested,require_unite) VALUES($1,$2,$3,$4,$5) ON CONFLICT(repository_id,branch) DO UPDATE SET required_approvals=excluded.required_approvals,block_changes_requested=excluded.block_changes_requested,require_unite=excluded.require_unite,updated_at=now() RETURNING updated_at`, repo.ID, branch, rule.RequiredApprovals, rule.BlockChangesRequested, rule.RequireUnite).Scan(&rule.UpdatedAt)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	u := a.user(r)
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'branch_rule.updated',$2)`, u.ID, fmt.Sprintf("%s/%s:%s approvals=%d block_changes=%t", repo.Owner, repo.Name, branch, rule.RequiredApprovals, rule.BlockChangesRequested))
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'branch_rule.updated',$2)`, u.ID, fmt.Sprintf("%s/%s:%s approvals=%d block_changes=%t require_unite=%t", repo.Owner, repo.Name, branch, rule.RequiredApprovals, rule.BlockChangesRequested, rule.RequireUnite))
 	respond(w, 200, rule)
 }
 

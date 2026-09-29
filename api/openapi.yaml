@@ -835,6 +835,7 @@ paths:
               properties:
                 required_approvals: { type: integer, minimum: 0, maximum: 10 }
                 block_changes_requested: { type: boolean }
+                require_unite: { type: boolean, default: false }
       responses:
         "200":
           description: Saved merge guard
@@ -1708,6 +1709,7 @@ components:
         branch: { type: string }
         required_approvals: { type: integer, minimum: 0, maximum: 10 }
         block_changes_requested: { type: boolean }
+        require_unite: { type: boolean }
         updated_at: { type: string, format: date-time }
     DeletedRepository:
       type: object

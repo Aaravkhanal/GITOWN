@@ -72,6 +72,26 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Repository write permission and repo:write scope are required.", 403)
 		return
 	}
+	requestBody := io.Reader(http.MaxBytesReader(w, r.Body, 100<<20))
+	if write && r.Method == "POST" {
+		protected, err := a.protectedBranches(r.Context(), repo.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if len(protected) > 0 {
+			var blocked bool
+			requestBody, blocked, err = inspectReceiveCommands(requestBody, r.Header.Get("Content-Encoding") == "gzip", protected)
+			if err != nil {
+				http.Error(w, "Could not validate Git receive request.", 400)
+				return
+			}
+			if blocked {
+				http.Error(w, "This branch requires a Unite request; direct pushes are disabled.", 403)
+				return
+			}
+		}
+	}
 	select {
 	case a.transports <- struct{}{}:
 		defer func() { <-a.transports }()
@@ -98,7 +118,7 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		env = append(env, "HTTP_CONTENT_ENCODING=gzip")
 	}
 	cmd.Env = env
-	cmd.Stdin = http.MaxBytesReader(w, r.Body, 100<<20)
+	cmd.Stdin = requestBody
 	cmd.WaitDelay = time.Second
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
