@@ -92,7 +92,9 @@ test("account security, project collaboration, Git transport, and responsive nav
   );
   await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(
-    page.getByText("Improve the README in GITOWN", { exact: true }),
+    page.locator(".commit-message", {
+      hasText: "Improve the README in GITOWN",
+    }),
   ).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Delete", exact: true }).click();
