@@ -602,6 +602,7 @@ function Dashboard({ explore }: { explore: boolean }) {
               <option value="recent">Recent</option>
               <option value="name">Name</option>
               {explore && <option value="sparks">Most Sparked</option>}
+              {explore && <option value="trending">Trending (30 days)</option>}
             </select>
           </div>
           <ErrorMessage error={explore ? search.error : repos.error} />

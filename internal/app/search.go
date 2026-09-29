@@ -27,8 +27,8 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(q) > 100 || (topic != "" && !topicPattern.MatchString(topic)) || offset < 0 || offset > 1000 || (sort != "recent" && sort != "name" && sort != "sparks") {
-		fail(w, 422, "validation_failed", "Use a query up to 100 characters, a valid topic, offset from zero to 1000, and recent, name, or sparks sort.")
+	if len(q) > 100 || (topic != "" && !topicPattern.MatchString(topic)) || offset < 0 || offset > 1000 || (sort != "recent" && sort != "name" && sort != "sparks" && sort != "trending") {
+		fail(w, 422, "validation_failed", "Use a query up to 100 characters, a valid topic, offset from zero to 1000, and recent, name, sparks, or trending sort.")
 		return
 	}
 	order := "r.created_at DESC,r.id DESC"
@@ -36,6 +36,8 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 		order = "r.name ASC,r.id ASC"
 	} else if sort == "sparks" {
 		order = "(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC,r.created_at DESC,r.id DESC"
+	} else if sort == "trending" {
+		order = "(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.created_at>=now()-interval '30 days') DESC,r.created_at DESC,r.id DESC"
 	}
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
 		WHERE r.visibility='public' AND r.deleted_at IS NULL

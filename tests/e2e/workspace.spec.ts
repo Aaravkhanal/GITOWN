@@ -8,7 +8,7 @@ test("account security, project collaboration, Git transport, and responsive nav
   page,
   browser,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const username = `builder-${Date.now().toString(36)}`;
   const collaboratorUsername = `collab-${Date.now().toString(36)}`;
   const errors: string[] = [];
@@ -129,6 +129,10 @@ test("account security, project collaboration, Git transport, and responsive nav
       .getByText("collaboration"),
   ).toBeVisible();
   await page.goto("/explore?topic=collaboration");
+  await expect(
+    page.getByRole("link", { name: /first-project/ }).first(),
+  ).toBeVisible();
+  await page.getByLabel("Sort repositories").selectOption("trending");
   await expect(
     page.getByRole("link", { name: /first-project/ }).first(),
   ).toBeVisible();

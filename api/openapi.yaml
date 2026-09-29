@@ -23,7 +23,7 @@ paths:
         - {
             name: sort,
             in: query,
-            schema: { type: string, enum: [recent, name, sparks] },
+            schema: { type: string, enum: [recent, name, sparks, trending] },
           }
         - {
             name: offset,

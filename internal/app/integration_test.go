@@ -534,6 +534,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	anon.request("GET", "/search/repositories?q=project&offset=-1", nil, 422, nil)
 	anon.request("GET", "/search/repositories?sort=random", nil, 422, nil)
+	anon.request("GET", "/search/repositories?sort=trending&topic=go", nil, 200, &search)
+	if len(search.Items) != 1 || search.Items[0].ID != publicRepo.ID {
+		t.Fatalf("trending topic search is wrong: %+v", search)
+	}
 	anon.request("GET", "/search/repositories?q=project", nil, 200, &search)
 	for _, item := range search.Items {
 		if item.ID == repo.ID {
