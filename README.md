@@ -25,6 +25,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - A following feed for visible repository creation, Sparks, issues, and Unite requests from followed builders.
 - Owner-managed repository topics for describing and organizing projects.
 - Public repository discovery with server-backed text/topic search, recent/name/Spark/30-day-trending sorting, and 25-result pages.
+- Public builder discovery with username/name/bio search, follower and public-repository counts, and 25-result pages.
 - Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
 - Owner-managed issue templates that prefill titles and descriptions for recurring work.
 - Same-repository issue dependencies with cycle detection; open blockers prevent closing or marking an issue Done.

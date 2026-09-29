@@ -44,6 +44,7 @@ import {
   type Token,
   type DeletedRepository,
   type BrowserSession,
+  type BuilderSearch,
 } from "@/lib/api";
 import {
   Avatar,
@@ -426,6 +427,7 @@ function Dashboard({ explore }: { explore: boolean }) {
   const [sort, setSort] = useState("recent");
   const [topic, setTopic] = useState("");
   const [offset, setOffset] = useState(0);
+  const [builderOffset, setBuilderOffset] = useState(0);
   useEffect(() => {
     if (explore) {
       setFilter(new URLSearchParams(window.location.search).get("q") || "");
@@ -440,6 +442,11 @@ function Dashboard({ explore }: { explore: boolean }) {
   });
   const search = useData<{ items: Repo[]; has_more: boolean }>(
     explore ? `/search/repositories?${searchParams}` : null,
+  );
+  const builders = useData<BuilderSearch>(
+    explore
+      ? `/search/builders?${new URLSearchParams({ q: filter, offset: String(builderOffset) })}`
+      : null,
   );
   const visible = explore
     ? search.data?.items || []
@@ -573,12 +580,19 @@ function Dashboard({ explore }: { explore: boolean }) {
             <div className="search-field">
               <Search size={16} />
               <input
-                aria-label="Filter repositories"
-                placeholder="Find a repository…"
+                aria-label={
+                  explore
+                    ? "Search repositories and builders"
+                    : "Filter repositories"
+                }
+                placeholder={
+                  explore ? "Find code or builders…" : "Find a repository…"
+                }
                 value={filter}
                 onChange={(e) => {
                   setFilter(e.target.value);
                   setOffset(0);
+                  setBuilderOffset(0);
                 }}
               />
             </div>
@@ -756,6 +770,65 @@ function Dashboard({ explore }: { explore: boolean }) {
           </aside>
         )}
       </div>
+      {explore && (
+        <section className="builder-discovery">
+          <div className="section-heading">
+            <h2>Builders</h2>
+            <span className="muted small-text">
+              Find people to follow and collaborate with.
+            </span>
+          </div>
+          <ErrorMessage error={builders.error} />
+          {builders.loading ? (
+            <Loading />
+          ) : builders.data?.items.length ? (
+            <div className="repo-list">
+              {builders.data.items.map((builder) => (
+                <Link
+                  href={`/u/${builder.username}`}
+                  className="repo-card"
+                  key={builder.username}
+                >
+                  <Avatar name={builder.display_name} />
+                  <div className="repo-card-main">
+                    <h3>{builder.display_name}</h3>
+                    <p>@{builder.username}</p>
+                    {builder.bio && <p>{builder.bio}</p>}
+                    <div className="repo-meta">
+                      <span>{builder.repositories} public repositories</span>
+                      <span>{builder.followers} followers</span>
+                      {builder.location && <span>{builder.location}</span>}
+                    </div>
+                  </div>
+                  <ArrowUpRight className="card-arrow" size={18} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No matching builders yet.</p>
+          )}
+          {(builderOffset > 0 || builders.data?.has_more) && (
+            <div className="form-actions">
+              <button
+                className="button"
+                disabled={builderOffset === 0}
+                onClick={() =>
+                  setBuilderOffset(Math.max(0, builderOffset - 25))
+                }
+              >
+                Previous builders
+              </button>
+              <button
+                className="button"
+                disabled={!builders.data?.has_more}
+                onClick={() => setBuilderOffset(builderOffset + 25)}
+              >
+                Next builders
+              </button>
+            </div>
+          )}
+        </section>
+      )}
     </>
   );
 }

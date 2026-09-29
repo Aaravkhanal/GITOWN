@@ -658,6 +658,9 @@ hr {
 .single-column {
   grid-template-columns: 1fr;
 }
+.builder-discovery {
+  margin-top: 36px;
+}
 .section-heading {
   display: flex;
   align-items: center;

@@ -38,6 +38,17 @@ export type Repo = {
 export type SparkState = { count: number; sparked: boolean };
 export type TopicState = { topics: string[] };
 export type RepositorySearch = { items: Repo[]; has_more: boolean };
+export type BuilderSearch = {
+  items: {
+    username: string;
+    display_name: string;
+    bio: string;
+    location: string;
+    followers: number;
+    repositories: number;
+  }[];
+  has_more: boolean;
+};
 export type DeletedRepository = {
   id: string;
   owner: string;

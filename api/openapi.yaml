@@ -7,12 +7,31 @@ info:
     cookie. Every mutation requires an Origin header equal to GITOWN_ORIGIN;
     mutations other than DELETE require application/json. Git personal access
     tokens authenticate only /git transport endpoints, not this JSON API.
-    Lists currently return bounded arrays without pagination.
+    Most lists return bounded arrays; public repository and builder search use
+    offset pagination with 25-item pages.
 servers:
   - url: /api/v1
 security:
   - session: []
 paths:
+  /search/builders:
+    get:
+      security: []
+      summary: Search public builder profiles by username, name, or bio
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - {
+            name: offset,
+            in: query,
+            schema: { type: integer, minimum: 0, maximum: 1000 },
+          }
+      responses:
+        "200":
+          description: Up to 25 matching builders and a next-page flag
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuilderSearch" }
+        "422": { $ref: "#/components/responses/Error" }
   /search/repositories:
     get:
       security: []
@@ -1645,6 +1664,23 @@ components:
                   code: { type: string }
                   message: { type: string }
   schemas:
+    BuilderSearch:
+      type: object
+      required: [items, has_more]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BuilderResult" }
+        has_more: { type: boolean }
+    BuilderResult:
+      type: object
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        bio: { type: string }
+        location: { type: string }
+        followers: { type: integer, minimum: 0 }
+        repositories: { type: integer, minimum: 0 }
     RepositorySearch:
       type: object
       required: [items, has_more]

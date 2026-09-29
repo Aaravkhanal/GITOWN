@@ -534,6 +534,16 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)
 	owner.request("PUT", "/user/profile", map[string]string{"display_name": "Owner", "bio": "Building in the open", "website": "http://insecure.example", "location": "Nepal"}, 422, nil)
 	owner.request("PUT", "/user/profile", map[string]string{"display_name": "Owner", "bio": "Building in the open", "website": "https://example.test", "location": "Nepal"}, 200, nil)
+	var builders BuilderSearch
+	anon.request("GET", "/search/builders?q=building%20in%20the%20open", nil, 200, &builders)
+	if len(builders.Items) != 1 || builders.Items[0].Username != "owner" || builders.Items[0].Bio != "Building in the open" || builders.Items[0].Repositories != 1 || builders.HasMore {
+		t.Fatalf("public builder search is wrong: %+v", builders)
+	}
+	anon.request("GET", "/search/builders?q=owner&offset=-1", nil, 422, nil)
+	anon.request("GET", "/search/builders?q=missing", nil, 200, &builders)
+	if len(builders.Items) != 0 {
+		t.Fatalf("builder search ignored filter: %+v", builders)
+	}
 	owner.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{repo.ID}}, 422, nil)
 	var publicRepoDetail struct {
 		Repository Repository `json:"repository"`

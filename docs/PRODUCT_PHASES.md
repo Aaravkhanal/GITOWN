@@ -28,7 +28,7 @@ Shipped foundation: a repository issue board with To do, In progress, and Done c
 
 ## Phase 5 — Social and discovery (partial)
 
-Shipped foundation: public builder profiles, configurable repository showcases, one-click repository Sparks with visible counts, builder follows with counts and self-follow protection, a public following feed for repository creation/Sparks/issues/Unite requests, owner-managed repository topics, and public repository text/topic search with Spark sorting, 30-day trending, and pagination. Remaining gate: richer activity events and broader advanced search across builders, code, issues, and Unite requests.
+Shipped foundation: public builder profiles, configurable repository showcases, one-click repository Sparks with visible counts, builder follows with counts and self-follow protection, a public following feed for repository creation/Sparks/issues/Unite requests, owner-managed repository topics, public repository text/topic search with Spark sorting and 30-day trending, and paged public builder search by username/name/bio. Remaining gate: richer activity events and broader advanced search across code, issues, and Unite requests.
 
 ## Later phases (planned)
 

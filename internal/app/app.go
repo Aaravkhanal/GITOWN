@@ -84,6 +84,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)
 	mux.HandleFunc("GET /api/v1/search/repositories", a.searchRepositories)
+	mux.HandleFunc("GET /api/v1/search/builders", a.searchBuilders)
 	mux.HandleFunc("POST /api/v1/repos", a.createRepository)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}", a.repository)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/spark", a.spark)

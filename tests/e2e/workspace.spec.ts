@@ -140,6 +140,14 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByRole("link", { name: /first-project/ }).first(),
   ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Builders" })).toBeVisible();
+  await page.getByLabel("Search repositories and builders").fill(username);
+  await expect(
+    page
+      .locator(".builder-discovery")
+      .getByRole("link", { name: new RegExp(username) }),
+  ).toBeVisible();
+  await page.getByLabel("Search repositories and builders").fill("");
   await page.getByLabel("Sort repositories").selectOption("trending");
   await expect(
     page.getByRole("link", { name: /first-project/ }).first(),
