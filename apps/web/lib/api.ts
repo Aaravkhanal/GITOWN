@@ -76,6 +76,17 @@ export type BoardItem = {
   status: "todo" | "progress" | "done";
   author: string;
 };
+export type Notification = {
+  id: number;
+  kind: "issue_comment" | "issue_closed" | "issue_reopened";
+  actor: string;
+  owner: string;
+  repository: string;
+  issue: number;
+  title: string;
+  created_at: string;
+  read_at: string | null;
+};
 export type IssueComment = {
   id: string;
   body: string;

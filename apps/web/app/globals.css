@@ -799,6 +799,31 @@ hr {
   gap: 5px;
   font-size: 12px;
 }
+.notification-list {
+  padding: 0;
+}
+.notification-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.notification-item:last-child {
+  border-bottom: 0;
+}
+.notification-item.unread {
+  background: #1a2420;
+}
+.notification-item a:hover {
+  color: var(--green);
+}
+.notification-item p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
 @media (max-width: 900px) {
   .issue-board {
     grid-template-columns: 1fr;

@@ -379,6 +379,15 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
+	var subscription struct {
+		Subscribed bool `json:"subscribed"`
+	}
+	owner.request("GET", "/repos/owner/project/issues/1/subscription", nil, 200, &subscription)
+	if !subscription.Subscribed {
+		t.Fatal("issue author was not subscribed")
+	}
+	owner.request("GET", "/repos/owner/project/issues/999/subscription", nil, 404, nil)
+	anon.request("GET", "/user/notifications", nil, 401, nil)
 	var board []BoardItem
 	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
 	if len(board) != 1 || board[0].Status != "todo" {
@@ -397,6 +406,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "todo"}, 200, nil)
 	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "invalid"}, 422, nil)
 	owner.request("PUT", "/repos/owner/project/issues/999/board", map[string]string{"status": "todo"}, 404, nil)
+	other.request("PUT", "/repos/owner/project/issues/1/subscription", map[string]bool{"subscribed": true}, 200, &subscription)
+	if !subscription.Subscribed {
+		t.Fatal("collaborator could not subscribe")
+	}
 	var assignees IssueAssignees
 	owner.request("PUT", "/repos/owner/project/issues/1/assignees", map[string]any{"usernames": []string{"owner", "other"}}, 200, &assignees)
 	if len(assignees.Assigned) != 2 {
@@ -435,6 +448,17 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("GET", "/repos/owner/project/issues/999/labels", nil, 404, nil)
 	var comment IssueComment
 	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "The first discussion reply."}, 201, &comment)
+	var otherNotifications []Notification
+	other.request("GET", "/user/notifications", nil, 200, &otherNotifications)
+	if len(otherNotifications) != 1 || otherNotifications[0].Kind != "issue_comment" || otherNotifications[0].Actor != "owner" || otherNotifications[0].ReadAt != nil {
+		t.Fatalf("subscriber did not receive issue comment: %+v", otherNotifications)
+	}
+	other.request("PUT", fmt.Sprintf("/user/notifications/%d/read", otherNotifications[0].ID), map[string]any{}, 200, nil)
+	other.request("GET", "/user/notifications", nil, 200, &otherNotifications)
+	if otherNotifications[0].ReadAt == nil {
+		t.Fatal("notification was not marked read")
+	}
+	owner.request("PUT", fmt.Sprintf("/user/notifications/%d/read", otherNotifications[0].ID), map[string]any{}, 404, nil)
 	if comment.Author != "owner" || comment.Body != "The first discussion reply." {
 		t.Fatalf("unexpected issue comment: %+v", comment)
 	}
@@ -459,10 +483,23 @@ func TestPlatformWorkflow(t *testing.T) {
 	other.request("POST", "/repos/owner/project/milestones", map[string]string{"title": "Next release"}, 201, nil)
 	other.request("PUT", "/repos/owner/project/issues/2/milestone", map[string]any{"milestone_id": milestone.ID}, 200, nil)
 	other.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
+	var ownerNotifications []Notification
+	owner.request("GET", "/user/notifications", nil, 200, &ownerNotifications)
+	if len(ownerNotifications) == 0 || ownerNotifications[0].Actor != "other" || ownerNotifications[0].Kind != "issue_comment" {
+		t.Fatalf("issue author did not receive collaborator update: %+v", ownerNotifications)
+	}
+	other.request("PUT", "/repos/owner/project/issues/1/subscription", map[string]bool{"subscribed": false}, 200, &subscription)
+	if subscription.Subscribed {
+		t.Fatal("collaborator could not unsubscribe")
+	}
 	other.request("DELETE", "/repos/owner/project/issues/1/labels/"+bugLabel.ID, nil, 200, nil)
 	other.request("DELETE", "/repos/owner/project/labels/"+bugLabel.ID, nil, 200, nil)
 	other.request("POST", "/repos/owner/project/pulls", map[string]string{"title": "No code permission", "base_branch": "main", "head_branch": "feature"}, 403, nil)
 	owner.request("DELETE", "/repos/owner/project/members/other", nil, 200, nil)
+	other.request("GET", "/user/notifications", nil, 200, &otherNotifications)
+	if len(otherNotifications) != 0 {
+		t.Fatalf("revoked collaborator retained private notifications: %+v", otherNotifications)
+	}
 	other.request("GET", "/repos/owner/project", nil, 404, nil)
 	gitRun("", "other", otherToken, false, "ls-remote", repoURL)
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)

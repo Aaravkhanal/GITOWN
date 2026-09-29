@@ -157,6 +157,10 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO issue_subscriptions(issue_id,user_id) VALUES($1,$2)`, i.ID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, i.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -202,6 +206,11 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	var previousState string
+	if err = tx.QueryRow(r.Context(), `SELECT state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&previousState); err != nil && err != pgx.ErrNoRows {
+		serverError(w, err)
+		return
+	}
 	result, err := tx.Exec(r.Context(), `UPDATE issues SET state=$1 WHERE repository_id=$2 AND number=$3`, in.State, repo.ID, number)
 	if err != nil {
 		serverError(w, err)
@@ -209,6 +218,22 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.RowsAffected() == 0 {
 		fail(w, 404, "not_found", "Issue not found.")
+		return
+	}
+	var issueID string
+	if err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&issueID); err != nil {
+		serverError(w, err)
+		return
+	}
+	kind := "issue_closed"
+	if in.State == "open" {
+		kind = "issue_reopened"
+	}
+	if previousState != in.State {
+		err = notifyIssue(r.Context(), tx, issueID, u.ID, kind)
+	}
+	if err != nil {
+		serverError(w, err)
 		return
 	}
 	if in.State == "closed" {
@@ -316,12 +341,21 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	comment := IssueComment{ID: auth.ID(), Body: in.Body, Author: u.Username}
-	err = tx.QueryRow(r.Context(), `INSERT INTO issue_comments(id,issue_id,author_id,body) SELECT $1,i.id,$2,$3 FROM issues i WHERE i.repository_id=$4 AND i.number=$5 RETURNING created_at`, comment.ID, u.ID, comment.Body, repo.ID, number).Scan(&comment.CreatedAt)
+	var issueID string
+	err = tx.QueryRow(r.Context(), `INSERT INTO issue_comments(id,issue_id,author_id,body) SELECT $1,i.id,$2,$3 FROM issues i WHERE i.repository_id=$4 AND i.number=$5 RETURNING issue_id,created_at`, comment.ID, u.ID, comment.Body, repo.ID, number).Scan(&issueID, &comment.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "not_found", "Issue not found.")
 		return
 	}
 	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO issue_subscriptions(issue_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, issueID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = notifyIssue(r.Context(), tx, issueID, u.ID, "issue_comment"); err != nil {
 		serverError(w, err)
 		return
 	}

@@ -288,6 +288,51 @@ test("account security, project collaboration, Git transport, and responsive nav
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("I can discuss this issue.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Unfollow issue" }),
+  ).toBeVisible();
+  const commenterUsername = `commenter-${Date.now().toString(36)}`;
+  const commenter = await browser.newContext();
+  const commenterRegistration = await commenter.request.post(
+    `${appOrigin}/api/v1/auth/register`,
+    {
+      headers: { Origin: appOrigin },
+      data: {
+        username: commenterUsername,
+        email: `${commenterUsername}@example.test`,
+        password: "commenter-test-password",
+        display_name: "Commenter",
+      },
+    },
+  );
+  expect(commenterRegistration.ok()).toBeTruthy();
+  const membership = await page.request.post(
+    `${appOrigin}/api/v1/repos/${username}/first-project/members`,
+    {
+      headers: { Origin: appOrigin },
+      data: { username: commenterUsername, role: "read" },
+    },
+  );
+  expect(membership.ok()).toBeTruthy();
+  const reply = await commenter.request.post(
+    `${appOrigin}/api/v1/repos/${username}/first-project/issues/1/comments`,
+    {
+      headers: { Origin: appOrigin },
+      data: { body: "A teammate replied to this issue." },
+    },
+  );
+  expect(reply.ok()).toBeTruthy();
+  await commenter.close();
+  await page.goto("/inbox");
+  await expect(
+    page.getByRole("link", { name: /commented on Design the next feature/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Mark read" }).click();
+  await expect(page.getByText("0 unread")).toBeVisible();
+  await page.goto(`/repos/${username}/first-project/issues`);
+  await page
+    .getByRole("button", { name: "Design the next feature", exact: true })
+    .click();
   await page.getByRole("button", { name: "Close issue", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "No open issues" }),

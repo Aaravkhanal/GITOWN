@@ -1554,6 +1554,7 @@ function IssueList({
                     endpoint={endpoint}
                     issueNumber={issue.number}
                     canComment={canComment}
+                    onComment={() => setVersion((value) => value + 1)}
                   />
                   <IssueLabels
                     endpoint={endpoint}
@@ -1565,6 +1566,12 @@ function IssueList({
                     endpoint={endpoint}
                     issueNumber={issue.number}
                     canTriage={canTriage}
+                  />
+                  <IssueSubscription
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    canSubscribe={canComment}
+                    refreshVersion={version}
                   />
                   <IssueMilestonePicker
                     endpoint={endpoint}
@@ -1670,6 +1677,51 @@ function IssueMilestonePicker({
           {selected.data?.milestone?.title || "No milestone"}
         </span>
       )}
+    </section>
+  );
+}
+
+function IssueSubscription({
+  endpoint,
+  issueNumber,
+  canSubscribe,
+  refreshVersion,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  canSubscribe: boolean;
+  refreshVersion: number;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/issues/${issueNumber}/subscription`;
+  const subscription = useData<{ subscribed: boolean }>(
+    path,
+    version + refreshVersion,
+  );
+  if (!canSubscribe) return null;
+  return (
+    <section className="issue-labels" aria-label="Issue updates">
+      <h4>Updates</h4>
+      <ErrorMessage error={error || subscription.error} />
+      <p className="muted small-text">
+        Get inbox updates when someone comments or changes this issue.
+      </p>
+      <button
+        className="button small-button"
+        disabled={subscription.loading}
+        onClick={async () => {
+          setError("");
+          try {
+            await put(path, { subscribed: !subscription.data?.subscribed });
+            setVersion((value) => value + 1);
+          } catch (saveError) {
+            setError((saveError as Error).message);
+          }
+        }}
+      >
+        {subscription.data?.subscribed ? "Unfollow issue" : "Follow issue"}
+      </button>
     </section>
   );
 }
@@ -1848,10 +1900,12 @@ function IssueComments({
   endpoint,
   issueNumber,
   canComment,
+  onComment,
 }: {
   endpoint: string;
   issueNumber: number;
   canComment: boolean;
+  onComment: () => void;
 }) {
   const [version, setVersion] = useState(0);
   const [body, setBody] = useState("");
@@ -1891,6 +1945,7 @@ function IssueComments({
               await post(path, { body });
               setBody("");
               setVersion((value) => value + 1);
+              onComment();
             } catch (error) {
               setError((error as Error).message);
             } finally {

@@ -8,6 +8,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookOpen,
+  Bell,
   Check,
   ChevronRight,
   CircleDot,
@@ -53,6 +54,7 @@ import {
 } from "./ui";
 import { RepositoryPage } from "./repository";
 import { ProfileSettings, PublicProfile } from "./profile";
+import { Inbox } from "./inbox";
 
 type Session = {
   user: User | null;
@@ -196,6 +198,14 @@ export function Workspace({ segments }: { segments: string[] }) {
               >
                 <Compass size={17} /> Explore repositories
               </Link>
+              {user && (
+                <Link
+                  className={section === "inbox" ? "selected" : ""}
+                  href="/inbox"
+                >
+                  <Bell size={17} /> Inbox
+                </Link>
+              )}
               <Link className={section === "new" ? "selected" : ""} href="/new">
                 <FolderGit2 size={17} /> New repository{" "}
                 <Plus className="trailing" size={15} />
@@ -262,6 +272,12 @@ export function Workspace({ segments }: { segments: string[] }) {
             <AuthPage mode={section} />
           ) : section === "new" ? (
             <NewRepository />
+          ) : section === "inbox" ? (
+            user ? (
+              <Inbox />
+            ) : (
+              <SignInPrompt />
+            )
           ) : section === "settings" && segments[1] === "repositories" ? (
             <DeletedRepositoriesPage />
           ) : section === "settings" && segments[1] === "sessions" ? (

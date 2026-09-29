@@ -80,6 +80,38 @@ paths:
               schema: { $ref: "#/components/schemas/Profile" }
         "401": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /user/notifications:
+    get:
+      summary: List up to 100 visible issue notifications, newest first
+      responses:
+        "200":
+          description: In-app inbox
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Notification" }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/notifications/{id}/read:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: integer, format: int64 },
+        }
+    put:
+      summary: Mark one of your notifications read
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /auth/me:
     get:
       security: []
@@ -780,6 +812,41 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/subscription:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { $ref: "#/components/parameters/Number" }
+    get:
+      security: []
+      summary: Read whether the current user follows an issue
+      responses:
+        "200":
+          description: Subscription state; false for anonymous readers
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueSubscription" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Follow or unfollow an issue
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscribed]
+              properties:
+                subscribed: { type: boolean }
+      responses:
+        "200":
+          description: Saved subscription state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueSubscription" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/milestones:
     parameters:
       - { $ref: "#/components/parameters/Owner" }
@@ -1490,6 +1557,23 @@ components:
         available:
           type: array
           items: { $ref: "#/components/schemas/PublicUser" }
+    IssueSubscription:
+      type: object
+      properties:
+        subscribed: { type: boolean }
+    Notification:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        kind:
+          { type: string, enum: [issue_comment, issue_closed, issue_reopened] }
+        actor: { type: string }
+        owner: { type: string }
+        repository: { type: string }
+        issue: { type: integer }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+        read_at: { type: [string, "null"], format: date-time }
     Milestone:
       type: object
       properties:

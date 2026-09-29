@@ -79,8 +79,8 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var issueID string
-	if err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID); err == pgx.ErrNoRows {
+	var issueID, previousState string
+	if err = tx.QueryRow(r.Context(), `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID, &previousState); err == pgx.ErrNoRows {
 		fail(w, 404, "not_found", "Issue not found.")
 		return
 	} else if err != nil {
@@ -101,6 +101,16 @@ func (a *App) updateBoardItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := a.user(r)
+	if previousState != state {
+		kind := "issue_closed"
+		if state == "open" {
+			kind = "issue_reopened"
+		}
+		if err = notifyIssue(r.Context(), tx, issueID, u.ID, kind); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.board_status_updated',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%s", repo.Owner, repo.Name, number, in.Status)); err != nil {
 		serverError(w, err)
 		return
