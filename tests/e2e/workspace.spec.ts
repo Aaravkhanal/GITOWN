@@ -154,6 +154,10 @@ test("account security, project collaboration, Git transport, and responsive nav
       .getByRole("region", { name: "Showcase repositories" })
       .getByText("first-project"),
   ).toBeVisible();
+  await page.getByRole("link", { name: "Following feed" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No activity yet" }),
+  ).toBeVisible();
   await page.goto(`/repos/${username}/first-project/settings`);
   await expect(
     page.getByRole("heading", { name: "Merge guard" }),

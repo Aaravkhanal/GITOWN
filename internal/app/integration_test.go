@@ -582,6 +582,17 @@ func TestPlatformWorkflow(t *testing.T) {
 	if publicProfile.Followers != 1 || !publicProfile.Followed {
 		t.Fatalf("follow state was not saved idempotently: %+v", publicProfile)
 	}
+	var feed []FeedEvent
+	other.request("GET", "/user/feed", nil, 200, &feed)
+	if len(feed) < 2 {
+		t.Fatalf("following feed missed public repository and Spark activity: %+v", feed)
+	}
+	for _, event := range feed {
+		if event.Repository == "project" {
+			t.Fatalf("private repository leaked into following feed: %+v", feed)
+		}
+	}
+	anon.request("GET", "/user/feed", nil, 401, nil)
 	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)
 	if publicProfile.Followers != 1 || publicProfile.Followed {
 		t.Fatalf("anonymous viewer follow state is wrong: %+v", publicProfile)
@@ -589,6 +600,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": false}, 200, &publicProfile)
 	if publicProfile.Followers != 0 || publicProfile.Followed {
 		t.Fatalf("unfollow failed: %+v", publicProfile)
+	}
+	other.request("GET", "/user/feed", nil, 200, &feed)
+	if len(feed) != 0 {
+		t.Fatalf("unfollowed builder remained in feed: %+v", feed)
 	}
 	owner.request("PATCH", "/repos/owner/public-project", map[string]string{"description": "Private for now", "visibility": "private"}, 200, nil)
 	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)

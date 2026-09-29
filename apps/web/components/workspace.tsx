@@ -30,6 +30,7 @@ import {
   Terminal,
   Trash2,
   RotateCcw,
+  Rss,
   X,
 } from "lucide-react";
 import {
@@ -55,6 +56,7 @@ import {
 import { RepositoryPage } from "./repository";
 import { ProfileSettings, PublicProfile } from "./profile";
 import { Inbox } from "./inbox";
+import { FollowingFeed } from "./feed";
 
 type Session = {
   user: User | null;
@@ -200,6 +202,14 @@ export function Workspace({ segments }: { segments: string[] }) {
               </Link>
               {user && (
                 <Link
+                  className={section === "feed" ? "selected" : ""}
+                  href="/feed"
+                >
+                  <Rss size={17} /> Following feed
+                </Link>
+              )}
+              {user && (
+                <Link
                   className={section === "inbox" ? "selected" : ""}
                   href="/inbox"
                 >
@@ -275,6 +285,12 @@ export function Workspace({ segments }: { segments: string[] }) {
           ) : section === "inbox" ? (
             user ? (
               <Inbox />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "feed" ? (
+            user ? (
+              <FollowingFeed />
             ) : (
               <SignInPrompt />
             )

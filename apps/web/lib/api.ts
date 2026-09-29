@@ -93,6 +93,19 @@ export type Notification = {
   created_at: string;
   read_at: string | null;
 };
+export type FeedEvent = {
+  kind:
+    | "repository_created"
+    | "repository_sparked"
+    | "issue_opened"
+    | "unite_opened";
+  actor: string;
+  owner: string;
+  repository: string;
+  number: number;
+  title: string;
+  created_at: string;
+};
 export type IssueComment = {
   id: string;
   body: string;

@@ -71,6 +71,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/user/profile", a.updateProfile)
 	mux.HandleFunc("PUT /api/v1/user/showcase", a.updateShowcase)
 	mux.HandleFunc("GET /api/v1/user/notifications", a.notifications)
+	mux.HandleFunc("GET /api/v1/user/feed", a.feed)
 	mux.HandleFunc("PUT /api/v1/user/notifications/{id}/read", a.readNotification)
 	mux.HandleFunc("GET /api/v1/user/tokens", a.tokens)
 	mux.HandleFunc("POST /api/v1/user/tokens", a.createToken)
