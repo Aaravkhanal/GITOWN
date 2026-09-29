@@ -9,6 +9,11 @@ const actions: Record<Notification["kind"], string> = {
   issue_comment: "commented on",
   issue_closed: "closed",
   issue_reopened: "reopened",
+  pull_comment: "commented on",
+  pull_review: "reviewed",
+  pull_closed: "closed",
+  pull_reopened: "reopened",
+  pull_merged: "merged",
 };
 
 export function Inbox() {
@@ -22,7 +27,9 @@ export function Inbox() {
       <div className="page-heading">
         <div>
           <h1>Your inbox</h1>
-          <p>Updates from issues you follow or have joined.</p>
+          <p>
+            Updates from issues and Unite requests you follow or have joined.
+          </p>
         </div>
         <Badge>{unread} unread</Badge>
       </div>
@@ -37,12 +44,14 @@ export function Inbox() {
               className={`notification-item ${item.read_at ? "" : "unread"}`}
             >
               <div>
-                <Link href={`/repos/${item.owner}/${item.repository}/issues`}>
+                <Link
+                  href={`/repos/${item.owner}/${item.repository}/${item.pull ? `pulls/${item.pull}` : `issues/${item.issue}`}`}
+                >
                   <strong>@{item.actor}</strong> {actions[item.kind]}{" "}
                   <strong>{item.title}</strong>
                 </Link>
                 <p>
-                  {item.owner}/{item.repository}#{item.issue} ·{" "}
+                  {item.owner}/{item.repository}#{item.pull ?? item.issue} ·{" "}
                   {date(item.created_at)}
                 </p>
               </div>
@@ -68,7 +77,9 @@ export function Inbox() {
       ) : (
         <div className="empty-state panel">
           <h3>All caught up</h3>
-          <p>Updates from subscribed issues will appear here.</p>
+          <p>
+            Updates from followed issues and Unite requests will appear here.
+          </p>
         </div>
       )}
     </>

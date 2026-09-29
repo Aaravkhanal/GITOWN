@@ -719,6 +719,10 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_subscriptions(pull_request_id,user_id) VALUES($1,$2)`, p.ID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -826,6 +830,16 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if p.State != in.State {
+		kind := "pull_closed"
+		if in.State == "open" {
+			kind = "pull_reopened"
+		}
+		if err = notifyPull(r.Context(), tx, p.ID, u.ID, kind); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
@@ -898,6 +912,14 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	err = tx.QueryRow(r.Context(), `INSERT INTO pull_comments(id,pull_request_id,author_id,body) VALUES($1,$2,$3,$4) RETURNING created_at`, comment.ID, p.ID, u.ID, comment.Body).Scan(&comment.CreatedAt)
 	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_subscriptions(pull_request_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.ID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -994,6 +1016,14 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	err = tx.QueryRow(r.Context(), `INSERT INTO pull_reviews(id,pull_request_id,reviewer_id,state,body,head_sha) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, review.ID, p.ID, u.ID, review.State, review.Body, review.HeadSHA).Scan(&review.CreatedAt)
 	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_subscriptions(pull_request_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.ID, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_review"); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -1135,6 +1165,9 @@ func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Reposit
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.merged',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
+		return err
+	}
+	if err = notifyPull(ctx, tx, p.ID, u.ID, "pull_merged"); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

@@ -16,7 +16,8 @@ type Notification struct {
 	Actor      string     `json:"actor"`
 	Owner      string     `json:"owner"`
 	Repository string     `json:"repository"`
-	Issue      int        `json:"issue"`
+	Issue      *int       `json:"issue"`
+	Pull       *int       `json:"pull"`
 	Title      string     `json:"title"`
 	CreatedAt  time.Time  `json:"created_at"`
 	ReadAt     *time.Time `json:"read_at"`
@@ -30,6 +31,83 @@ func notifyIssue(ctx context.Context, tx pgx.Tx, issueID, actorID, kind string) 
 		AND (r.visibility='public' OR r.owner_id=s.user_id OR EXISTS (
 			SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id=s.user_id))`, issueID, actorID, kind)
 	return err
+}
+
+func notifyPull(ctx context.Context, tx pgx.Tx, pullID, actorID, kind string) error {
+	_, err := tx.Exec(ctx, `INSERT INTO notifications(recipient_id,actor_id,repository_id,pull_request_id,kind)
+		SELECT s.user_id,$2,p.repository_id,p.id,$3 FROM pull_subscriptions s
+		JOIN pull_requests p ON p.id=s.pull_request_id JOIN repositories r ON r.id=p.repository_id
+		WHERE s.pull_request_id=$1 AND s.user_id<>$2 AND r.deleted_at IS NULL
+		AND (r.visibility='public' OR r.owner_id=s.user_id OR EXISTS (
+			SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id=s.user_id))`, pullID, actorID, kind)
+	return err
+}
+
+func (a *App) pullSubscription(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	u := a.user(r)
+	if u == nil {
+		respond(w, 200, map[string]bool{"subscribed": false})
+		return
+	}
+	var subscribed bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM pull_subscriptions WHERE pull_request_id=$1 AND user_id=$2)`, p.ID, u.ID).Scan(&subscribed); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"subscribed": subscribed})
+}
+
+func (a *App) updatePullSubscription(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	var in struct {
+		Subscribed bool `json:"subscribed"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if in.Subscribed {
+		_, err = tx.Exec(r.Context(), `INSERT INTO pull_subscriptions(pull_request_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, p.ID, u.ID)
+	} else {
+		_, err = tx.Exec(r.Context(), `DELETE FROM pull_subscriptions WHERE pull_request_id=$1 AND user_id=$2`, p.ID, u.ID)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.subscription_updated',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%t", repo.Owner, repo.Name, p.Number, in.Subscribed)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]bool{"subscribed": in.Subscribed})
 }
 
 func (a *App) issueSubscription(w http.ResponseWriter, r *http.Request) {
@@ -124,10 +202,11 @@ func (a *App) notifications(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT n.id,n.kind,actor.username,owner.username,r.name,i.number,i.title,n.created_at,n.read_at
+	rows, err := a.db.Query(r.Context(), `SELECT n.id,n.kind,actor.username,owner.username,r.name,i.number,p.number,COALESCE(i.title,p.title),n.created_at,n.read_at
 		FROM notifications n JOIN users actor ON actor.id=n.actor_id
 		JOIN repositories r ON r.id=n.repository_id JOIN users owner ON owner.id=r.owner_id
-		JOIN issues i ON i.id=n.issue_id WHERE n.recipient_id=$1 AND r.deleted_at IS NULL
+		LEFT JOIN issues i ON i.id=n.issue_id LEFT JOIN pull_requests p ON p.id=n.pull_request_id
+		WHERE n.recipient_id=$1 AND r.deleted_at IS NULL
 		AND (r.visibility='public' OR r.owner_id=$1 OR EXISTS (
 			SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id=$1))
 		ORDER BY n.id DESC LIMIT 100`, u.ID)
@@ -139,7 +218,7 @@ func (a *App) notifications(w http.ResponseWriter, r *http.Request) {
 	items := []Notification{}
 	for rows.Next() {
 		var item Notification
-		if err = rows.Scan(&item.ID, &item.Kind, &item.Actor, &item.Owner, &item.Repository, &item.Issue, &item.Title, &item.CreatedAt, &item.ReadAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.Kind, &item.Actor, &item.Owner, &item.Repository, &item.Issue, &item.Pull, &item.Title, &item.CreatedAt, &item.ReadAt); err != nil {
 			serverError(w, err)
 			return
 		}

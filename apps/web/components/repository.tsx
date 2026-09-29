@@ -2593,6 +2593,11 @@ function PullRequestDetail({
       </div>
       {pull.body && <div className="panel pull-description">{pull.body}</div>}
       <ErrorMessage error={error} />
+      <PullSubscription
+        endpoint={endpoint}
+        number={number}
+        canSubscribe={repo.can_comment}
+      />
       <PullDiscussion
         endpoint={endpoint}
         number={number}
@@ -2724,6 +2729,46 @@ function PullRequestDetail({
         </div>
       )}
     </>
+  );
+}
+
+function PullSubscription({
+  endpoint,
+  number,
+  canSubscribe,
+}: {
+  endpoint: string;
+  number: string;
+  canSubscribe: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/pulls/${number}/subscription`;
+  const subscription = useData<{ subscribed: boolean }>(path, version);
+  if (!canSubscribe) return null;
+  return (
+    <section className="issue-labels" aria-label="Unite updates">
+      <h4>Updates</h4>
+      <ErrorMessage error={error || subscription.error} />
+      <p className="muted small-text">
+        Get inbox updates for comments, reviews, state changes, and merges.
+      </p>
+      <button
+        className="button small-button"
+        disabled={subscription.loading}
+        onClick={async () => {
+          setError("");
+          try {
+            await put(path, { subscribed: !subscription.data?.subscribed });
+            setVersion((value) => value + 1);
+          } catch (saveError) {
+            setError((saveError as Error).message);
+          }
+        }}
+      >
+        {subscription.data?.subscribed ? "Unfollow Unite" : "Follow Unite"}
+      </button>
+    </section>
   );
 }
 

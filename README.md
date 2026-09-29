@@ -18,6 +18,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository Unite requests with close/reopen, discussions, formal approve/request-changes reviews tied to exact head commits, owner-configured Merge Guards for fresh approvals, change requests, and optional Require Unite direct-push protection, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
+- Issue and Unite following with inbox updates for discussions, reviews, state changes, and merges.
 - Issue creation, descriptions, close/reopen, assignees, milestones with due dates and progress, chronological discussions, reusable colored labels, and activity history.
 - Public builder profiles with bio, location, HTTPS website, public repository listings, and a six-repository showcase.
 - Repository Sparks: signed-in users can appreciate visible repositories; everyone with access can see the count.

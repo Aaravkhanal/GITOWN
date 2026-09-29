@@ -105,11 +105,20 @@ export type BoardItem = {
 };
 export type Notification = {
   id: number;
-  kind: "issue_comment" | "issue_closed" | "issue_reopened";
+  kind:
+    | "issue_comment"
+    | "issue_closed"
+    | "issue_reopened"
+    | "pull_comment"
+    | "pull_review"
+    | "pull_closed"
+    | "pull_reopened"
+    | "pull_merged";
   actor: string;
   owner: string;
   repository: string;
-  issue: number;
+  issue: number | null;
+  pull: number | null;
   title: string;
   created_at: string;
   read_at: string | null;

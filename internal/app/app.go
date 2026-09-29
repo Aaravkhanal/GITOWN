@@ -135,6 +135,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls", a.pulls)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls", a.createPull)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}", a.pull)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/subscription", a.pullSubscription)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/subscription", a.updatePullSubscription)
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/pulls/{number}", a.updatePull)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments", a.pullComments)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/comments", a.createPullComment)

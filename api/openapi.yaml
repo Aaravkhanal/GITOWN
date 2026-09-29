@@ -1502,6 +1502,48 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Pull" }
         "409": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/subscription:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: Read whether the current user follows a Unite request
+      responses:
+        "200":
+          description: Subscription state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscribed: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Follow or unfollow a Unite request
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscribed]
+              properties:
+                subscribed: { type: boolean }
+      responses:
+        "200":
+          description: Updated subscription state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subscribed: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/pulls/{number}/comments:
     parameters:
       [
@@ -1881,11 +1923,25 @@ components:
       properties:
         id: { type: integer, format: int64 }
         kind:
-          { type: string, enum: [issue_comment, issue_closed, issue_reopened] }
+          {
+            type: string,
+            enum:
+              [
+                issue_comment,
+                issue_closed,
+                issue_reopened,
+                pull_comment,
+                pull_review,
+                pull_closed,
+                pull_reopened,
+                pull_merged,
+              ],
+          }
         actor: { type: string }
         owner: { type: string }
         repository: { type: string }
-        issue: { type: integer }
+        issue: { type: [integer, "null"] }
+        pull: { type: [integer, "null"] }
         title: { type: string }
         created_at: { type: string, format: date-time }
         read_at: { type: [string, "null"], format: date-time }

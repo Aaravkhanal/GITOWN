@@ -286,6 +286,18 @@ func TestPlatformWorkflow(t *testing.T) {
 		Mergeable bool   `json:"mergeable"`
 	}
 	pullPath := fmt.Sprintf("/repos/owner/project/pulls/%d", pull.Number)
+	var pullSubscription struct {
+		Subscribed bool `json:"subscribed"`
+	}
+	owner.request("GET", pullPath+"/subscription", nil, 200, &pullSubscription)
+	if !pullSubscription.Subscribed {
+		t.Fatal("Unite author was not subscribed")
+	}
+	anon.request("GET", pullPath+"/subscription", nil, 404, nil)
+	other.request("PUT", pullPath+"/subscription", map[string]bool{"subscribed": true}, 200, &pullSubscription)
+	if !pullSubscription.Subscribed {
+		t.Fatal("collaborator could not follow Unite")
+	}
 	anon.request("GET", pullPath+"/comments", nil, 404, nil)
 	var pullComment PullComment
 	owner.request("POST", pullPath+"/comments", map[string]string{"body": "Please review this change."}, 201, &pullComment)
@@ -298,6 +310,11 @@ func TestPlatformWorkflow(t *testing.T) {
 		t.Fatalf("pull comments were not returned: %+v", pullComments)
 	}
 	other.request("POST", pullPath+"/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
+	var pullNotifications []Notification
+	owner.request("GET", "/user/notifications", nil, 200, &pullNotifications)
+	if len(pullNotifications) == 0 || pullNotifications[0].Kind != "pull_comment" || pullNotifications[0].Pull == nil || *pullNotifications[0].Pull != pull.Number {
+		t.Fatalf("Unite author did not receive comment update: %+v", pullNotifications)
+	}
 	owner.request("POST", pullPath+"/comments", map[string]string{"body": strings.Repeat("x", 10001)}, 422, nil)
 	owner.request("POST", "/repos/owner/project/pulls/999/comments", map[string]string{"body": "Missing pull"}, 404, nil)
 	owner.request("PATCH", pullPath, map[string]string{"state": "closed"}, 200, &pull)
@@ -322,6 +339,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	other.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "head_sha": strings.Repeat("0", 40)}, 409, nil)
 	var review PullReview
 	other.request("POST", pullPath+"/reviews", map[string]string{"state": "approved", "body": "Ready to unite.", "head_sha": detail.HeadSHA}, 201, &review)
+	owner.request("GET", "/user/notifications", nil, 200, &pullNotifications)
+	if len(pullNotifications) == 0 || pullNotifications[0].Kind != "pull_review" {
+		t.Fatalf("Unite author did not receive review update: %+v", pullNotifications)
+	}
 	if review.Reviewer != "other" || review.State != "approved" || review.HeadSHA != detail.HeadSHA {
 		t.Fatalf("unexpected formal review: %+v", review)
 	}
@@ -332,6 +353,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": strings.Repeat("0", 40), "base_sha": detail.BaseSHA}, 409, nil)
 	other.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
+	owner.request("GET", "/user/notifications", nil, 200, &pullNotifications)
+	if len(pullNotifications) == 0 || pullNotifications[0].Kind != "pull_merged" {
+		t.Fatalf("Unite author did not receive merge update: %+v", pullNotifications)
+	}
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	owner.request("POST", pullPath+"/merge", map[string]string{"head_sha": detail.HeadSHA, "base_sha": detail.BaseSHA}, 200, nil)
 	gitRun(work, "", "", true, "checkout", "main")
@@ -466,7 +491,7 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "The first discussion reply."}, 201, &comment)
 	var otherNotifications []Notification
 	other.request("GET", "/user/notifications", nil, 200, &otherNotifications)
-	if len(otherNotifications) != 1 || otherNotifications[0].Kind != "issue_comment" || otherNotifications[0].Actor != "owner" || otherNotifications[0].ReadAt != nil {
+	if len(otherNotifications) == 0 || otherNotifications[0].Kind != "issue_comment" || otherNotifications[0].Actor != "owner" || otherNotifications[0].ReadAt != nil {
 		t.Fatalf("subscriber did not receive issue comment: %+v", otherNotifications)
 	}
 	other.request("PUT", fmt.Sprintf("/user/notifications/%d/read", otherNotifications[0].ID), map[string]any{}, 200, nil)
