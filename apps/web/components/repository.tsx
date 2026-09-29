@@ -45,6 +45,7 @@ import {
   type Issue,
   type IssueComment,
   type IssueAssignees,
+  type Milestone,
   type Label,
   type Pull,
   type PullDetail,
@@ -1212,11 +1213,13 @@ function IssueList({
   const issues = useData<Issue[]>(`${endpoint}/issues`, version);
   const [showForm, setShowForm] = useState(false);
   const [showLabelForm, setShowLabelForm] = useState(false);
+  const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("open");
   const [expanded, setExpanded] = useState<number | null>(null);
   const labels = useData<Label[]>(`${endpoint}/labels`, version);
+  const milestones = useData<Milestone[]>(`${endpoint}/milestones`, version);
   const filtered = issues.data?.filter((i) => i.state === filter) || [];
   return (
     <>
@@ -1244,6 +1247,13 @@ function IssueList({
           <div className="heading-actions">
             <button
               className="button small-button"
+              onClick={() => setShowMilestoneForm(!showMilestoneForm)}
+            >
+              <Plus size={15} />
+              New milestone
+            </button>
+            <button
+              className="button small-button"
               onClick={() => setShowLabelForm(!showLabelForm)}
             >
               <Plus size={15} />
@@ -1259,7 +1269,99 @@ function IssueList({
           </div>
         )}
       </div>
-      <ErrorMessage error={error || issues.error || labels.error} />
+      <ErrorMessage
+        error={error || issues.error || labels.error || milestones.error}
+      />
+      {showMilestoneForm && (
+        <form
+          className="panel form-panel inline-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            const data = new FormData(event.currentTarget);
+            try {
+              await post(`${endpoint}/milestones`, {
+                title: data.get("title"),
+                description: data.get("description"),
+                due_date: data.get("due_date"),
+              });
+              setShowMilestoneForm(false);
+              setVersion((value) => value + 1);
+            } catch (saveError) {
+              setError((saveError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h2>Set a milestone.</h2>
+          <label>
+            Milestone title
+            <input name="title" maxLength={200} required />
+          </label>
+          <label>
+            Description
+            <textarea name="description" maxLength={10000} rows={3} />
+          </label>
+          <label>
+            Due date optional
+            <input name="due_date" type="date" />
+          </label>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button"
+              onClick={() => setShowMilestoneForm(false)}
+            >
+              Cancel
+            </button>
+            <button disabled={busy} className="button primary">
+              {busy ? "Creating…" : "Create milestone"}
+            </button>
+          </div>
+        </form>
+      )}
+      {!!milestones.data?.length && (
+        <section className="panel label-catalog" aria-label="Milestones">
+          {milestones.data.map((milestone) => (
+            <span className="label-catalog-item" key={milestone.id}>
+              <Badge kind={milestone.state === "open" ? "green" : ""}>
+                {milestone.title}
+              </Badge>
+              <span>
+                {milestone.open_issues} open · {milestone.closed_issues} closed
+                {milestone.due_date ? ` · Due ${milestone.due_date}` : ""}
+              </span>
+              {canTriage && (
+                <button
+                  disabled={busy}
+                  aria-label={`${milestone.state === "open" ? "Close" : "Reopen"} milestone ${milestone.title}`}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await put(`${endpoint}/milestones/${milestone.id}`, {
+                        title: milestone.title,
+                        description: milestone.description,
+                        due_date: milestone.due_date || "",
+                        state: milestone.state === "open" ? "closed" : "open",
+                      });
+                      setVersion((value) => value + 1);
+                    } catch (saveError) {
+                      setError((saveError as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  {milestone.state === "open" ? "Close" : "Reopen"}
+                </button>
+              )}
+            </span>
+          ))}
+        </section>
+      )}
       {showLabelForm && (
         <form
           className="panel form-panel inline-form label-form"
@@ -1454,6 +1556,13 @@ function IssueList({
                     issueNumber={issue.number}
                     canTriage={canTriage}
                   />
+                  <IssueMilestonePicker
+                    endpoint={endpoint}
+                    issueNumber={issue.number}
+                    milestones={milestones.data || []}
+                    canTriage={canTriage}
+                    onChange={() => setVersion((value) => value + 1)}
+                  />
                   {canTriage && (
                     <button
                       disabled={busy}
@@ -1492,6 +1601,66 @@ function IssueList({
         </div>
       )}
     </>
+  );
+}
+
+function IssueMilestonePicker({
+  endpoint,
+  issueNumber,
+  milestones,
+  canTriage,
+  onChange,
+}: {
+  endpoint: string;
+  issueNumber: number;
+  milestones: Milestone[];
+  canTriage: boolean;
+  onChange: () => void;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const path = `${endpoint}/issues/${issueNumber}/milestone`;
+  const selected = useData<{ milestone: Milestone | null }>(path, version);
+  return (
+    <section className="issue-labels" aria-label="Issue milestone">
+      <h4>Milestone</h4>
+      <ErrorMessage error={error || selected.error} />
+      {canTriage ? (
+        <label className="label-picker">
+          Assign milestone
+          <select
+            value={selected.data?.milestone?.id || ""}
+            onChange={async (event) => {
+              setError("");
+              try {
+                await put(path, { milestone_id: event.target.value || null });
+                setVersion((value) => value + 1);
+                onChange();
+              } catch (saveError) {
+                setError((saveError as Error).message);
+              }
+            }}
+          >
+            <option value="">No milestone</option>
+            {milestones
+              .filter(
+                (milestone) =>
+                  milestone.state === "open" ||
+                  milestone.id === selected.data?.milestone?.id,
+              )
+              .map((milestone) => (
+                <option value={milestone.id} key={milestone.id}>
+                  {milestone.title}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : (
+        <span className="muted small-text">
+          {selected.data?.milestone?.title || "No milestone"}
+        </span>
+      )}
+    </section>
   );
 }
 

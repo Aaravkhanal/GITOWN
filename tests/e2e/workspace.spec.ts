@@ -246,6 +246,19 @@ test("account security, project collaboration, Git transport, and responsive nav
       .getByRole("region", { name: "Issue assignees" })
       .getByText(`@${username}`),
   ).toBeVisible();
+  await page.getByRole("button", { name: "New milestone" }).click();
+  await page.getByLabel("Milestone title").fill("First release");
+  await page.getByLabel("Due date optional").fill("2026-12-31");
+  await page.getByRole("button", { name: "Create milestone" }).click();
+  await expect(
+    page.getByRole("region", { name: "Milestones" }).getByText("First release"),
+  ).toBeVisible();
+  await page
+    .getByLabel("Assign milestone")
+    .selectOption({ label: "First release" });
+  await expect(
+    page.getByRole("region", { name: "Milestones" }).getByText(/1 open/),
+  ).toBeVisible();
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("I can discuss this issue.")).toBeVisible();

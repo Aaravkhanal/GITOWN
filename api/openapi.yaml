@@ -636,7 +636,7 @@ paths:
               schema:
                 { type: array, items: { $ref: "#/components/schemas/Issue" } }
     post:
-      summary: Create an issue (owner only in v0.1)
+      summary: Create an issue with repository triage permission
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody: { $ref: "#/components/requestBodies/Content" }
       responses:
@@ -653,7 +653,7 @@ paths:
         { $ref: "#/components/parameters/Number" },
       ]
     patch:
-      summary: Close or reopen an issue (owner only)
+      summary: Close or reopen an issue with repository triage permission
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -710,6 +710,122 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/IssueAssignees" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/milestones:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    get:
+      security: []
+      summary: List up to 100 milestones with open and closed issue counts
+      responses:
+        "200":
+          description: Milestones, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Milestone" }
+    post:
+      summary: Create a milestone with repository triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 10000 }
+                due_date: { type: string, format: date }
+      responses:
+        "201":
+          description: Created milestone
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Milestone" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/milestones/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    put:
+      summary: Replace milestone details or close and reopen it
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description, state]
+              properties:
+                title: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 10000 }
+                state: { type: string, enum: [open, closed] }
+                due_date:
+                  {
+                    type: string,
+                    format: date,
+                    description: Empty string clears the due date,
+                  }
+      responses:
+        "200":
+          description: Updated milestone
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Milestone" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/milestone:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { $ref: "#/components/parameters/Number" }
+    get:
+      security: []
+      summary: Read the milestone assigned to an issue
+      responses:
+        "200":
+          description: Assigned milestone or null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  milestone:
+                    oneOf:
+                      - { $ref: "#/components/schemas/Milestone" }
+                      - { type: "null" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Assign or clear an issue milestone with repository triage permission
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [milestone_id]
+              properties:
+                milestone_id: { type: [string, "null"], format: uuid }
+      responses:
+        "200": { description: Updated issue milestone }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
@@ -1239,6 +1355,18 @@ components:
         available:
           type: array
           items: { $ref: "#/components/schemas/PublicUser" }
+    Milestone:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        state: { type: string, enum: [open, closed] }
+        due_date: { type: [string, "null"], format: date }
+        open_issues: { type: integer }
+        closed_issues: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     Label:
       type: object
       properties:

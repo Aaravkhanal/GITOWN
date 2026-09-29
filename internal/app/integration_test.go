@@ -387,6 +387,23 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("GET", "/repos/owner/project/issues/1/assignees", nil, 200, &assignees)
 	owner.request("PUT", "/repos/owner/project/issues/1/assignees", map[string]any{"usernames": []string{"missing"}}, 422, nil)
 	owner.request("GET", "/repos/owner/project/issues/999/assignees", nil, 404, nil)
+	var milestone Milestone
+	owner.request("POST", "/repos/owner/project/milestones", map[string]string{"title": "First release", "description": "Ship collaboration", "due_date": "2026-12-31"}, 201, &milestone)
+	if milestone.ID == "" || milestone.DueDate == nil || *milestone.DueDate != "2026-12-31" {
+		t.Fatalf("milestone was not created: %+v", milestone)
+	}
+	owner.request("POST", "/repos/owner/project/milestones", map[string]string{"title": "first release"}, 409, nil)
+	owner.request("POST", "/repos/owner/project/milestones", map[string]string{"title": "bad date", "due_date": "2026-02-31"}, 422, nil)
+	owner.request("PUT", "/repos/owner/project/issues/1/milestone", map[string]any{"milestone_id": milestone.ID}, 200, nil)
+	var assignedMilestone struct {
+		Milestone *Milestone `json:"milestone"`
+	}
+	owner.request("GET", "/repos/owner/project/issues/1/milestone", nil, 200, &assignedMilestone)
+	if assignedMilestone.Milestone == nil || assignedMilestone.Milestone.ID != milestone.ID || assignedMilestone.Milestone.OpenIssues != 1 {
+		t.Fatalf("issue milestone was not assigned: %+v", assignedMilestone)
+	}
+	owner.request("PUT", "/repos/owner/project/issues/1/milestone", map[string]any{"milestone_id": auth.ID()}, 422, nil)
+	owner.request("GET", "/repos/owner/project/issues/999/milestone", nil, 404, nil)
 	var bugLabel Label
 	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "bug", "color": "#d73a4a", "description": "Something is not working"}, 201, &bugLabel)
 	owner.request("POST", "/repos/owner/project/labels", map[string]string{"name": "BUG", "color": "d73a4a"}, 409, nil)
@@ -411,8 +428,14 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": strings.Repeat("x", 10001)}, 422, nil)
 	owner.request("POST", "/repos/owner/project/issues/999/comments", map[string]string{"body": "Missing issue"}, 404, nil)
 	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 200, nil)
+	owner.request("PUT", "/repos/owner/project/milestones/"+milestone.ID, map[string]string{"title": "First release", "description": "Ship collaboration", "state": "closed", "due_date": "2026-12-31"}, 200, &milestone)
+	if milestone.ClosedIssues != 1 || milestone.OpenIssues != 0 || milestone.State != "closed" {
+		t.Fatalf("milestone progress or state was not updated: %+v", milestone)
+	}
 	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "triage"}, 200, &member)
 	other.request("POST", "/repos/owner/project/issues", map[string]string{"title": "Triage issue", "body": "Created by a collaborator"}, 201, nil)
+	other.request("POST", "/repos/owner/project/milestones", map[string]string{"title": "Next release"}, 201, nil)
+	other.request("PUT", "/repos/owner/project/issues/2/milestone", map[string]any{"milestone_id": milestone.ID}, 200, nil)
 	other.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": "A collaborator reply."}, 201, nil)
 	other.request("DELETE", "/repos/owner/project/issues/1/labels/"+bugLabel.ID, nil, 200, nil)
 	other.request("DELETE", "/repos/owner/project/labels/"+bugLabel.ID, nil, 200, nil)
@@ -424,6 +447,9 @@ func TestPlatformWorkflow(t *testing.T) {
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
 	other.request("POST", "/repos/owner/public-project/labels", map[string]string{"name": "Unauthorized", "color": "ffffff"}, 403, nil)
+	other.request("POST", "/repos/owner/public-project/milestones", map[string]string{"title": "Unauthorized"}, 403, nil)
+	owner.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Public issue"}, 201, nil)
+	owner.request("PUT", "/repos/owner/public-project/issues/1/milestone", map[string]any{"milestone_id": milestone.ID}, 422, nil)
 	var publicLabels []Label
 	anon.request("GET", "/repos/owner/public-project/labels", nil, 200, &publicLabels)
 	anon.request("POST", "/repos/owner/public-project/issues/1/comments", map[string]string{"body": "Anonymous reply"}, 401, nil)

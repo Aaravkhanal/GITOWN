@@ -61,6 +61,17 @@ export type IssueAssignees = {
   assigned: Pick<User, "username" | "display_name">[];
   available: Pick<User, "username" | "display_name">[];
 };
+export type Milestone = {
+  id: string;
+  title: string;
+  description: string;
+  state: "open" | "closed";
+  due_date: string | null;
+  open_issues: number;
+  closed_issues: number;
+  created_at: string;
+  updated_at: string;
+};
 export type Label = {
   id: string;
   name: string;

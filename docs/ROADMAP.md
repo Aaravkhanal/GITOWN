@@ -17,7 +17,7 @@ It remains a development alpha. It is not yet safe for untrusted public hosting.
 - Pull-request discussions and a unified timeline.
 - Formal reviews: approve, request changes, dismiss, and stale-review handling.
 - Inline diff comments anchored to commit, file, side, and line.
-- Issue/PR assignees, milestones, mentions, subscriptions, and an in-app inbox.
+- PR assignees, mentions, subscriptions, and an in-app inbox. Issue assignees and milestones are shipped.
 - Edit history and moderation controls for user-authored content.
 
 ### 2. Protected delivery
