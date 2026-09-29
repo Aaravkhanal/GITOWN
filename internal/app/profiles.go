@@ -1,0 +1,204 @@
+package app
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+type PublicRepository struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Archived    bool      `json:"archived"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type Profile struct {
+	Username     string             `json:"username"`
+	DisplayName  string             `json:"display_name"`
+	Bio          string             `json:"bio"`
+	Website      string             `json:"website"`
+	Location     string             `json:"location"`
+	CreatedAt    time.Time          `json:"created_at"`
+	Showcase     []PublicRepository `json:"showcase"`
+	Repositories []PublicRepository `json:"repositories"`
+}
+
+func (a *App) profile(w http.ResponseWriter, r *http.Request) {
+	username := r.PathValue("username")
+	if !slug.MatchString(username) {
+		fail(w, 404, "not_found", "Profile not found.")
+		return
+	}
+	var userID string
+	p := Profile{Showcase: []PublicRepository{}, Repositories: []PublicRepository{}}
+	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,bio,website,location,created_at FROM users WHERE username=$1`, username).
+		Scan(&userID, &p.Username, &p.DisplayName, &p.Bio, &p.Website, &p.Location, &p.CreatedAt)
+	if err == pgx.ErrNoRows {
+		fail(w, 404, "not_found", "Profile not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	showcase, err := a.publicProfileRepositories(r, `SELECT r.id,r.name,r.description,(r.archived_at IS NOT NULL),r.created_at
+		FROM profile_repositories pr JOIN repositories r ON r.id=pr.repository_id
+		WHERE pr.user_id=$1 AND r.owner_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY pr.position`, userID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	p.Showcase = showcase
+	repos, err := a.publicProfileRepositories(r, `SELECT r.id,r.name,r.description,(r.archived_at IS NOT NULL),r.created_at
+		FROM repositories r WHERE r.owner_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.created_at DESC LIMIT 100`, userID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	p.Repositories = repos
+	respond(w, 200, p)
+}
+
+func (a *App) publicProfileRepositories(r *http.Request, query, userID string) ([]PublicRepository, error) {
+	rows, err := a.db.Query(r.Context(), query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	repos := []PublicRepository{}
+	for rows.Next() {
+		var repo PublicRepository
+		if err = rows.Scan(&repo.ID, &repo.Name, &repo.Description, &repo.Archived, &repo.CreatedAt); err != nil {
+			return nil, err
+		}
+		repos = append(repos, repo)
+	}
+	return repos, rows.Err()
+}
+
+func validProfileWebsite(value string) bool {
+	if value == "" {
+		return true
+	}
+	u, err := url.Parse(value)
+	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == ""
+}
+
+func (a *App) updateProfile(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	var in struct {
+		DisplayName string `json:"display_name"`
+		Bio         string `json:"bio"`
+		Website     string `json:"website"`
+		Location    string `json:"location"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.DisplayName = strings.TrimSpace(in.DisplayName)
+	in.Bio = strings.TrimSpace(in.Bio)
+	in.Website = strings.TrimSpace(in.Website)
+	in.Location = strings.TrimSpace(in.Location)
+	if in.DisplayName == "" || len(in.DisplayName) > 80 || len(in.Bio) > 500 || len(in.Website) > 300 || len(in.Location) > 100 || !validProfileWebsite(in.Website) {
+		fail(w, 422, "validation_failed", "Use a display name up to 80 characters, bio up to 500, location up to 100, and an optional HTTPS website.")
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `UPDATE users SET display_name=$1,bio=$2,website=$3,location=$4 WHERE id=$5`, in.DisplayName, in.Bio, in.Website, in.Location, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'profile.updated',$2)`, u.ID, u.Username); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.profileForUser(w, r, u.Username)
+}
+
+func (a *App) profileForUser(w http.ResponseWriter, r *http.Request, username string) {
+	r.SetPathValue("username", username)
+	a.profile(w, r)
+}
+
+func (a *App) updateShowcase(w http.ResponseWriter, r *http.Request) {
+	u := a.requireUser(w, r)
+	if u == nil {
+		return
+	}
+	var in struct {
+		RepositoryIDs []string `json:"repository_ids"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.RepositoryIDs) > 6 {
+		fail(w, 422, "validation_failed", "Showcase up to six public repositories.")
+		return
+	}
+	seen := map[string]bool{}
+	for _, id := range in.RepositoryIDs {
+		if !milestoneIDPattern.MatchString(id) || seen[id] {
+			fail(w, 422, "validation_failed", "Choose distinct public repositories you own.")
+			return
+		}
+		seen[id] = true
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT id FROM users WHERE id=$1 FOR UPDATE`, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	for _, id := range in.RepositoryIDs {
+		var exists bool
+		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM repositories WHERE id=$1 AND owner_id=$2 AND visibility='public' AND deleted_at IS NULL)`, id, u.ID).Scan(&exists); err != nil {
+			serverError(w, err)
+			return
+		}
+		if !exists {
+			fail(w, 422, "validation_failed", "Choose distinct public repositories you own.")
+			return
+		}
+	}
+	if _, err = tx.Exec(r.Context(), `DELETE FROM profile_repositories WHERE user_id=$1`, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	for index, id := range in.RepositoryIDs {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO profile_repositories(user_id,repository_id,position) VALUES($1,$2,$3)`, u.ID, id, index+1); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'profile.showcase_updated',$2)`, u.ID, fmt.Sprintf("%s [%d repositories]", u.Username, len(in.RepositoryIDs))); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	a.profileForUser(w, r, u.Username)
+}

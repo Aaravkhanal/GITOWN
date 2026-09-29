@@ -118,6 +118,21 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByText("Repository settings saved.", { exact: true }),
   ).toBeVisible();
+  await page.goto("/settings/profile");
+  await page.getByLabel("Bio").fill("Building and sharing on GITOWN.");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByRole("status")).toHaveText("Profile saved.");
+  await page.getByRole("checkbox", { name: "first-project" }).check();
+  await page.getByRole("button", { name: "Save showcase" }).click();
+  await expect(page.getByRole("status")).toHaveText("Showcase saved.");
+  await page.getByRole("link", { name: "View profile" }).click();
+  await expect(page.getByText("Building and sharing on GITOWN.")).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Showcase repositories" })
+      .getByText("first-project"),
+  ).toBeVisible();
+  await page.goto(`/repos/${username}/first-project/settings`);
   await expect(
     page.getByRole("heading", { name: "Merge guard" }),
   ).toBeVisible();

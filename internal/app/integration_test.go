@@ -444,6 +444,28 @@ func TestPlatformWorkflow(t *testing.T) {
 	other.request("GET", "/repos/owner/project", nil, 404, nil)
 	gitRun("", "other", otherToken, false, "ls-remote", repoURL)
 	owner.request("POST", "/repos", map[string]any{"name": "public-project", "visibility": "public", "readme": true}, 201, nil)
+	owner.request("PUT", "/user/profile", map[string]string{"display_name": "Owner", "bio": "Building in the open", "website": "http://insecure.example", "location": "Nepal"}, 422, nil)
+	owner.request("PUT", "/user/profile", map[string]string{"display_name": "Owner", "bio": "Building in the open", "website": "https://example.test", "location": "Nepal"}, 200, nil)
+	owner.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{repo.ID}}, 422, nil)
+	var publicRepoDetail struct {
+		Repository Repository `json:"repository"`
+	}
+	owner.request("GET", "/repos/owner/public-project", nil, 200, &publicRepoDetail)
+	publicRepo := publicRepoDetail.Repository
+	owner.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{publicRepo.ID}}, 200, nil)
+	other.request("PUT", "/user/showcase", map[string]any{"repository_ids": []string{publicRepo.ID}}, 422, nil)
+	var publicProfile Profile
+	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)
+	if publicProfile.Bio != "Building in the open" || len(publicProfile.Showcase) != 1 || publicProfile.Showcase[0].ID != publicRepo.ID || len(publicProfile.Repositories) != 1 {
+		t.Fatalf("public profile exposed wrong repositories: %+v", publicProfile)
+	}
+	owner.request("PATCH", "/repos/owner/public-project", map[string]string{"description": "Private for now", "visibility": "private"}, 200, nil)
+	anon.request("GET", "/users/owner/profile", nil, 200, &publicProfile)
+	if len(publicProfile.Showcase) != 0 || len(publicProfile.Repositories) != 0 {
+		t.Fatalf("private repository remained visible on profile: %+v", publicProfile)
+	}
+	owner.request("PATCH", "/repos/owner/public-project", map[string]string{"description": "Public again", "visibility": "public"}, 200, nil)
+	anon.request("GET", "/users/missing/profile", nil, 404, nil)
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
 	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
 	other.request("POST", "/repos/owner/public-project/labels", map[string]string{"name": "Unauthorized", "color": "ffffff"}, 403, nil)

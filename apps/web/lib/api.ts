@@ -1,4 +1,21 @@
 export type User = { id: string; username: string; display_name: string };
+export type PublicRepository = {
+  id: string;
+  name: string;
+  description: string;
+  archived: boolean;
+  created_at: string;
+};
+export type Profile = {
+  username: string;
+  display_name: string;
+  bio: string;
+  website: string;
+  location: string;
+  created_at: string;
+  showcase: PublicRepository[];
+  repositories: PublicRepository[];
+};
 export type Repo = {
   id: string;
   owner: string;

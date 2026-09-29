@@ -52,6 +52,7 @@ import {
   useData,
 } from "./ui";
 import { RepositoryPage } from "./repository";
+import { ProfileSettings, PublicProfile } from "./profile";
 
 type Session = {
   user: User | null;
@@ -206,6 +207,16 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <KeyRound size={17} /> Access tokens
               </Link>
               {user && (
+                <Link className="" href={`/u/${user.username}`}>
+                  <Avatar name={user.username} small /> My profile
+                </Link>
+              )}
+              {user && (
+                <Link className="" href="/settings/profile">
+                  <ShieldCheck size={17} /> Edit profile
+                </Link>
+              )}
+              {user && (
                 <Link className="" href="/settings/sessions">
                   <ShieldCheck size={17} /> Signed-in devices
                 </Link>
@@ -257,8 +268,19 @@ export function Workspace({ segments }: { segments: string[] }) {
             <SessionsPage />
           ) : section === "settings" && segments[1] === "security" ? (
             <SecurityPage />
+          ) : section === "settings" && segments[1] === "profile" ? (
+            user ? (
+              <ProfileSettings username={user.username} />
+            ) : (
+              <SignInPrompt />
+            )
           ) : section === "settings" ? (
             <TokensPage />
+          ) : section === "u" && segments[1] ? (
+            <PublicProfile
+              username={segments[1]}
+              currentUsername={user?.username}
+            />
           ) : section === "repos" && segments.length >= 3 ? (
             <RepositoryPage
               key={segments.slice(0, 3).join("/")}

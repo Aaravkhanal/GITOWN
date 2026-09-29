@@ -22,10 +22,16 @@ Shipped foundation: issues, assignees, labels, milestones with due dates and pro
 
 Remaining gate: inline reviews, mentions, subscriptions, notifications, direct-push rules, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
 
+## Phase 4 — Boards and planning (planned)
+
+Project boards, iterations, dependencies, templates, and saved views remain to be built.
+
+## Phase 5 — Social and discovery (partial)
+
+Shipped foundation: public builder profiles and configurable repository showcases. Remaining gate: follows, Sparks, activity feeds, topics, trending, and advanced search.
+
 ## Later phases (planned)
 
-4. Boards and planning: project boards, iterations, dependencies, templates, and saved views.
-5. Social and discovery: profiles, follows, Sparks, activity feeds, topics, trending, and advanced search.
 6. Districts and Crews: organizations, teams, ownership, policies, and enterprise administration.
 7. Drops and Crates: releases, assets, package registries, provenance, retention, and vulnerability data.
 8. Routes: sandboxed automation runners, workflow definitions, logs, artifacts, secrets, cancellation, quotas, and check integration.

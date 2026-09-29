@@ -13,6 +13,73 @@ servers:
 security:
   - session: []
 paths:
+  /users/{username}/profile:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+    get:
+      security: []
+      summary: Read a public profile, showcase, and up to 100 public repositories
+      responses:
+        "200":
+          description: Public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "404": { $ref: "#/components/responses/Error" }
+  /user/profile:
+    put:
+      summary: Update your public profile
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [display_name, bio, website, location]
+              properties:
+                display_name: { type: string, minLength: 1, maxLength: 80 }
+                bio: { type: string, maxLength: 500 }
+                website:
+                  {
+                    type: string,
+                    maxLength: 300,
+                    description: Optional HTTPS URL,
+                  }
+                location: { type: string, maxLength: 100 }
+      responses:
+        "200":
+          description: Updated public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /user/showcase:
+    put:
+      summary: Set up to six distinct public repositories you own as your showcase
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repository_ids]
+              properties:
+                repository_ids:
+                  type: array
+                  maxItems: 6
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Updated public profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /auth/me:
     get:
       security: []
@@ -1324,6 +1391,29 @@ components:
         created_at: { type: string, format: date-time }
         last_seen_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time }
+    PublicRepository:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        archived: { type: boolean }
+        created_at: { type: string, format: date-time }
+    Profile:
+      type: object
+      properties:
+        username: { type: string }
+        display_name: { type: string }
+        bio: { type: string }
+        website: { type: string }
+        location: { type: string }
+        created_at: { type: string, format: date-time }
+        showcase:
+          type: array
+          items: { $ref: "#/components/schemas/PublicRepository" }
+        repositories:
+          type: array
+          items: { $ref: "#/components/schemas/PublicRepository" }
     Issue:
       type: object
       properties:

@@ -108,7 +108,7 @@ export function RepositoryPage({
       <div className="breadcrumb">
         <Link href="/">Workspace</Link>
         <ChevronRight size={12} />
-        <span>{owner}</span>
+        <Link href={`/u/${owner}`}>{owner}</Link>
         <ChevronRight size={12} />
         {name}
       </div>
