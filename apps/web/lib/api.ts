@@ -68,6 +68,14 @@ export type Issue = {
   author: string;
   created_at: string;
 };
+export type BoardItem = {
+  issue_id: string;
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  status: "todo" | "progress" | "done";
+  author: string;
+};
 export type IssueComment = {
   id: string;
   body: string;

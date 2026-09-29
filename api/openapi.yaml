@@ -896,6 +896,51 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/board:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    get:
+      security: []
+      summary: List up to 100 issues on the repository planning board
+      responses:
+        "200":
+          description: Board items, newest issue first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BoardItem" }
+  /repos/{owner}/{repo}/issues/{number}/board:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { $ref: "#/components/parameters/Number" }
+    put:
+      summary: Move an issue between planning columns; Done closes it
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [todo, progress, done] }
+      responses:
+        "200":
+          description: Saved board status and issue state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [todo, progress, done] }
+                  state: { type: string, enum: [open, closed] }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues/{number}/comments:
     parameters:
       [
@@ -1457,6 +1502,15 @@ components:
         closed_issues: { type: integer }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    BoardItem:
+      type: object
+      properties:
+        issue_id: { type: string, format: uuid }
+        number: { type: integer }
+        title: { type: string }
+        state: { type: string, enum: [open, closed] }
+        status: { type: string, enum: [todo, progress, done] }
+        author: { type: string }
     Label:
       type: object
       properties:

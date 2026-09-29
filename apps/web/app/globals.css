@@ -763,6 +763,47 @@ hr {
   align-items: center;
   gap: 8px;
 }
+.issue-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+.board-column {
+  padding: 15px;
+  min-height: 220px;
+}
+.board-column h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.board-card {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border-radius: 7px;
+  padding: 13px;
+  margin-top: 10px;
+}
+.board-card strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.board-card p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.board-card label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .issue-board {
+    grid-template-columns: 1fr;
+  }
+}
 .repo-card {
   display: flex;
   align-items: flex-start;

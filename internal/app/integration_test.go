@@ -379,6 +379,24 @@ func TestPlatformWorkflow(t *testing.T) {
 	}
 	var issue Issue
 	owner.request("POST", "/repos/owner/project/issues", map[string]string{"title": "First issue", "body": "Track something useful"}, 201, &issue)
+	var board []BoardItem
+	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
+	if len(board) != 1 || board[0].Status != "todo" {
+		t.Fatalf("new issue did not appear on board: %+v", board)
+	}
+	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "progress"}, 200, nil)
+	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
+	if board[0].Status != "progress" || board[0].State != "open" {
+		t.Fatalf("in-progress board state was not saved: %+v", board)
+	}
+	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "done"}, 200, nil)
+	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
+	if board[0].Status != "done" || board[0].State != "closed" {
+		t.Fatalf("done did not close the issue: %+v", board)
+	}
+	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "todo"}, 200, nil)
+	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "invalid"}, 422, nil)
+	owner.request("PUT", "/repos/owner/project/issues/999/board", map[string]string{"status": "todo"}, 404, nil)
 	var assignees IssueAssignees
 	owner.request("PUT", "/repos/owner/project/issues/1/assignees", map[string]any{"usernames": []string{"owner", "other"}}, 200, &assignees)
 	if len(assignees.Assigned) != 2 {
@@ -428,6 +446,10 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("POST", "/repos/owner/project/issues/1/comments", map[string]string{"body": strings.Repeat("x", 10001)}, 422, nil)
 	owner.request("POST", "/repos/owner/project/issues/999/comments", map[string]string{"body": "Missing issue"}, 404, nil)
 	owner.request("PATCH", "/repos/owner/project/issues/1", map[string]string{"state": "closed"}, 200, nil)
+	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
+	if board[0].Status != "done" || board[0].State != "closed" {
+		t.Fatalf("closing an issue did not update board: %+v", board)
+	}
 	owner.request("PUT", "/repos/owner/project/milestones/"+milestone.ID, map[string]string{"title": "First release", "description": "Ship collaboration", "state": "closed", "due_date": "2026-12-31"}, 200, &milestone)
 	if milestone.ClosedIssues != 1 || milestone.OpenIssues != 0 || milestone.State != "closed" {
 		t.Fatalf("milestone progress or state was not updated: %+v", milestone)

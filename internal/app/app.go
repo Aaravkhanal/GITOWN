@@ -106,6 +106,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/milestones/{id}", a.updateMilestone)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/issues/{number}/milestone", a.issueMilestone)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/issues/{number}/milestone", a.updateIssueMilestone)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/board", a.board)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/issues/{number}/board", a.updateBoardItem)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/issues/{number}/comments", a.issueComments)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/issues/{number}/comments", a.createIssueComment)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/labels", a.labels)

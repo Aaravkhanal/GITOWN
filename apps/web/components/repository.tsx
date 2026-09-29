@@ -21,6 +21,7 @@ import {
   GitPullRequest,
   Globe2,
   History,
+  LayoutGrid,
   LockKeyhole,
   Plus,
   Save,
@@ -62,6 +63,7 @@ import {
   Loading,
   useData,
 } from "./ui";
+import { BoardView } from "./board";
 
 export function RepositoryPage({
   owner,
@@ -173,6 +175,12 @@ export function RepositoryPage({
             href: `${basePath}/issues`,
           },
           {
+            key: "board",
+            icon: LayoutGrid,
+            label: "Board",
+            href: `${basePath}/board`,
+          },
+          {
             key: "pulls",
             icon: GitPullRequest,
             label: "Unite requests",
@@ -257,6 +265,8 @@ export function RepositoryPage({
           canTriage={r.can_triage}
           canComment={r.can_comment}
         />
+      ) : tab === "board" ? (
+        <BoardView endpoint={endpoint} canTriage={r.can_triage} />
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (

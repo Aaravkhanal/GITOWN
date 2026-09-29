@@ -274,6 +274,17 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByRole("region", { name: "Milestones" }).getByText(/1 open/),
   ).toBeVisible();
+  await page.getByRole("link", { name: "Board", exact: true }).click();
+  await page.getByLabel("Status for issue #1").selectOption("progress");
+  await expect(
+    page
+      .getByRole("region", { name: "In progress column" })
+      .getByText("Design the next feature"),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Issues", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Design the next feature", exact: true })
+    .click();
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("I can discuss this issue.")).toBeVisible();

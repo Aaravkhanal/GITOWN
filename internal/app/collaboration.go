@@ -211,6 +211,20 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "Issue not found.")
 		return
 	}
+	if in.State == "closed" {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO issue_board_status(issue_id,status)
+			SELECT id,'done' FROM issues WHERE repository_id=$1 AND number=$2
+			ON CONFLICT (issue_id) DO UPDATE SET status='done',updated_at=now()`, repo.ID, number); err != nil {
+			serverError(w, err)
+			return
+		}
+	} else {
+		if _, err = tx.Exec(r.Context(), `UPDATE issue_board_status SET status='todo',updated_at=now()
+			WHERE issue_id IN (SELECT id FROM issues WHERE repository_id=$1 AND number=$2) AND status='done'`, repo.ID, number); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "issue."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
 		serverError(w, err)
 		return

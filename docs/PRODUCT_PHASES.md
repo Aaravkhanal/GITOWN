@@ -22,9 +22,9 @@ Shipped foundation: issues, assignees, labels, milestones with due dates and pro
 
 Remaining gate: inline reviews, mentions, subscriptions, notifications, direct-push rules, required checks/resolved conversations, squash/rebase, source-branch deletion, a merge queue, forks (Remixes), and cross-repository Unite requests.
 
-## Phase 4 — Boards and planning (planned)
+## Phase 4 — Boards and planning (partial)
 
-Project boards, iterations, dependencies, templates, and saved views remain to be built.
+Shipped foundation: a repository issue board with To do, In progress, and Done columns, synchronized with issue close/reopen actions. Remaining gate: configurable project boards, iterations, dependencies, templates, and saved views.
 
 ## Phase 5 — Social and discovery (partial)
 

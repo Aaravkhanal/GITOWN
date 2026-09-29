@@ -20,6 +20,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Same-repository Unite requests with close/reopen, discussions, formal approve/request-changes reviews tied to exact head commits, owner-configured Merge Guards for fresh approvals and change requests, actual Git diffs, conflict detection, merge commits, stale-SHA rejection, and interrupted-merge recovery.
 - Issue creation, descriptions, close/reopen, assignees, milestones with due dates and progress, chronological discussions, reusable colored labels, and activity history.
 - Public builder profiles with bio, location, HTTPS website, public repository listings, and a six-repository showcase.
+- Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 - A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.
 
