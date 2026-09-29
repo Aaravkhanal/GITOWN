@@ -99,6 +99,41 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/search/repositories", a.searchRepositories)
 	mux.HandleFunc("GET /api/v1/search/builders", a.searchBuilders)
 	mux.HandleFunc("GET /api/v1/search/work", a.searchWork)
+	mux.HandleFunc("GET /api/v1/search/code", a.searchCode)
+	mux.HandleFunc("GET /api/v1/search/tasks", a.searchTasks)
+	mux.HandleFunc("GET /api/v1/search/recommendations", a.recommendations)
+	mux.HandleFunc("GET /api/v1/collections", a.collections)
+	mux.HandleFunc("POST /api/v1/collections", a.createCollection)
+	mux.HandleFunc("GET /api/v1/collections/{owner}/{slug}", a.collection)
+	mux.HandleFunc("POST /api/v1/collections/{owner}/{slug}/items", a.addCollectionItem)
+	mux.HandleFunc("DELETE /api/v1/collections/{owner}/{slug}/items/{repoOwner}/{repoName}", a.removeCollectionItem)
+	mux.HandleFunc("GET /api/v1/districts", a.districts)
+	mux.HandleFunc("POST /api/v1/districts", a.createDistrict)
+	mux.HandleFunc("GET /api/v1/districts/{slug}", a.district)
+	mux.HandleFunc("PATCH /api/v1/districts/{slug}", a.updateDistrict)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/members", a.districtMembers)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/members", a.addDistrictMember)
+	mux.HandleFunc("DELETE /api/v1/districts/{slug}/members/{username}", a.removeDistrictMember)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/crews", a.districtCrews)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/crews", a.createCrew)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/crews/{crew}/members", a.addCrewMember)
+	mux.HandleFunc("DELETE /api/v1/districts/{slug}/crews/{crew}/members/{username}", a.removeCrewMember)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/secrets", a.districtSecrets)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/secrets", a.putDistrictSecret)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/secrets/{name}", a.districtSecret)
+	mux.HandleFunc("DELETE /api/v1/districts/{slug}/secrets/{name}", a.deleteDistrictSecret)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/audit", a.districtAudit)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/repos", a.districtRepos)
+	mux.HandleFunc("GET /api/v1/user/ssh-keys", a.sshKeys)
+	mux.HandleFunc("POST /api/v1/user/ssh-keys", a.createSSHKey)
+	mux.HandleFunc("DELETE /api/v1/user/ssh-keys/{id}", a.deleteSSHKey)
+	mux.HandleFunc("GET /api/v1/crates", a.crates)
+	mux.HandleFunc("POST /api/v1/crates", a.createCrate)
+	mux.HandleFunc("GET /api/v1/crates/{name}", a.crate)
+	mux.HandleFunc("DELETE /api/v1/crates/{name}", a.deleteCrate)
+	mux.HandleFunc("POST /api/v1/crates/{name}/versions", a.publishCrateVersion)
+	mux.HandleFunc("DELETE /api/v1/crates/{name}/versions/{version}", a.deleteCrateVersion)
+	mux.HandleFunc("GET /api/v1/crates/{name}/versions/{version}/download", a.downloadCrateVersion)
 	mux.HandleFunc("POST /api/v1/repos", a.createRepository)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}", a.repository)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/spark", a.spark)
@@ -184,6 +219,22 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/pulls/{number}/comments/{id}", a.editPullComment)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments/{id}/history", a.pullCommentHistory)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/merge", a.mergePull)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/crews", a.updatePullCrews)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/deploy-keys", a.deployKeys)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/deploy-keys", a.createDeployKey)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/deploy-keys/{id}", a.deleteDeployKey)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/maintenance", a.maintainRepository)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/district", a.updateRepositoryDistrict)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/refs", a.refEvents)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/tags", a.repositoryTags)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops", a.drops)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/drops", a.createDrop)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops/{tag}", a.drop)
+	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/drops/{tag}", a.updateDrop)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/drops/{tag}", a.deleteDrop)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/drops/{tag}/assets", a.uploadDropAsset)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops/{tag}/assets/{name}", a.downloadDropAsset)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/drops/{tag}/assets/{name}", a.deleteDropAsset)
 	mux.HandleFunc("/git/", a.gitHTTP)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Request-ID", auth.ID())
@@ -191,13 +242,22 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			limit := int64(1 << 20)
+			asset := r.Method == "POST" && strings.Contains(r.URL.Path, "/drops/") && strings.HasSuffix(r.URL.Path, "/assets")
+			if asset {
+				limit = 8 << 20
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
 				if r.Header.Get("Origin") != a.cfg.Origin {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
 					return
 				}
-				if r.Method != "DELETE" && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+				jsonRequired := r.Method != "DELETE"
+				if asset && strings.HasPrefix(r.Header.Get("Content-Type"), "application/octet-stream") {
+					jsonRequired = false
+				}
+				if jsonRequired && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 					fail(w, 415, "json_required", "Use application/json.")
 					return
 				}

@@ -23,7 +23,7 @@ func validMemberRole(role string) bool {
 func (a *App) managedRepository(w http.ResponseWriter, r *http.Request) *Repository {
 	repo := a.access(w, r, false)
 	if repo != nil && !repo.CanManage {
-		fail(w, 403, "forbidden", "Only the repository owner can manage collaborators.")
+		fail(w, 403, "forbidden", "Repository management permission is required.")
 		return nil
 	}
 	return repo

@@ -23,6 +23,7 @@ import {
   History,
   LayoutGrid,
   LockKeyhole,
+  Package,
   Plus,
   Save,
   Settings,
@@ -32,6 +33,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import { DropsPanel } from "@/components/ecosystem";
 import {
   api,
   patch,
@@ -137,7 +139,7 @@ export function RepositoryPage({
               {name}
             </h1>
             <Badge>
-              {r.visibility === "private" ? (
+              {r.visibility !== "public" ? (
                 <LockKeyhole size={11} />
               ) : (
                 <Globe2 size={11} />
@@ -181,6 +183,12 @@ export function RepositoryPage({
             <code>git clone {r.clone_url}</code>
             <CopyButton text={`git clone ${r.clone_url}`} />
           </div>
+          {r.ssh_clone_url && (
+            <div className="copy-field">
+              <code>git clone {r.ssh_clone_url}</code>
+              <CopyButton text={`git clone ${r.ssh_clone_url}`} />
+            </div>
+          )}
           <Link href="/settings/tokens">
             Manage access tokens <ArrowRight size={13} />
           </Link>
@@ -212,6 +220,12 @@ export function RepositoryPage({
             icon: History,
             label: "Commits",
             href: `${basePath}/commits`,
+          },
+          {
+            key: "drops",
+            icon: Package,
+            label: "Drops",
+            href: `${basePath}/drops`,
           },
           ...(r.can_manage
             ? [
@@ -280,6 +294,8 @@ export function RepositoryPage({
         )
       ) : tab === "commits" ? (
         <CommitList endpoint={endpoint} branch={branch} />
+      ) : tab === "drops" ? (
+        <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
       ) : tab === "issues" ? (
         <IssueList
           endpoint={endpoint}

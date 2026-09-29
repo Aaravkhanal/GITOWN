@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -20,6 +21,10 @@ import (
 // Git traffic is deliberately separate from browser session authentication.
 // Both the advertisement and the RPC re-check the token and repository policy.
 func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.Path, "/info/lfs/") {
+		a.gitLFS(w, r)
+		return
+	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/git/"), "/")
 	if len(parts) < 3 || len(parts) > 4 || !slug.MatchString(parts[0]) || !strings.HasSuffix(parts[1], ".git") {
 		http.NotFound(w, r)
@@ -38,45 +43,14 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write := suffix == "git-receive-pack" || service == "git-receive-pack"
-	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2 AND r.deleted_at IS NULL`, parts[0], name))
-	var u User
-	var scope string
-	username, token, provided := r.BasicAuth()
-	authenticated := false
-	if provided && strings.HasPrefix(token, "gtn_") && len(token) < 128 {
-		tokenErr := a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name,t.scope FROM access_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at>now() AND u.username=$2`, auth.Digest(token), username).Scan(&u.ID, &u.Username, &u.DisplayName, &scope)
-		authenticated = tokenErr == nil
-	}
-	if (provided && !authenticated) || (!authenticated && (write || err != nil || repo.Visibility == "private")) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="GITOWN (use a personal access token)"`)
-		http.Error(w, "A valid personal access token is required.", 401)
-		return
-	}
-	role := ""
-	if authenticated {
-		if u.ID == repo.OwnerID {
-			role = "owner"
-		} else {
-			_ = a.db.QueryRow(r.Context(), `SELECT role FROM repository_members WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID).Scan(&role)
-		}
-	}
-	if err != nil || (repo.Visibility == "private" && role == "") {
-		http.NotFound(w, r)
-		return
-	}
-	canWrite := role == "owner" || role == "maintain" || role == "write"
-	if write && repo.Archived {
-		http.Error(w, "This repository is archived and read-only.", 403)
-		return
-	}
-	if write && (!canWrite || scope != "repo:write") {
-		http.Error(w, "Repository write permission and repo:write scope are required.", 403)
+	repo, user, ok := a.authorizeGit(w, r, parts[0], name, write)
+	if !ok {
 		return
 	}
 	requestBody := io.Reader(http.MaxBytesReader(w, r.Body, 100<<20))
 	var updates []refUpdate
 	if write && r.Method == "POST" {
-		protected, err := a.blockedPushBranches(r.Context(), repo.ID, role)
+		protected, err := a.blockedPushBranches(r.Context(), repo.ID, repo.Role)
 		if err != nil {
 			serverError(w, err)
 			return
@@ -106,6 +80,14 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 			requestBody = replay
 			updates = parsed
 		}
+		if err = a.withinQuota(r.Context(), repo, int64(len(raw))); err != nil {
+			if errors.Is(err, errStorageQuota) {
+				http.Error(w, "Repository or account storage quota would be exceeded.", 413)
+				return
+			}
+			serverError(w, err)
+			return
+		}
 	}
 	select {
 	case a.transports <- struct{}{}:
@@ -120,8 +102,8 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(ctx, a.git.Backend)
 	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
 	env := append(gitstore.Environment(), "GIT_PROJECT_ROOT="+a.git.Root, "GIT_HTTP_EXPORT_ALL=1", "PATH_INFO=/"+repo.ID+".git/"+suffix, "REQUEST_METHOD="+r.Method, "QUERY_STRING="+r.URL.RawQuery, "CONTENT_TYPE="+r.Header.Get("Content-Type"), "SERVER_PROTOCOL=HTTP/1.1", "GATEWAY_INTERFACE=CGI/1.1", "SERVER_NAME=gitown", "REMOTE_ADDR="+remoteIP)
-	if authenticated {
-		env = append(env, "REMOTE_USER="+u.Username)
+	if user != nil {
+		env = append(env, "REMOTE_USER="+user.Username)
 	}
 	if r.ContentLength >= 0 {
 		env = append(env, "CONTENT_LENGTH="+strconv.FormatInt(r.ContentLength, 10))
@@ -175,17 +157,49 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 	waitErr := cmd.Wait()
 	// receive-pack may return HTTP 200 even if it rejects refs. Record transport
 	// completion, never falsely claim that every proposed ref was accepted.
-	if write && r.Method == "POST" && waitErr == nil && copyErr == nil {
+	if write && r.Method == "POST" && waitErr == nil && copyErr == nil && user != nil {
 		auditCtx, auditCancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer auditCancel()
-		_, _ = a.db.Exec(auditCtx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'git.receive_completed',$2)`, u.ID, repo.Owner+"/"+repo.Name)
-		for _, update := range updates {
-			if !strings.HasPrefix(update.Ref, "refs/heads/") {
-				continue
-			}
-			branch := strings.TrimPrefix(update.Ref, "refs/heads/")
-			_, _ = a.db.Exec(auditCtx, `INSERT INTO pull_events(pull_request_id,actor_id,kind,body)
-				SELECT id,$2,'push',$3 FROM pull_requests WHERE repository_id=$1 AND head_branch=$4 AND state='open'`, repo.ID, u.ID, update.Old+".."+update.New, branch)
+		a.finishReceive(auditCtx, repo, user.ID, updates, "https")
+	}
+}
+
+func (a *App) authorizeGit(w http.ResponseWriter, r *http.Request, owner, name string, write bool) (*Repository, *User, bool) {
+	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2 AND r.deleted_at IS NULL`, owner, name))
+	var u User
+	var scope string
+	username, token, provided := r.BasicAuth()
+	authenticated := false
+	if provided && strings.HasPrefix(token, "gtn_") && len(token) < 128 {
+		tokenErr := a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name,t.scope FROM access_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at>now() AND u.username=$2`, auth.Digest(token), username).Scan(&u.ID, &u.Username, &u.DisplayName, &scope)
+		authenticated = tokenErr == nil
+	}
+	if err == nil && authenticated {
+		if decErr := a.decorate(r.Context(), &repo, &u); decErr != nil {
+			serverError(w, decErr)
+			return nil, nil, false
 		}
 	}
+	hidden := err != nil || repo.Visibility != "public"
+	if (provided && !authenticated) || (!authenticated && (write || hidden)) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="GITOWN (use a personal access token)"`)
+		http.Error(w, "A valid personal access token is required.", 401)
+		return nil, nil, false
+	}
+	if err != nil || (repo.Visibility != "public" && repo.Role == "") {
+		http.NotFound(w, r)
+		return nil, nil, false
+	}
+	if write && repo.Archived {
+		http.Error(w, "This repository is archived and read-only.", 403)
+		return nil, nil, false
+	}
+	if write && (!repo.CanWrite || scope != "repo:write") {
+		http.Error(w, "Repository write permission and repo:write scope are required.", 403)
+		return nil, nil, false
+	}
+	if !authenticated {
+		return &repo, nil, true
+	}
+	return &repo, &u, true
 }

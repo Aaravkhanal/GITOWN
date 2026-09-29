@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -42,6 +43,20 @@ func run() error {
 	application, err := app.New(cfg, pool)
 	if err != nil {
 		return err
+	}
+	if len(os.Args) > 1 && os.Args[1] == "ssh-shell" {
+		fingerprint := ""
+		if len(os.Args) > 2 {
+			fingerprint = os.Args[2]
+		}
+		if fingerprint == "" {
+			fingerprint = os.Getenv("GITOWN_SSH_FINGERPRINT")
+		}
+		if err = application.SSHShell(fingerprint); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		return nil
 	}
 	server := &http.Server{Addr: cfg.Address, Handler: application.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 3 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 32 * 1024}
 	go func() {

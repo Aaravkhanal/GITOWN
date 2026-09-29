@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Bell,
+  Building2,
   Check,
   ChevronRight,
   CircleDot,
@@ -24,6 +25,7 @@ import {
   LayoutGrid,
   LockKeyhole,
   LogOut,
+  Package,
   Plus,
   Search,
   ShieldCheck,
@@ -33,6 +35,7 @@ import {
   Rss,
   X,
 } from "lucide-react";
+import { CratesPage, DistrictsPage, ExploreMore, SSHKeysPage } from "@/components/ecosystem";
 import {
   api,
   post,
@@ -232,11 +235,28 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <Plus className="trailing" size={15} />
               </Link>
               <Link
+                className={section === "districts" ? "selected" : ""}
+                href="/districts"
+              >
+                <Building2 size={17} /> Districts
+              </Link>
+              <Link
+                className={section === "crates" ? "selected" : ""}
+                href="/crates"
+              >
+                <Package size={17} /> Crates
+              </Link>
+              <Link
                 className={section === "settings" ? "selected" : ""}
                 href="/settings/tokens"
               >
                 <KeyRound size={17} /> Access tokens
               </Link>
+              {user && (
+                <Link className="" href="/settings/keys">
+                  <KeyRound size={17} /> SSH keys
+                </Link>
+              )}
               {user && (
                 <Link className="" href={`/u/${user.username}`}>
                   <Avatar name={user.username} small /> My profile
@@ -308,6 +328,24 @@ export function Workspace({ segments }: { segments: string[] }) {
           ) : section === "feed" ? (
             user ? (
               <FollowingFeed />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "districts" ? (
+            user ? (
+              <DistrictsPage />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "crates" ? (
+            user ? (
+              <CratesPage />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "settings" && segments[1] === "keys" ? (
+            user ? (
+              <SSHKeysPage />
             ) : (
               <SignInPrompt />
             )
@@ -442,6 +480,8 @@ function Dashboard({ explore }: { explore: boolean }) {
   const [visibility, setVisibility] = useState("all");
   const [sort, setSort] = useState("recent");
   const [topic, setTopic] = useState("");
+  const [language, setLanguage] = useState("");
+  const [beginner, setBeginner] = useState(false);
   const [offset, setOffset] = useState(0);
   const [builderOffset, setBuilderOffset] = useState(0);
   const [workOffset, setWorkOffset] = useState(0);
@@ -457,6 +497,8 @@ function Dashboard({ explore }: { explore: boolean }) {
     topic,
     sort,
     offset: String(offset),
+    ...(language ? { language } : {}),
+    ...(beginner ? { beginner: "1" } : {}),
   });
   const search = useData<{ items: Repo[]; has_more: boolean }>(
     explore ? `/search/repositories?${searchParams}` : null,
@@ -520,6 +562,7 @@ function Dashboard({ explore }: { explore: boolean }) {
           {user ? "New repository" : "Create your workspace"}
         </Link>
       </div>
+      {explore && <ExploreMore />}
       {!explore && (
         <div className="welcome-banner">
           <div className="banner-copy">
@@ -649,6 +692,30 @@ function Dashboard({ explore }: { explore: boolean }) {
                 }}
               />
             )}
+            {explore && (
+              <input
+                aria-label="Filter by language"
+                placeholder="Language…"
+                value={language}
+                onChange={(event) => {
+                  setLanguage(event.target.value);
+                  setOffset(0);
+                }}
+              />
+            )}
+            {explore && (
+              <label className="muted small-text">
+                <input
+                  type="checkbox"
+                  checked={beginner}
+                  onChange={(event) => {
+                    setBeginner(event.target.checked);
+                    setOffset(0);
+                  }}
+                />{" "}
+                Beginner-friendly
+              </label>
+            )}
             <select
               aria-label="Sort repositories"
               value={sort}
@@ -658,6 +725,7 @@ function Dashboard({ explore }: { explore: boolean }) {
               }}
             >
               <option value="recent">Recent</option>
+              {explore && <option value="updated">Recently updated</option>}
               <option value="name">Name</option>
               {explore && <option value="sparks">Most Sparked</option>}
               {explore && <option value="trending">Trending (30 days)</option>}
@@ -682,7 +750,7 @@ function Dashboard({ explore }: { explore: boolean }) {
                         {repo.name}
                       </h3>
                       <Badge>
-                        {repo.visibility === "private" ? (
+                        {repo.visibility !== "public" ? (
                           <LockKeyhole size={10} />
                         ) : (
                           <Globe2 size={10} />
@@ -699,6 +767,7 @@ function Dashboard({ explore }: { explore: boolean }) {
                         {repo.default_branch}
                       </span>
                       <span>Created {date(repo.created_at)}</span>
+                      {repo.language ? <span>{repo.language}</span> : null}
                     </div>
                   </div>
                   <ArrowUpRight className="card-arrow" size={18} />

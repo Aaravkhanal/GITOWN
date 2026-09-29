@@ -6,7 +6,12 @@ info:
     Local development alpha. Browser API authentication uses an HttpOnly session
     cookie. Every mutation requires an Origin header equal to GITOWN_ORIGIN;
     mutations other than DELETE require application/json. Git personal access
-    tokens authenticate only /git transport endpoints, not this JSON API.
+    tokens with repo:read or repo:write authenticate Git transport. Tokens with
+    package:read or package:write authenticate crate routes with
+    Authorization: Bearer. A package token cannot push Git. Session cookies
+    still authenticate the JSON API. The SSH gateway is a forced command, not
+    an embedded server. Drop provenance and tag signature flags are not
+    trust decisions. Crate publishing uses a pattern check, not malware scanning.
     Most lists return bounded arrays; public repository and builder search use
     offset pagination with 25-item pages.
 servers:
@@ -51,6 +56,58 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WorkSearch" }
         "422": { $ref: "#/components/responses/Error" }
+  /search/code:
+    get:
+      security: []
+      summary: Fixed-string search of recent public repository files
+      parameters:
+        - { name: q, in: query, schema: { type: string, minLength: 2, maxLength: 80 } }
+      responses:
+        "200": { description: Up to 40 matching lines }
+        "422": { $ref: "#/components/responses/Error" }
+  /search/tasks:
+    get:
+      security: []
+      summary: Public open issues labeled help wanted or good first task
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: ["help", "first"] } }
+      responses:
+        "200": { description: Matching tasks }
+  /search/recommendations:
+    get:
+      summary: Topic-overlap recommendations, or trending when signed out
+      responses:
+        "200": { description: Up to 12 repositories }
+  /districts:
+    get:
+      summary: List visible districts
+      responses:
+        "200": { description: Districts }
+    post:
+      summary: Create a district
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Created district }
+  /crates:
+    get:
+      summary: List visible crate records. Not an npm registry.
+      responses:
+        "200": { description: Crate records }
+    post:
+      summary: Create a crate record
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Created crate }
+  /user/ssh-keys:
+    get:
+      summary: List SSH public keys
+      responses:
+        "200": { description: Keys and fingerprints }
+    post:
+      summary: Register an SSH public key and return an authorized_keys line
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Key created }
   /user/invitations:
     get:
       summary: List invitations addressed to the signed-in account

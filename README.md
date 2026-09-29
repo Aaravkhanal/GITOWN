@@ -13,8 +13,8 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 
 - Accounts, login/logout, Argon2id password hashes, secure password changes with optional token revocation, expiring/revocable browser sessions with device visibility, and request-origin checks.
 - Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
-- Personal access tokens with read or write scopes, 30-day expiration, and revocation.
-- Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS).
+- Personal access tokens with repository or package scopes, 30-day expiration, and revocation. Package tokens cannot push Git.
+- Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS), including a shallow clone. User SSH keys and deploy keys work through a forced-command gateway when sshd is configured separately. Basic Git LFS batch upload and download is included.
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository Unite requests with drafts, close/reopen, discussions, inline line comments, requested reviewers, formal approve/request-changes reviews tied to exact head commits, review dismissal, owner-configured Merge Guards, squash/rebase/merge, optional source-branch deletion, actual Git diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery.
@@ -28,7 +28,9 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Builder follows: discover who follows a public profile and follow or unfollow other builders.
 - A following feed for visible repository creation, Sparks, issues, and Unite requests from followed builders.
 - Owner-managed repository topics for describing and organizing projects.
-- Public repository discovery with server-backed text/topic search, recent/name/Spark/30-day-trending sorting, and 25-result pages.
+- Public repository discovery with server-backed text/topic search, language and beginner-friendly filters, recent/updated/name/Spark/30-day-trending sorting, fixed-string code search, help-wanted tasks, recommendations, and community collections.
+- Districts (organizations), crews (teams), internal repositories, encrypted district secrets, and a district audit export.
+- Drops (releases) with notes, assets, checksums, and download counts, plus a crate package record with retention and a secret-pattern check. This is not an npm registry.
 - Public builder discovery with username/name/bio search, follower and public-repository counts, and 25-result pages.
 - Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
 - Owner-managed issue templates that prefill titles and descriptions for recurring work.
@@ -148,8 +150,8 @@ The initial API modules share one application package for transactional workflow
 ## Next milestones
 
 1. Add email verification, password recovery, MFA, and invitation-based signup.
-2. Add collaborators and role-based access, SSH transport, and branch policies enforced consistently on push and merge.
-3. Expand pull requests with comments, reviews, checks, squash/rebase, pagination, and deterministic conflict resolution.
-4. Add durable Git events/outbox processing, backups under load, repository lifecycle/reconciliation, observability, and operational hardening.
+2. Run the SSH gateway behind a dedicated sshd, add LFS locking, and measure repository size before a pack can overshoot a quota.
+3. Add a merge queue, forks, cross-repository Unite requests, and deterministic conflict resolution.
+4. Add durable Git event delivery, backups under load, repository reconciliation, observability, and operational hardening.
 
 The complete longer-term direction stays in [BLUEPRINT.md](BLUEPRINT.md).

@@ -308,8 +308,8 @@ func (a *App) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || len(in.Name) > 80 || (in.Scope != "repo:read" && in.Scope != "repo:write") {
-		fail(w, 422, "validation_failed", "Provide a token name and a valid repository scope.")
+	if in.Name == "" || len(in.Name) > 80 || (in.Scope != "repo:read" && in.Scope != "repo:write" && in.Scope != "package:read" && in.Scope != "package:write") {
+		fail(w, 422, "validation_failed", "Provide a token name and a scope of repo:read, repo:write, package:read, or package:write.")
 		return
 	}
 	raw := auth.Secret("gtn_")

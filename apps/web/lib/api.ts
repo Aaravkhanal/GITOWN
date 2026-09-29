@@ -34,7 +34,7 @@ export type Repo = {
   owner: string;
   name: string;
   description: string;
-  visibility: "public" | "private";
+  visibility: "public" | "private" | "internal";
   default_branch: string;
   created_at: string;
   can_write: boolean;
@@ -46,6 +46,11 @@ export type Repo = {
   clone_url: string;
   homepage?: string;
   stack?: string;
+  language?: string;
+  pushed_at?: string;
+  size_bytes?: number;
+  district?: string;
+  ssh_clone_url?: string;
 };
 export type SparkState = { count: number; sparked: boolean };
 export type TopicState = { topics: string[] };

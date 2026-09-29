@@ -24,6 +24,7 @@ var ErrTooLarge = errors.New("Git output exceeds display limit")
 var ErrNotFound = errors.New("ref or path does not exist")
 var ErrConflict = errors.New("branch changed")
 var identifier = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$`)
+var commitRange = regexp.MustCompile(`^[0-9a-f]{40}(\.\.[0-9a-f]{40})?$`)
 
 type Store struct {
 	Root, Binary, Backend string
@@ -94,6 +95,94 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 
 func (s *Store) Run(ctx context.Context, id string, input io.Reader, args ...string) ([]byte, error) {
 	return s.run(ctx, id, input, nil, args...)
+}
+
+// Command runs Git and returns its exit code. Exit codes are not errors by
+// themselves; callers decide which codes are successful.
+func (s *Store) Command(ctx context.Context, timeout time.Duration, id string, args ...string) ([]byte, int, error) {
+	if !identifier.MatchString(id) {
+		return nil, -1, ErrNotFound
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	case <-ctx.Done():
+		return nil, -1, ctx.Err()
+	}
+	cmd := exec.CommandContext(ctx, s.Binary, append([]string{"--git-dir=" + s.Path(id)}, args...)...)
+	cmd.Env = Environment()
+	var stdout, stderr boundedBuffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.WaitDelay = time.Second
+	err := cmd.Run()
+	if err == nil {
+		return stdout.Bytes(), 0, nil
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return stdout.Bytes(), exit.ExitCode(), nil
+	}
+	return nil, -1, err
+}
+
+func (s *Store) Grep(ctx context.Context, id, rev, query string) (string, error) {
+	if rev == "" || strings.ContainsAny(rev, "\x00\r\n ") || query == "" || strings.HasPrefix(query, "-") || strings.ContainsAny(query, "\x00\r\n") || len(query) > 80 {
+		return "", ErrNotFound
+	}
+	out, code, err := s.Command(ctx, 20*time.Second, id, "grep", "-n", "-I", "-F", "--max-count=3", "-e", query, rev)
+	if err != nil {
+		return "", err
+	}
+	if code == 1 {
+		return "", nil
+	}
+	if code != 0 {
+		return "", fmt.Errorf("git grep: exit %d", code)
+	}
+	return string(out), nil
+}
+
+func (s *Store) ResolveTag(ctx context.Context, id, name string) (string, error) {
+	if name == "" || len(name) > 80 || strings.ContainsAny(name, " \x00\r\n\\") || strings.Contains(name, "..") || strings.HasPrefix(name, "-") {
+		return "", ErrNotFound
+	}
+	ref := "refs/tags/" + name
+	if _, err := s.Run(ctx, id, nil, "check-ref-format", ref); err != nil {
+		return "", ErrNotFound
+	}
+	sha, err := s.Run(ctx, id, nil, "rev-parse", "--verify", "--end-of-options", ref)
+	if err != nil {
+		return "", ErrNotFound
+	}
+	return strings.TrimSpace(string(sha)), nil
+}
+
+func (s *Store) Subjects(ctx context.Context, id, spec string) ([]string, error) {
+	if !commitRange.MatchString(spec) {
+		return nil, ErrNotFound
+	}
+	out, err := s.Run(ctx, id, nil, "log", "--format=%s", "--max-count=50", "--end-of-options", spec)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return []string{}, nil
+	}
+	return strings.Split(text, "\n"), nil
+}
+
+func (s *Store) Maintain(ctx context.Context, id string) error {
+	_, code, err := s.Command(ctx, 60*time.Second, id, "gc", "--prune=2.weeks.ago")
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("git gc: exit %d", code)
+	}
+	return nil
 }
 
 func (s *Store) run(ctx context.Context, id string, input io.Reader, extraEnv []string, args ...string) ([]byte, error) {

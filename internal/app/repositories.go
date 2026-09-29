@@ -34,16 +34,39 @@ type Repository struct {
 	CloneURL      string    `json:"clone_url"`
 	Homepage      string    `json:"homepage"`
 	Stack         string    `json:"stack"`
+	Language      string    `json:"language"`
+	PushedAt      time.Time `json:"pushed_at"`
+	SizeBytes     int64     `json:"size_bytes"`
+	DistrictID    string    `json:"-"`
+	District      string    `json:"district,omitempty"`
+	SSHCloneURL   string    `json:"ssh_clone_url,omitempty"`
 }
 
-const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL),r.homepage,r.stack`
+const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL),r.homepage,r.stack,r.language,r.pushed_at,r.size_bytes,COALESCE(r.district_id::text,''),COALESCE((SELECT d.slug FROM districts d WHERE d.id=r.district_id),'')`
 
 type scanner interface{ Scan(...any) error }
 
 func scanRepo(row scanner) (Repository, error) {
 	var r Repository
-	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived, &r.Homepage, &r.Stack)
+	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived, &r.Homepage, &r.Stack, &r.Language, &r.PushedAt, &r.SizeBytes, &r.DistrictID, &r.District)
 	return r, err
+}
+
+func (a *App) scanRepoList(r *http.Request, rows pgx.Rows) ([]Repository, error) {
+	defer rows.Close()
+	items := []Repository{}
+	viewer := a.user(r)
+	for rows.Next() {
+		repo, err := scanRepo(rows)
+		if err != nil {
+			return nil, err
+		}
+		if err = a.decorate(r.Context(), &repo, viewer); err != nil {
+			return nil, err
+		}
+		items = append(items, repo)
+	}
+	return items, rows.Err()
 }
 func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 	if u != nil && u.ID == repo.OwnerID {
@@ -54,11 +77,35 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 			return err
 		}
 	}
+	manage := repo.Role == "owner"
+	if u != nil && repo.DistrictID != "" {
+		var districtOwner, base, memberRole string
+		err := a.db.QueryRow(ctx, `SELECT d.owner_id::text,d.base_permission,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id=$2),'') FROM districts d WHERE d.id=$1`, repo.DistrictID, u.ID).Scan(&districtOwner, &base, &memberRole)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if err == nil && (u.ID == districtOwner || memberRole == "admin") {
+			if repo.Role != "owner" {
+				repo.Role = higherRole(repo.Role, "maintain")
+			}
+			manage = true
+		} else if err == nil && memberRole == "member" {
+			if base == "read" || base == "triage" || base == "write" {
+				repo.Role = higherRole(repo.Role, base)
+			}
+			if repo.Visibility == "internal" && repo.Role == "" {
+				repo.Role = "read"
+			}
+		}
+	}
 	repo.CanWrite = repo.Role == "owner" || repo.Role == "maintain" || repo.Role == "write"
 	repo.CanTriage = repo.CanWrite || repo.Role == "triage"
-	repo.CanManage = repo.Role == "owner"
+	repo.CanManage = manage || repo.Role == "owner"
 	repo.CanComment = u != nil && !repo.Archived
 	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
+	if host := strings.TrimSpace(os.Getenv("GITOWN_SSH_HOST")); host != "" && !strings.ContainsAny(host, " \t\r\n") {
+		repo.SSHCloneURL = "git@" + host + ":" + repo.Owner + "/" + repo.Name + ".git"
+	}
 	return nil
 }
 
@@ -73,7 +120,7 @@ func (a *App) access(w http.ResponseWriter, r *http.Request, write bool) *Reposi
 		serverError(w, err)
 		return nil
 	}
-	if repo.Visibility == "private" && repo.Role == "" {
+	if repo.Visibility != "public" && repo.Role == "" {
 		fail(w, 404, "not_found", "Repository not found.")
 		return nil
 	}
@@ -94,9 +141,9 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 	if u != nil {
 		id = u.ID
 	}
-	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.deleted_at IS NULL AND (r.visibility='public' OR r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
+	query := `SELECT ` + repoColumns + ` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.deleted_at IS NULL AND (r.visibility='public' OR r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1) OR EXISTS (SELECT 1 FROM districts d WHERE d.id=r.district_id AND $1<>'' AND (d.owner_id::text=$1 OR EXISTS (SELECT 1 FROM district_members dm WHERE dm.district_id=d.id AND dm.user_id::text=$1 AND dm.role='admin') OR (EXISTS (SELECT 1 FROM district_members dm WHERE dm.district_id=d.id AND dm.user_id::text=$1) AND (r.visibility='internal' OR d.base_permission<>'none')))))`
 	if r.URL.Query().Get("mine") == "true" {
-		query += ` AND (r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1))`
+		query += ` AND (r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1) OR EXISTS (SELECT 1 FROM districts d WHERE d.id=r.district_id AND (d.owner_id::text=$1 OR EXISTS (SELECT 1 FROM district_members dm WHERE dm.district_id=d.id AND dm.user_id::text=$1))))`
 	}
 	query += ` ORDER BY r.created_at DESC LIMIT 100`
 	rows, err := a.db.Query(r.Context(), query, id)
@@ -135,17 +182,19 @@ func (a *App) createRepository(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		Visibility  string `json:"visibility"`
 		Readme      bool   `json:"readme"`
+		District    string `json:"district"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	in.Name = strings.ToLower(strings.TrimSpace(in.Name))
 	in.Description = strings.TrimSpace(in.Description)
-	if !repoSlug.MatchString(in.Name) || strings.HasSuffix(in.Name, ".git") || strings.Contains(in.Name, "..") || len(in.Description) > 500 || (in.Visibility != "private" && in.Visibility != "public") {
+	in.District = strings.ToLower(strings.TrimSpace(in.District))
+	if !repoSlug.MatchString(in.Name) || strings.HasSuffix(in.Name, ".git") || strings.Contains(in.Name, "..") || len(in.Description) > 500 {
 		fail(w, 422, "validation_failed", "Use a repository name with letters, numbers, dots, hyphens or underscores and select a visibility.")
 		return
 	}
-	repo := Repository{ID: auth.ID(), OwnerID: u.ID, Owner: u.Username, Name: in.Name, Description: in.Description, Visibility: in.Visibility, DefaultBranch: "main"}
+	repo := Repository{ID: auth.ID(), OwnerID: u.ID, Owner: u.Username, Name: in.Name, Description: in.Description, Visibility: in.Visibility, DefaultBranch: "main", District: in.District}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		serverError(w, err)
@@ -165,7 +214,32 @@ func (a *App) createRepository(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "repository_limit", "This alpha supports up to 100 repositories per account.")
 		return
 	}
-	err = tx.QueryRow(r.Context(), `INSERT INTO repositories(id,owner_id,name,description,visibility) VALUES($1,$2,$3,$4,$5) RETURNING created_at`, repo.ID, u.ID, repo.Name, repo.Description, repo.Visibility).Scan(&repo.CreatedAt)
+	if in.District != "" {
+		district, allowed, err := a.districtForCreate(r.Context(), tx, in.District, u.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if district == nil {
+			if allowed {
+				fail(w, 404, "not_found", "District not found.")
+			} else {
+				fail(w, 403, "forbidden", "You cannot create a repository in this district.")
+			}
+			return
+		}
+		repo.DistrictID = district.ID
+		repo.District = district.Slug
+	}
+	if repo.Visibility != "public" && repo.Visibility != "private" && !(repo.Visibility == "internal" && repo.DistrictID != "") {
+		fail(w, 422, "validation_failed", "Visibility must be public, private, or internal inside a district.")
+		return
+	}
+	var districtValue any
+	if repo.DistrictID != "" {
+		districtValue = repo.DistrictID
+	}
+	err = tx.QueryRow(r.Context(), `INSERT INTO repositories(id,owner_id,name,description,visibility,district_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at,pushed_at`, repo.ID, u.ID, repo.Name, repo.Description, repo.Visibility, districtValue).Scan(&repo.CreatedAt, &repo.PushedAt)
 	if conflict(err) {
 		fail(w, 409, "repository_exists", "You already have a repository with that name.")
 		return
@@ -188,6 +262,7 @@ func (a *App) createRepository(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	_ = a.noteRepositoryFacts(r.Context(), &repo)
 	if err = a.decorate(r.Context(), &repo, u); err != nil {
 		serverError(w, err)
 		return
@@ -218,7 +293,7 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !repo.CanManage {
-		fail(w, 403, "forbidden", "Only the repository owner can change repository settings.")
+		fail(w, 403, "forbidden", "Repository management permission is required.")
 		return
 	}
 	var in struct {
@@ -229,8 +304,8 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Description = strings.TrimSpace(in.Description)
-	if len(in.Description) > 500 || (in.Visibility != "private" && in.Visibility != "public") {
-		fail(w, 422, "validation_failed", "Use a description up to 500 characters and select public or private visibility.")
+	if len(in.Description) > 500 || (in.Visibility != "public" && in.Visibility != "private" && !(in.Visibility == "internal" && repo.DistrictID != "")) {
+		fail(w, 422, "validation_failed", "Use a description up to 500 characters and select public, private, or internal visibility.")
 		return
 	}
 	if _, err := a.db.Exec(
@@ -486,6 +561,8 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_commit',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
+	_ = a.noteRepositoryFacts(r.Context(), repo)
+	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 
@@ -528,6 +605,8 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_delete',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
+	_ = a.noteRepositoryFacts(r.Context(), repo)
+	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 200, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 func (a *App) commits(w http.ResponseWriter, r *http.Request) {

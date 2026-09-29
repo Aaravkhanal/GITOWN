@@ -143,6 +143,18 @@ func (a *App) searchBuilders(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, result)
 }
 
+func validLanguageFilter(value string) bool {
+	if len(value) > 40 {
+		return false
+	}
+	for _, r := range value {
+		if (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && r != ' ' && r != '+' && r != '#' {
+			return false
+		}
+	}
+	return value != ""
+}
+
 func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	topic := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("topic")))
@@ -159,8 +171,14 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(q) > 100 || (topic != "" && !topicPattern.MatchString(topic)) || offset < 0 || offset > 1000 || (sort != "recent" && sort != "name" && sort != "sparks" && sort != "trending") {
-		fail(w, 422, "validation_failed", "Use a query up to 100 characters, a valid topic, offset from zero to 1000, and recent, name, sparks, or trending sort.")
+	language := strings.TrimSpace(r.URL.Query().Get("language"))
+	beginner := r.URL.Query().Get("beginner")
+	if beginner != "" && beginner != "1" {
+		fail(w, 422, "validation_failed", "Beginner filter must be 1 or omitted.")
+		return
+	}
+	if len(q) > 100 || (topic != "" && !topicPattern.MatchString(topic)) || (language != "" && !validLanguageFilter(language)) || offset < 0 || offset > 1000 || (sort != "recent" && sort != "name" && sort != "sparks" && sort != "trending" && sort != "updated") {
+		fail(w, 422, "validation_failed", "Use a query up to 100 characters, a valid topic, offset from zero to 1000, and recent, updated, name, sparks, or trending sort.")
 		return
 	}
 	order := "r.created_at DESC,r.id DESC"
@@ -170,12 +188,16 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 		order = "(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC,r.created_at DESC,r.id DESC"
 	} else if sort == "trending" {
 		order = "(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.created_at>=now()-interval '30 days') DESC,r.created_at DESC,r.id DESC"
+	} else if sort == "updated" {
+		order = "r.pushed_at DESC,r.id DESC"
 	}
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
 		WHERE r.visibility='public' AND r.deleted_at IS NULL
 		AND ($1='' OR strpos(lower(u.username||'/'||r.name||' '||r.description),lower($1))>0)
 		AND ($2='' OR EXISTS (SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic=$2))
-		ORDER BY `+order+` LIMIT 26 OFFSET $3`, q, topic, offset)
+		AND ($4='' OR lower(r.language)=lower($4))
+		AND (NOT $5 OR EXISTS (SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic='beginner-friendly'))
+		ORDER BY `+order+` LIMIT 26 OFFSET $3`, q, topic, offset, language, beginner == "1")
 	if err != nil {
 		serverError(w, err)
 		return

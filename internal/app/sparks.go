@@ -54,6 +54,15 @@ func (a *App) updateSpark(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if *in.Sparked {
+		var recent int
+		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM audit_events WHERE actor_id=$1 AND action='repository.sparked' AND created_at>now()-interval '1 hour'`, u.ID).Scan(&recent); err != nil {
+			serverError(w, err)
+			return
+		}
+		if recent >= 20 {
+			fail(w, 429, "spark_limited", "Spark at most 20 repositories per hour.")
+			return
+		}
 		_, err = tx.Exec(r.Context(), `INSERT INTO repository_sparks(repository_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, repo.ID, u.ID)
 	} else {
 		_, err = tx.Exec(r.Context(), `DELETE FROM repository_sparks WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID)

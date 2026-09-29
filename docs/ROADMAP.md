@@ -6,9 +6,9 @@ For the user-facing numbered product plan and its exact completion gates, see [P
 
 ## Current product boundary
 
-GITOWN already supports accounts, private/public repositories, role-based collaborators, HTTP Git clone/fetch/push, repository browsing, issues with comments and labels, pull requests with real diffs and race-safe merge commits, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
+GITOWN already supports accounts, private/public/internal repositories, role-based collaborators, HTTP Git clone/fetch/push, a forced-command SSH gateway, basic LFS, repository browsing, issues with planning views, same-repository Unite requests with reviews and Merge Guards, notifications, public discovery, districts and crews, Drops, a crate-registry foundation, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
 
-It remains a development alpha. It is not yet safe for untrusted public hosting.
+It remains a development alpha. It is not yet safe for untrusted public hosting. Several items in the delivery order below are only partly shipped. [PRODUCT_PHASES.md](PRODUCT_PHASES.md) records the open gates.
 
 ## Delivery order
 
