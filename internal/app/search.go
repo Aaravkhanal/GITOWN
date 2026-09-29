@@ -25,6 +25,71 @@ type BuilderSearch struct {
 	HasMore bool            `json:"has_more"`
 }
 
+type WorkResult struct {
+	Kind       string `json:"kind"`
+	Owner      string `json:"owner"`
+	Repository string `json:"repository"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	Preview    string `json:"preview"`
+	State      string `json:"state"`
+}
+
+type WorkSearch struct {
+	Items   []WorkResult `json:"items"`
+	HasMore bool         `json:"has_more"`
+}
+
+func (a *App) searchWork(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var err error
+		offset, err = strconv.Atoi(raw)
+		if err != nil {
+			fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+			return
+		}
+	}
+	if len(q) > 100 || offset < 0 || offset > 1000 {
+		fail(w, 422, "validation_failed", "Use a query up to 100 characters and offset from zero to 1000.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT kind,owner,repository,number,title,left(body,160),state FROM (
+		SELECT 'issue' AS kind,u.username AS owner,r.name AS repository,i.number,i.title,i.body,i.state,i.created_at,i.id::text AS id
+		FROM issues i JOIN repositories r ON r.id=i.repository_id JOIN users u ON u.id=r.owner_id
+		WHERE r.visibility='public' AND r.deleted_at IS NULL
+		UNION ALL
+		SELECT 'unite' AS kind,u.username AS owner,r.name AS repository,p.number,p.title,p.body,p.state,p.created_at,p.id::text AS id
+		FROM pull_requests p JOIN repositories r ON r.id=p.repository_id JOIN users u ON u.id=r.owner_id
+		WHERE r.visibility='public' AND r.deleted_at IS NULL
+	) work WHERE $1='' OR strpos(lower(owner||'/'||repository||' '||title||' '||body),lower($1))>0
+	ORDER BY created_at DESC,id DESC LIMIT 26 OFFSET $2`, q, offset)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	result := WorkSearch{Items: []WorkResult{}}
+	for rows.Next() {
+		var item WorkResult
+		if err = rows.Scan(&item.Kind, &item.Owner, &item.Repository, &item.Number, &item.Title, &item.Preview, &item.State); err != nil {
+			serverError(w, err)
+			return
+		}
+		if len(result.Items) == 25 {
+			result.HasMore = offset < 1000
+			break
+		}
+		result.Items = append(result.Items, item)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, result)
+}
+
 func (a *App) searchBuilders(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	offset := 0
