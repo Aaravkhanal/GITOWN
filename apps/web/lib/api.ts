@@ -107,12 +107,54 @@ export type Issue = {
   iteration?: string;
   estimate?: number | null;
   due_date?: string | null;
+  state_reason?: "" | "completed" | "not_planned" | "duplicate";
+  updated_at?: string;
+  duplicate_of?: number | null;
+  parent?: number | null;
+  milestone?: string | null;
+  labels?: { name: string; color: string }[];
+  assignees?: string[];
+  comments?: number;
+  sub_issues?: { total: number; closed: number };
+};
+export type IssueFormField = {
+  id: string;
+  label: string;
+  type: "text" | "textarea" | "dropdown" | "checkbox";
+  required?: boolean;
+  options?: string[];
 };
 export type IssueTemplate = {
   name: string;
   title: string;
   body: string;
   kind?: "bug" | "feature" | "custom";
+  fields?: IssueFormField[];
+  builtin?: boolean;
+};
+export type SubIssues = {
+  parent: LinkedIssue | null;
+  children: LinkedIssue[];
+  total: number;
+  closed: number;
+};
+export type IssueReference = {
+  kind: "issue" | "pull";
+  owner: string;
+  repository: string;
+  number: number;
+  title: string;
+  state: string;
+};
+export type IssueReferences = {
+  mentions: IssueReference[];
+  referenced_by: IssueReference[];
+};
+export type SavedSearch = {
+  id: string;
+  name: string;
+  query: string;
+  created_at: string;
 };
 export type LinkedIssue = {
   number: number;
@@ -124,17 +166,38 @@ export type IssueDependencies = {
   blocks: LinkedIssue[];
 };
 export type BoardItem = {
-  issue_id: string;
+  kind: "issue" | "pull";
+  item_id: string;
+  issue_id?: string;
+  pull_id?: string;
+  owner: string;
+  repository: string;
   number: number;
   title: string;
-  state: "open" | "closed";
-  status: "todo" | "progress" | "done";
+  state: string;
+  status: string;
   author: string;
   priority: string;
   iteration: string;
   pinned: boolean;
   estimate: number | null;
   due_date: string | null;
+  milestone: string | null;
+  milestone_due: string | null;
+  fields: Record<string, string>;
+};
+export type BoardColumn = { key: string; name: string };
+export type BoardField = {
+  id: string;
+  name: string;
+  kind: "text" | "number" | "date" | "single_select";
+  options: string[];
+  position: number;
+};
+export type BoardSettings = {
+  columns: BoardColumn[];
+  automation: boolean;
+  fields: BoardField[];
 };
 export type Notification = {
   id: number;
@@ -182,6 +245,9 @@ export type IssueComment = {
   body: string;
   author: string;
   created_at: string;
+  updated_at?: string | null;
+  edited?: boolean;
+  editable?: boolean;
 };
 export type IssueAssignees = {
   assigned: Pick<User, "username" | "display_name">[];
@@ -312,6 +378,26 @@ export async function api<T>(
       data?.error?.message || `Request failed (${response.status}).`,
     );
   return data;
+}
+/** Fetches a list endpoint and reads its pagination headers. */
+export async function apiPage<T>(
+  path: string,
+): Promise<{ items: T[]; total: number; counts: Record<string, number> }> {
+  const response = await fetch(`/api/v1${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new Error(
+      data?.error?.message || `Request failed (${response.status}).`,
+    );
+  const count = (name: string) => Number(response.headers.get(name) || 0);
+  return {
+    items: data || [],
+    total: count("X-Total-Count"),
+    counts: { open: count("X-Open-Count"), closed: count("X-Closed-Count") },
+  };
 }
 export function post<T>(path: string, body: unknown) {
   return api<T>(path, { method: "POST", body: JSON.stringify(body) });

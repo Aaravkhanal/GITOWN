@@ -246,9 +246,168 @@ paths:
   /repos/{owner}/{repo}/issues/{number}/planning:
     put:
       summary: Set pin, priority, estimate, due date, iteration, or duplicate
+      description: >
+        Marking an issue as a duplicate closes it with state_reason duplicate
+        and rejects cycles. Clearing the mark reopens an issue that was closed
+        only because it was a duplicate. Requires triage permission.
       parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pinned: { type: boolean }
+                priority:
+                  { type: string, enum: [none, low, medium, high, urgent] }
+                estimate: { type: integer, minimum: 0, maximum: 100 }
+                clear_estimate: { type: boolean }
+                due_date:
+                  { type: string, description: "YYYY-MM-DD, or empty to clear" }
+                iteration: { type: string, maxLength: 40 }
+                duplicate_of: { type: integer, minimum: 1 }
+                clear_duplicate: { type: boolean }
       responses:
         "200": { description: Planning saved }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/sub-issues:
+    get:
+      security: []
+      summary: Show an issue's parent and its sub-issues with progress
+      responses:
+        "200":
+          description: Parent and children
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubIssues" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/parent:
+    put:
+      summary: Nest an issue under a parent in the same repository, or detach it
+      description: Cycles and nesting deeper than eight levels are rejected. Requires triage permission.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parent: { type: [integer, "null"], minimum: 1 }
+      responses:
+        "200":
+          description: Updated hierarchy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubIssues" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/references:
+    get:
+      security: []
+      summary: List the issues this issue mentions and what mentions it
+      description: >
+        References are recorded from issue, unite request, and comment bodies
+        that contain #N or owner/repository#N. Items in repositories the viewer
+        cannot read are omitted.
+      responses:
+        "200":
+          description: Mentions and back-references
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueReferences" }
+  /repos/{owner}/{repo}/issues/{number}/transfer:
+    post:
+      summary: Move an issue to another repository where you can triage
+      description: >
+        Requires write permission on the source. Labels, milestone, board
+        state, links, and dependencies stay behind; assignees without access to
+        the destination are removed. The old number reports issue_transferred.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repository]
+              properties:
+                repository:
+                  {
+                    type: string,
+                    description: "owner/name, or a name owned by the same account",
+                  }
+      responses:
+        "200":
+          description: New location
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: string }
+                  repository: { type: string }
+                  number: { type: integer }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/comments/{id}:
+    patch:
+      summary: Edit your own issue comment; the previous body is kept as history
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Comment updated }
+        "403": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}/comments/{id}/history:
+    get:
+      security: []
+      summary: List earlier versions of an edited issue comment
+      responses:
+        "200": { description: Revisions, oldest first }
+        "404": { $ref: "#/components/responses/Error" }
+  /user/saved-searches:
+    get:
+      summary: List your saved searches
+      responses:
+        "200":
+          description: Up to 20 saved searches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SavedSearch" }
+    post:
+      summary: Save a search query
+      description: The web app stores issue filters as repo=owner/name followed by the issue list query string.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, query]
+              properties:
+                name: { type: string, maxLength: 80 }
+                query: { type: string, maxLength: 200 }
+      responses:
+        "201":
+          description: Saved search
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedSearch" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /user/saved-searches/{id}:
+    delete:
+      summary: Delete one of your saved searches
+      parameters:
+        - { $ref: "#/components/parameters/Origin" }
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
   /search/repositories:
     get:
       security: []
@@ -1090,6 +1249,11 @@ paths:
     get:
       security: []
       summary: Read ordered issue templates on a visible repository
+      parameters:
+        - name: include_defaults
+          in: query
+          description: Also return the built-in Bug report and Feature request forms for kinds the repository has not defined.
+          schema: { type: boolean }
       responses:
         "200":
           description: Up to ten issue templates
@@ -1131,33 +1295,74 @@ paths:
       ]
     get:
       security: []
-      summary: List up to 100 issues visible to repository readers
+      summary: List and filter issues with pagination
+      parameters:
+        - {
+            name: state,
+            in: query,
+            schema: { type: string, enum: [open, closed, all] },
+          }
+        - name: label
+          in: query
+          description: Repeat up to five times; issues must carry every label.
+          schema: { type: array, items: { type: string }, maxItems: 5 }
+          style: form
+          explode: true
+        - {
+            name: assignee,
+            in: query,
+            schema: { type: string },
+            description: A username, or none,
+          }
+        - { name: author, in: query, schema: { type: string } }
+        - {
+            name: milestone,
+            in: query,
+            schema: { type: string },
+            description: A milestone title, or none,
+          }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - {
+            name: sort,
+            in: query,
+            schema: { type: string, enum: [newest, oldest, updated] },
+          }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: per_page,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 30 },
+          }
       responses:
         "200":
-          description: Issues, newest first
+          description: One page of issues; pinned issues first
+          headers:
+            X-Total-Count:
+              {
+                schema: { type: integer },
+                description: Issues matching every filter,
+              }
+            X-Open-Count:
+              {
+                schema: { type: integer },
+                description: Open issues matching the non-state filters,
+              }
+            X-Closed-Count:
+              {
+                schema: { type: integer },
+                description: Closed issues matching the non-state filters,
+              }
           content:
             application/json:
               schema:
                 { type: array, items: { $ref: "#/components/schemas/Issue" } }
+        "422": { $ref: "#/components/responses/Error" }
     post:
-      summary: Create an issue with repository triage permission
-      parameters: [{ $ref: "#/components/parameters/Origin" }]
-      requestBody: { $ref: "#/components/requestBodies/Content" }
-      responses:
-        "201":
-          description: Issue created
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Issue" }
-  /repos/{owner}/{repo}/issues/{number}:
-    parameters:
-      [
-        { $ref: "#/components/parameters/Owner" },
-        { $ref: "#/components/parameters/Repo" },
-        { $ref: "#/components/parameters/Number" },
-      ]
-    patch:
-      summary: Close or reopen an issue with repository triage permission
+      summary: Open an issue as any signed-in user who can read the repository
+      description: >
+        Setting parent requires triage permission. When template names a form
+        template, fields are validated and rendered into the body as Markdown
+        sections, and body becomes the Additional context section.
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1165,18 +1370,72 @@ paths:
           application/json:
             schema:
               type: object
-              required: [state]
+              required: [title]
               properties:
-                state: { type: string, enum: [open, closed] }
+                title: { type: string, maxLength: 200 }
+                body: { type: string, maxLength: 20000 }
+                template: { type: string }
+                fields:
+                  type: object
+                  additionalProperties: { type: string }
+                parent: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Issue created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/issues/{number}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { $ref: "#/components/parameters/Number" },
+      ]
+    get:
+      security: []
+      summary: Read one issue
       responses:
         "200":
-          description: Updated state
+          description: The issue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+        "404":
+          description: Not found, or issue_transferred with the new location in the message
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    patch:
+      summary: Edit, close, or reopen an issue
+      description: Triage users can change any issue; authors can change their own. Closing as completed requires closed blockers.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: { type: string, enum: [open, closed] }
+                state_reason: { type: string, enum: [completed, not_planned] }
+                title: { type: string, maxLength: 200 }
+                body: { type: string, maxLength: 20000 }
+      responses:
+        "200":
+          description: Updated issue fields
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   state: { type: string, enum: [open, closed] }
+                  title: { type: string }
+                  body: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues/{number}/dependencies:
     parameters:
       [
@@ -1415,22 +1674,201 @@ paths:
       - { $ref: "#/components/parameters/Repo" }
     get:
       security: []
-      summary: List up to 100 issues on the repository planning board
+      summary: List issues and added unite requests on the planning board
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: per_page,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 100 },
+          }
       responses:
         "200":
-          description: Board items, newest issue first
+          description: Board items; pinned issues first
+          headers:
+            X-Total-Count: { schema: { type: integer } }
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/BoardItem" }
+  /repos/{owner}/{repo}/board/settings:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    get:
+      security: []
+      summary: Read board columns, automation, and custom fields
+      responses:
+        "200":
+          description: Board settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardSettings" }
+    put:
+      summary: Replace the board columns and automation setting
+      description: >
+        Use 2 to 10 columns with distinct keys; the last column must have key
+        done. Items in removed columns move to the first column. Requires write
+        permission.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [columns, automation]
+              properties:
+                columns:
+                  type: array
+                  minItems: 2
+                  maxItems: 10
+                  items: { $ref: "#/components/schemas/BoardColumn" }
+                automation: { type: boolean }
+      responses:
+        "200":
+          description: Saved settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardSettings" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/board/fields:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    post:
+      summary: Add a custom board field (up to 20)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kind]
+              properties:
+                name: { type: string, maxLength: 40 }
+                kind:
+                  { type: string, enum: [text, number, date, single_select] }
+                options: { type: array, items: { type: string }, maxItems: 20 }
+      responses:
+        "201":
+          description: Field created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardField" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/board/fields/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { name: id, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: Rename a field or change its options; values for removed options are cleared
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200":
+          description: Updated field
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BoardField" }
+    delete:
+      summary: Delete a custom field and its values
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/board/values:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    put:
+      summary: Set or clear a custom field value on an issue or unite request
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, number, field_id, value]
+              properties:
+                kind: { type: string, enum: [issue, pull] }
+                number: { type: integer }
+                field_id: { type: string }
+                value: { type: string, description: Empty clears the value }
+      responses:
+        "200": { description: Saved value }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/board:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - { $ref: "#/components/parameters/Number" }
+    put:
+      summary: Add a unite request to the board or move it; its state never changes
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  {
+                    type: string,
+                    description: A column key; empty uses the first column,
+                  }
+      responses:
+        "200": { description: Saved status }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove a unite request from the board
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/board:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      security: []
+      summary: Combined board for every district repository the viewer can read
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: per_page,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200 },
+          }
+      responses:
+        "200":
+          description: Merged columns and board items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  columns:
+                    type: array
+                    items: { $ref: "#/components/schemas/BoardColumn" }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BoardItem" }
+                  total: { type: integer }
   /repos/{owner}/{repo}/issues/{number}/board:
     parameters:
       - { $ref: "#/components/parameters/Owner" }
       - { $ref: "#/components/parameters/Repo" }
       - { $ref: "#/components/parameters/Number" }
     put:
-      summary: Move an issue between planning columns; Done closes it
+      summary: Move an issue between board columns; the done column closes it
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1440,7 +1878,7 @@ paths:
               type: object
               required: [status]
               properties:
-                status: { type: string, enum: [todo, progress, done] }
+                status: { type: string, description: A column key }
       responses:
         "200":
           description: Saved board status and issue state
@@ -1449,7 +1887,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  status: { type: string, enum: [todo, progress, done] }
+                  status: { type: string }
                   state: { type: string, enum: [open, closed] }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -2091,6 +2529,15 @@ components:
         repositories:
           type: array
           items: { $ref: "#/components/schemas/PublicRepository" }
+    IssueFormField:
+      type: object
+      required: [id, label, type]
+      properties:
+        id: { type: string, pattern: "^[a-z][a-z0-9_-]{0,39}$" }
+        label: { type: string, maxLength: 100 }
+        type: { type: string, enum: [text, textarea, dropdown, checkbox] }
+        required: { type: boolean }
+        options: { type: array, items: { type: string }, maxItems: 20 }
     IssueTemplate:
       type: object
       required: [name, title, body]
@@ -2099,6 +2546,11 @@ components:
         title: { type: string, maxLength: 200 }
         body: { type: string, maxLength: 10000 }
         kind: { type: string, enum: [bug, feature, custom] }
+        fields:
+          type: array
+          maxItems: 20
+          items: { $ref: "#/components/schemas/IssueFormField" }
+        builtin: { type: boolean, readOnly: true }
     Issue:
       type: object
       properties:
@@ -2107,7 +2559,69 @@ components:
         title: { type: string }
         body: { type: string }
         state: { type: string, enum: [open, closed] }
+        state_reason:
+          { type: string, enum: ["", completed, not_planned, duplicate] }
         author: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        pinned: { type: boolean }
+        priority: { type: string }
+        iteration: { type: string }
+        estimate: { type: [integer, "null"] }
+        due_date: { type: [string, "null"], format: date-time }
+        duplicate_of: { type: [integer, "null"] }
+        parent: { type: [integer, "null"] }
+        milestone: { type: [string, "null"] }
+        labels:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              color: { type: string }
+        assignees: { type: array, items: { type: string } }
+        comments: { type: integer }
+        sub_issues:
+          type: object
+          properties:
+            total: { type: integer }
+            closed: { type: integer }
+    SubIssues:
+      type: object
+      properties:
+        parent:
+          oneOf:
+            - { $ref: "#/components/schemas/LinkedIssue" }
+            - { type: "null" }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/LinkedIssue" }
+        total: { type: integer }
+        closed: { type: integer }
+    IssueReference:
+      type: object
+      properties:
+        kind: { type: string, enum: [issue, pull] }
+        owner: { type: string }
+        repository: { type: string }
+        number: { type: integer }
+        title: { type: string }
+        state: { type: string }
+    IssueReferences:
+      type: object
+      properties:
+        mentions:
+          type: array
+          items: { $ref: "#/components/schemas/IssueReference" }
+        referenced_by:
+          type: array
+          items: { $ref: "#/components/schemas/IssueReference" }
+    SavedSearch:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        query: { type: string }
         created_at: { type: string, format: date-time }
     IssueComment:
       type: object
@@ -2116,6 +2630,13 @@ components:
         body: { type: string }
         author: { type: string }
         created_at: { type: string, format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+        edited: { type: boolean }
+        editable:
+          {
+            type: boolean,
+            description: Whether the signed-in viewer can edit this comment,
+          }
     PublicUser:
       type: object
       properties:
@@ -2211,12 +2732,52 @@ components:
     BoardItem:
       type: object
       properties:
+        kind: { type: string, enum: [issue, pull] }
+        item_id: { type: string, format: uuid }
         issue_id: { type: string, format: uuid }
+        pull_id: { type: string, format: uuid }
+        owner: { type: string }
+        repository: { type: string }
         number: { type: integer }
         title: { type: string }
-        state: { type: string, enum: [open, closed] }
-        status: { type: string, enum: [todo, progress, done] }
+        state: { type: string }
+        status: { type: string, description: A column key }
         author: { type: string }
+        priority: { type: string }
+        iteration: { type: string }
+        pinned: { type: boolean }
+        estimate: { type: [integer, "null"] }
+        due_date: { type: [string, "null"], format: date-time }
+        milestone: { type: [string, "null"] }
+        milestone_due: { type: [string, "null"], format: date-time }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+          description: Custom field values keyed by field ID
+    BoardColumn:
+      type: object
+      required: [key, name]
+      properties:
+        key: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,29}$" }
+        name: { type: string, maxLength: 30 }
+    BoardField:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [text, number, date, single_select] }
+        options: { type: array, items: { type: string } }
+        position: { type: integer }
+    BoardSettings:
+      type: object
+      properties:
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/BoardColumn" }
+        automation: { type: boolean }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/BoardField" }
     Label:
       type: object
       properties:
