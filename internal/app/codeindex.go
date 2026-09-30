@@ -15,7 +15,7 @@ func (a *App) indexRepositoryCode(ctx context.Context, repo *Repository) error {
 	if _, err := a.db.Exec(ctx, `DELETE FROM code_documents WHERE repository_id=$1`, repo.ID); err != nil {
 		return err
 	}
-	if repo.Visibility != "public" {
+	if repo.Visibility == "private" {
 		return nil
 	}
 	branch := repo.DefaultBranch
@@ -80,10 +80,10 @@ func (a *App) searchCode(w http.ResponseWriter, r *http.Request) {
 		FROM code_documents c
 		JOIN repositories r ON r.id=c.repository_id
 		JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL
+		WHERE `+visibleRepoPredicate(3)+` AND r.deleted_at IS NULL
 		AND (to_tsvector('simple', c.content) @@ plainto_tsquery('simple', $1) OR c.content ILIKE $2 ESCAPE '\')
 		ORDER BY 6 DESC, r.pushed_at DESC, c.path, c.line
-		LIMIT 40`, q, "%"+like+"%")
+		LIMIT 40`, q, "%"+like+"%", a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -106,12 +106,15 @@ func (a *App) searchCode(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]any{"items": matches, "limited": len(matches) == 40, "ranked": true})
 		return
 	}
-	matches = a.grepPublicCode(r, q)
+	matches = a.grepVisibleCode(r, q)
 	respond(w, 200, map[string]any{"items": matches, "limited": len(matches) == 40, "ranked": false})
 }
 
-func (a *App) grepPublicCode(r *http.Request, q string) []CodeMatch {
-	rows, err := a.db.Query(r.Context(), `SELECT r.id,u.username,r.name,r.default_branch FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC,r.id DESC LIMIT 12`)
+// grepVisibleCode falls back to a live git grep, across public repositories
+// and internal repositories the caller can see, when the index has no hit
+// (e.g. a repository pushed since its last index rebuild).
+func (a *App) grepVisibleCode(r *http.Request, q string) []CodeMatch {
+	rows, err := a.db.Query(r.Context(), `SELECT r.id,u.username,r.name,r.default_branch FROM repositories r JOIN users u ON u.id=r.owner_id WHERE `+visibleRepoPredicate(1)+` AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC,r.id DESC LIMIT 12`, a.viewerID(r))
 	if err != nil {
 		return []CodeMatch{}
 	}

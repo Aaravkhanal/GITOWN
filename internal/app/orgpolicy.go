@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,6 +14,26 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/jackc/pgx/v5"
 )
+
+// visibleRepoPredicate returns a SQL boolean expression (referencing table
+// alias "r") that admits public repositories and, for a signed-in viewer,
+// internal repositories owned by a district that viewer belongs to as owner
+// or member. This is what "internal" is documented to mean: visible to the
+// owning district's members, not the whole public. placeholder is the
+// query's viewer-id parameter number (bound to a.user(r).ID, or "" for an
+// anonymous caller). Private repositories never match this predicate; only
+// the public/internal choice is affected.
+func visibleRepoPredicate(placeholder int) string {
+	return fmt.Sprintf(`(r.visibility='public' OR (r.visibility='internal' AND $%d<>'' AND EXISTS (SELECT 1 FROM districts vd WHERE vd.id=r.district_id AND (vd.owner_id::text=$%d OR EXISTS (SELECT 1 FROM district_members vdm WHERE vdm.district_id=vd.id AND vdm.user_id::text=$%d)))))`, placeholder, placeholder, placeholder)
+}
+
+// viewerID returns the signed-in user's id, or "" for an anonymous request.
+func (a *App) viewerID(r *http.Request) string {
+	if u := a.user(r); u != nil {
+		return u.ID
+	}
+	return ""
+}
 
 var errDistrictPolicy = errors.New("district policy rejected the change")
 
@@ -83,7 +104,7 @@ func (a *App) topicCatalog(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT t.topic, count(*)::int FROM repository_topics t JOIN repositories r ON r.id=t.repository_id WHERE r.visibility='public' AND r.deleted_at IS NULL GROUP BY t.topic ORDER BY count(*) DESC, t.topic LIMIT 51 OFFSET $1`, offset)
+	rows, err := a.db.Query(r.Context(), `SELECT t.topic, count(*)::int FROM repository_topics t JOIN repositories r ON r.id=t.repository_id WHERE `+visibleRepoPredicate(2)+` AND r.deleted_at IS NULL GROUP BY t.topic ORDER BY count(*) DESC, t.topic LIMIT 51 OFFSET $1`, offset, a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -121,7 +142,7 @@ func (a *App) topicPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repository_topics t JOIN repositories r ON r.id=t.repository_id JOIN users u ON u.id=r.owner_id WHERE t.topic=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC, r.id DESC LIMIT 31 OFFSET $2`, topic, offset)
+	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repository_topics t JOIN repositories r ON r.id=t.repository_id JOIN users u ON u.id=r.owner_id WHERE t.topic=$1 AND `+visibleRepoPredicate(3)+` AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC, r.id DESC LIMIT 31 OFFSET $2`, topic, offset, a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return

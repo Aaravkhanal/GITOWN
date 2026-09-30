@@ -61,13 +61,13 @@ func (a *App) searchWork(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `SELECT kind,owner,repository,number,title,left(body,160),state FROM (
 		SELECT 'issue' AS kind,u.username AS owner,r.name AS repository,i.number,i.title,i.body,i.state,i.created_at,i.id::text AS id
 		FROM issues i JOIN repositories r ON r.id=i.repository_id JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL
+		WHERE `+visibleRepoPredicate(3)+` AND r.deleted_at IS NULL
 		UNION ALL
 		SELECT 'unite' AS kind,u.username AS owner,r.name AS repository,p.number,p.title,p.body,p.state,p.created_at,p.id::text AS id
 		FROM pull_requests p JOIN repositories r ON r.id=p.repository_id JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL
+		WHERE `+visibleRepoPredicate(3)+` AND r.deleted_at IS NULL
 	) work WHERE $1='' OR strpos(lower(owner||'/'||repository||' '||title||' '||body),lower($1))>0
-	ORDER BY created_at DESC,id DESC LIMIT 26 OFFSET $2`, q, offset)
+	ORDER BY created_at DESC,id DESC LIMIT 26 OFFSET $2`, q, offset, a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -200,12 +200,12 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 		order = "r.pushed_at DESC,r.id DESC"
 	}
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL
+		WHERE `+visibleRepoPredicate(6)+` AND r.deleted_at IS NULL
 		AND ($1='' OR strpos(lower(u.username||'/'||r.name||' '||r.description),lower($1))>0)
 		AND ($2='' OR EXISTS (SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic=$2))
 		AND ($4='' OR lower(r.language)=lower($4))
 		AND (NOT $5 OR EXISTS (SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic='beginner-friendly'))
-		ORDER BY `+order+` LIMIT 26 OFFSET $3`, q, topic, offset, language, beginner == "1")
+		ORDER BY `+order+` LIMIT 26 OFFSET $3`, q, topic, offset, language, beginner == "1", a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return

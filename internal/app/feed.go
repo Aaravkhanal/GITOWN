@@ -2,6 +2,7 @@ package app
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -38,8 +39,8 @@ func (a *App) feed(w http.ResponseWriter, r *http.Request) {
 	SELECT e.kind,actor.username,owner.username,repo.name,e.number,e.title,e.created_at
 	FROM events e JOIN repositories repo ON repo.id=e.repository_id
 	JOIN users actor ON actor.id=e.actor_id JOIN users owner ON owner.id=repo.owner_id
-	WHERE repo.visibility='public' AND repo.deleted_at IS NULL
-	ORDER BY e.created_at DESC LIMIT 100`, u.ID)
+	WHERE `+strings.ReplaceAll(visibleRepoPredicate(2), "r.", "repo.")+` AND repo.deleted_at IS NULL
+	ORDER BY e.created_at DESC LIMIT 100`, u.ID, u.ID)
 	if err != nil {
 		serverError(w, err)
 		return

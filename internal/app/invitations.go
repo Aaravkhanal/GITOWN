@@ -236,7 +236,7 @@ func (a *App) userInvitations(w http.ResponseWriter, r *http.Request) {
 
 type pendingInvitation struct {
 	id, repoID, districtID, ownerID, role, status, username string
-	expired                                                  bool
+	expired                                                 bool
 }
 
 func lockInvitation(ctx context.Context, tx pgx.Tx, where string, arg string) (pendingInvitation, error) {

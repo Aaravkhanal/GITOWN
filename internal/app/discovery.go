@@ -70,8 +70,8 @@ func (a *App) searchTasks(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `SELECT u.username,r.name,i.number,i.title,l.name FROM issues i
 		JOIN repositories r ON r.id=i.repository_id JOIN users u ON u.id=r.owner_id
 		JOIN issue_labels il ON il.issue_id=i.id JOIN labels l ON l.id=il.label_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL AND i.state='open' AND lower(l.name)=ANY($1)
-		ORDER BY i.created_at DESC,i.id DESC LIMIT 26 OFFSET $2`, names, offset)
+		WHERE `+visibleRepoPredicate(3)+` AND r.deleted_at IS NULL AND i.state='open' AND lower(l.name)=ANY($1)
+		ORDER BY i.created_at DESC,i.id DESC LIMIT 26 OFFSET $2`, names, offset, a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -110,8 +110,12 @@ func (a *App) recommendations(w http.ResponseWriter, r *http.Request) {
 	// viewer follows. Followed-owner repositories are ranked first (that is
 	// the more direct signal), then both groups fall back to spark count and
 	// recency.
+	// visibleRepoPredicate gets its own placeholder ($2, bound to the same
+	// viewer id as $1): mixing it with $1 would force one placeholder to
+	// resolve to two incompatible SQL types, since $1 is a uuid everywhere
+	// else in this query but the predicate also compares it to ''.
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL AND r.owner_id<>$1
+		WHERE `+visibleRepoPredicate(2)+` AND r.deleted_at IS NULL AND r.owner_id<>$1
 		AND NOT EXISTS (SELECT 1 FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.user_id=$1)
 		AND (
 			EXISTS (
@@ -124,7 +128,7 @@ func (a *App) recommendations(w http.ResponseWriter, r *http.Request) {
 		)
 		ORDER BY
 			(CASE WHEN EXISTS (SELECT 1 FROM user_follows f WHERE f.follower_id=$1 AND f.followed_id=r.owner_id) THEN 1 ELSE 0 END) DESC,
-			(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC, r.pushed_at DESC LIMIT 12`, u.ID)
+			(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC, r.pushed_at DESC LIMIT 12`, u.ID, u.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -143,8 +147,8 @@ func (a *App) recommendations(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) writeTrending(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
-		WHERE r.visibility='public' AND r.deleted_at IS NULL
-		ORDER BY (SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.created_at>=now()-interval '30 days') DESC, r.pushed_at DESC LIMIT 12`)
+		WHERE `+visibleRepoPredicate(1)+` AND r.deleted_at IS NULL
+		ORDER BY (SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.created_at>=now()-interval '30 days') DESC, r.pushed_at DESC LIMIT 12`, a.viewerID(r))
 	if err != nil {
 		serverError(w, err)
 		return
