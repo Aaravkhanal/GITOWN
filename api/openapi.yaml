@@ -10,10 +10,16 @@ info:
     package:read or package:write authenticate crate routes with
     Authorization: Bearer. A package token cannot push Git. Session cookies
     still authenticate the JSON API. The SSH gateway is a forced command, not
-    an embedded server. Drop provenance and tag signature flags are not
-    trust decisions. Crate publishing uses a pattern check, not malware scanning.
-    Most lists return bounded arrays; public repository and builder search use
-    offset pagination with 25-item pages.
+    an embedded server, and it trusts the fingerprint argument. Drop provenance
+    is verified only when the publisher supplies an SSH signature that matches
+    a signing key they registered. It is not Sigstore. Tag listings still report
+    only whether a signature block is present. Crate publishing, unscoped npm
+    routes at /npm, and OCI blob and manifest routes at /v2 use a fixed pattern
+    list, not a malware engine. Those routes are not a full npm registry or a
+    container registry. Code search ranks a capped index of public default-branch
+    text and falls back to git grep. District invoices record operator-entered
+    amounts and do not charge a card. Most lists return bounded arrays; public
+    repository and builder search use offset pagination with 25-item pages.
 servers:
   - url: /api/v1
 security:
@@ -59,7 +65,7 @@ paths:
   /search/code:
     get:
       security: []
-      summary: Fixed-string search of recent public repository files
+      summary: Ranked search of capped public text, with a git-grep fallback
       parameters:
         - { name: q, in: query, schema: { type: string, minLength: 2, maxLength: 80 } }
       responses:
@@ -90,7 +96,7 @@ paths:
         "201": { description: Created district }
   /crates:
     get:
-      summary: List visible crate records. Not an npm registry.
+      summary: List crate records. Unscoped npm and OCI routes are outside this JSON API.
       responses:
         "200": { description: Crate records }
     post:
@@ -108,6 +114,92 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "201": { description: Key created }
+  /topics:
+    get:
+      security: []
+      summary: Public topic catalog
+      responses:
+        "200": { description: Up to 50 topics with repository counts }
+  /topics/{topic}:
+    get:
+      security: []
+      summary: Public repositories that carry one topic
+      parameters:
+        - { name: topic, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Up to 30 public repositories }
+        "404": { $ref: "#/components/responses/Error" }
+  /users/{username}/contributions:
+    get:
+      security: []
+      summary: Public activity counts for the last 180 UTC days
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Daily counts of public issues, comments, Sparks, and merged Unite requests }
+        "404": { $ref: "#/components/responses/Error" }
+  /collections/{owner}/{slug}:
+    patch:
+      summary: Feature a collection. Requires the caller username in GITOWN_OPERATORS.
+      parameters:
+        - { name: owner, in: path, required: true, schema: { type: string } }
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Featured flag saved }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/usage:
+    get:
+      summary: District usage counts for an owner or admin. charges is false.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Repository, storage, member, secret, and open-invoice counts }
+  /districts/{slug}/invoices:
+    get:
+      summary: Invoice ledger for a district owner or admin. Does not charge a card.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Invoices and charges false }
+    post:
+      summary: Record an invoice. Requires GITOWN_OPERATORS. Does not charge a card.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "201": { description: Open invoice recorded }
+        "403": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/invoices/{id}/pay:
+    post:
+      summary: Mark an open invoice paid. Requires GITOWN_OPERATORS. Does not charge a card.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Invoice marked paid }
+        "403": { $ref: "#/components/responses/Error" }
+  /user/signing-keys:
+    get:
+      summary: List SSH signing keys registered by the signed-in account
+      responses:
+        "200": { description: Signing key titles and fingerprints }
+    post:
+      summary: Register an SSH public key for drop provenance verification
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Signing key created }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/signing-keys/{id}:
+    delete:
+      summary: Remove one SSH signing key
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Signing key removed }
   /user/invitations:
     get:
       summary: List invitations addressed to the signed-in account

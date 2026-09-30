@@ -1,9 +1,7 @@
 package app
 
 import (
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -230,12 +228,15 @@ func (a *App) deleteCrate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) publishCrateVersion(w http.ResponseWriter, r *http.Request) {
 	u := a.user(r)
-	crateID, ownerID, name, _, _, retention, ok := a.loadCrate(w, r, true)
+	crateID, _, name, _, _, retention, ok := a.loadCrate(w, r, true)
 	if !ok {
 		return
 	}
 	if u == nil {
 		u = a.packageUser(w, r, true)
+		if u == nil {
+			return
+		}
 	}
 	var in struct {
 		Version       string `json:"version"`
@@ -252,86 +253,11 @@ func (a *App) publishCrateVersion(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Provide a version, a JSON object of metadata, and a base64 file up to 512 KB.")
 		return
 	}
-	if containsSecretMarker(metadata) || containsSecretMarker(string(content)) {
-		fail(w, 422, "secret_detected", "The package payload matches a private-key header or a known token prefix. This is a pattern check, not malware scanning.")
+	digest, status, code, message := a.writeCrateVersion(r, u.ID, crateID, name, in.Version, metadata, content, retention)
+	if status != 201 {
+		fail(w, status, code, message)
 		return
 	}
-	if !safeObjectID(crateID) {
-		serverError(w, errors.New("invalid crate id"))
-		return
-	}
-	versionID := auth.ID()
-	sum := sha256.Sum256(content)
-	digest := hex.EncodeToString(sum[:])
-	path := filepath.Join(a.extraRoot(), "crates", versionID)
-	if err := writePrivateFile(path, content); err != nil {
-		serverError(w, err)
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		_ = os.Remove(path)
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	_, err = tx.Exec(r.Context(), `INSERT INTO crate_versions(id,crate_id,version,metadata,sha256,size_bytes) VALUES($1,$2,$3,$4,$5,$6)`, versionID, crateID, in.Version, metadata, digest, len(content))
-	if conflict(err) {
-		_ = os.Remove(path)
-		fail(w, 409, "version_exists", "That version is already published.")
-		return
-	}
-	if err != nil {
-		_ = os.Remove(path)
-		serverError(w, err)
-		return
-	}
-	rows, err := tx.Query(r.Context(), `SELECT id::text FROM crate_versions WHERE crate_id=$1 AND id<>$2 ORDER BY created_at DESC OFFSET $3`, crateID, versionID, retention-1)
-	if err != nil {
-		_ = os.Remove(path)
-		serverError(w, err)
-		return
-	}
-	var stale []string
-	for rows.Next() {
-		var staleID string
-		if err = rows.Scan(&staleID); err != nil {
-			rows.Close()
-			_ = os.Remove(path)
-			serverError(w, err)
-			return
-		}
-		stale = append(stale, staleID)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		_ = os.Remove(path)
-		serverError(w, err)
-		return
-	}
-	for _, staleID := range stale {
-		if _, err = tx.Exec(r.Context(), `DELETE FROM crate_versions WHERE id=$1`, staleID); err != nil {
-			_ = os.Remove(path)
-			serverError(w, err)
-			return
-		}
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		_ = os.Remove(path)
-		serverError(w, err)
-		return
-	}
-	for _, staleID := range stale {
-		if safeObjectID(staleID) {
-			_ = os.Remove(filepath.Join(a.extraRoot(), "crates", staleID))
-		}
-	}
-	actor := ownerID
-	if u != nil {
-		actor = u.ID
-	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'crate.published',$2)`, actor, "crate/"+name+"@"+in.Version)
 	respond(w, 201, map[string]any{"name": name, "version": in.Version, "sha256": digest, "size_bytes": len(content)})
 }
 

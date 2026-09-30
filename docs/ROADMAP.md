@@ -6,9 +6,9 @@ For the user-facing numbered product plan and its exact completion gates, see [P
 
 ## Current product boundary
 
-GITOWN already supports accounts, private/public/internal repositories, role-based collaborators, HTTP Git clone/fetch/push, a forced-command SSH gateway, basic LFS, repository browsing, issues with planning views, same-repository Unite requests with reviews and Merge Guards, notifications, public discovery, districts and crews, Drops, a crate-registry foundation, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
+GITOWN already supports accounts, private/public/internal repositories, role-based collaborators, HTTP Git clone/fetch/push, a forced-command SSH gateway, Git LFS batch transfer and path locks, repository browsing, issues with planning views, same-repository Unite requests with reviews and Merge Guards, notifications, public discovery, districts and crews, Drops, crate records with an unscoped npm subset and an OCI blob and manifest subset, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
 
-It remains a development alpha. It is not yet safe for untrusted public hosting. Several items in the delivery order below are only partly shipped. [PRODUCT_PHASES.md](PRODUCT_PHASES.md) records the open gates.
+It remains a development alpha. It is not yet safe for untrusted public hosting. Product phases 6–9 are complete for their in-scope list, with the boundaries in [PRODUCT_PHASES.md](PRODUCT_PHASES.md): capped code search, an invoice ledger that does not charge a card, a forced-command SSH gateway, SSH-key provenance, an unscoped npm subset, an OCI blob and manifest subset, and a fixed pattern list. SAML/OIDC, IP restrictions, an embedded sshd, Sigstore, card charging, and a full npm or container registry stay later. Phases 1–5 and the delivery order below still have open gates.
 
 ## Delivery order
 

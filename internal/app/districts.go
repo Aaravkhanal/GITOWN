@@ -20,17 +20,19 @@ import (
 )
 
 type District struct {
-	ID             string    `json:"id"`
-	Slug           string    `json:"slug"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Visibility     string    `json:"visibility"`
-	RepoCreation   string    `json:"repo_creation"`
-	BasePermission string    `json:"base_permission"`
-	OwnerID        string    `json:"-"`
-	Owner          string    `json:"owner"`
-	Role           string    `json:"role,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID                        string    `json:"id"`
+	Slug                      string    `json:"slug"`
+	Name                      string    `json:"name"`
+	Description               string    `json:"description"`
+	Visibility                string    `json:"visibility"`
+	RepoCreation              string    `json:"repo_creation"`
+	BasePermission            string    `json:"base_permission"`
+	AllowPublic               bool      `json:"allow_public"`
+	AllowOutsideCollaborators bool      `json:"allow_outside_collaborators"`
+	OwnerID                   string    `json:"-"`
+	Owner                     string    `json:"owner"`
+	Role                      string    `json:"role,omitempty"`
+	CreatedAt                 time.Time `json:"created_at"`
 }
 
 var secretNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$`)
@@ -77,7 +79,7 @@ func districtCreateAllowed(userID string, d District, member string) bool {
 func (a *App) presentDistrict(ctx context.Context, slugName, userID string) (District, error) {
 	var d District
 	var member string
-	err := a.db.QueryRow(ctx, `SELECT d.id::text,d.slug,d.name,d.description,d.visibility,d.repo_creation,d.base_permission,d.owner_id::text,u.username,d.created_at,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$2),'') FROM districts d JOIN users u ON u.id=d.owner_id WHERE d.slug=$1`, slugName, userID).Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Visibility, &d.RepoCreation, &d.BasePermission, &d.OwnerID, &d.Owner, &d.CreatedAt, &member)
+	err := a.db.QueryRow(ctx, `SELECT d.id::text,d.slug,d.name,d.description,d.visibility,d.repo_creation,d.base_permission,d.allow_public,d.allow_outside_collaborators,d.owner_id::text,u.username,d.created_at,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$2),'') FROM districts d JOIN users u ON u.id=d.owner_id WHERE d.slug=$1`, slugName, userID).Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Visibility, &d.RepoCreation, &d.BasePermission, &d.AllowPublic, &d.AllowOutsideCollaborators, &d.OwnerID, &d.Owner, &d.CreatedAt, &member)
 	if err != nil {
 		return District{}, err
 	}
@@ -119,7 +121,7 @@ func (a *App) districts(w http.ResponseWriter, r *http.Request) {
 	if u := a.user(r); u != nil {
 		userID = u.ID
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT d.id::text,d.slug,d.name,d.description,d.visibility,d.repo_creation,d.base_permission,d.owner_id::text,u.username,d.created_at,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$1),'') FROM districts d JOIN users u ON u.id=d.owner_id WHERE d.visibility='public' OR ($1<>'' AND (d.owner_id::text=$1 OR EXISTS (SELECT 1 FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$1))) ORDER BY d.created_at DESC LIMIT 50`, userID)
+	rows, err := a.db.Query(r.Context(), `SELECT d.id::text,d.slug,d.name,d.description,d.visibility,d.repo_creation,d.base_permission,d.allow_public,d.allow_outside_collaborators,d.owner_id::text,u.username,d.created_at,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$1),'') FROM districts d JOIN users u ON u.id=d.owner_id WHERE d.visibility='public' OR ($1<>'' AND (d.owner_id::text=$1 OR EXISTS (SELECT 1 FROM district_members m WHERE m.district_id=d.id AND m.user_id::text=$1))) ORDER BY d.created_at DESC LIMIT 50`, userID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -129,7 +131,7 @@ func (a *App) districts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d District
 		var member string
-		if err = rows.Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Visibility, &d.RepoCreation, &d.BasePermission, &d.OwnerID, &d.Owner, &d.CreatedAt, &member); err != nil {
+		if err = rows.Scan(&d.ID, &d.Slug, &d.Name, &d.Description, &d.Visibility, &d.RepoCreation, &d.BasePermission, &d.AllowPublic, &d.AllowOutsideCollaborators, &d.OwnerID, &d.Owner, &d.CreatedAt, &member); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -212,10 +214,12 @@ func (a *App) updateDistrict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Description    *string `json:"description"`
-		Visibility     *string `json:"visibility"`
-		RepoCreation   *string `json:"repo_creation"`
-		BasePermission *string `json:"base_permission"`
+		Description               *string `json:"description"`
+		Visibility                *string `json:"visibility"`
+		RepoCreation              *string `json:"repo_creation"`
+		BasePermission            *string `json:"base_permission"`
+		AllowPublic               *bool   `json:"allow_public"`
+		AllowOutsideCollaborators *bool   `json:"allow_outside_collaborators"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -224,6 +228,8 @@ func (a *App) updateDistrict(w http.ResponseWriter, r *http.Request) {
 	visibility := d.Visibility
 	creation := d.RepoCreation
 	base := d.BasePermission
+	allowPublic := d.AllowPublic
+	allowOutside := d.AllowOutsideCollaborators
 	if in.Description != nil {
 		description = strings.TrimSpace(*in.Description)
 	}
@@ -236,11 +242,17 @@ func (a *App) updateDistrict(w http.ResponseWriter, r *http.Request) {
 	if in.BasePermission != nil {
 		base = *in.BasePermission
 	}
+	if in.AllowPublic != nil {
+		allowPublic = *in.AllowPublic
+	}
+	if in.AllowOutsideCollaborators != nil {
+		allowOutside = *in.AllowOutsideCollaborators
+	}
 	if len(description) > 500 || (visibility != "public" && visibility != "private") || (creation != "owner" && creation != "admin" && creation != "member") || (base != "none" && base != "read" && base != "triage" && base != "write") {
 		fail(w, 422, "validation_failed", "Check the description, visibility, repository creation policy, and base permission.")
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `UPDATE districts SET description=$1,visibility=$2,repo_creation=$3,base_permission=$4 WHERE id=$5`, description, visibility, creation, base, d.ID); err != nil {
+	if _, err := a.db.Exec(r.Context(), `UPDATE districts SET description=$1,visibility=$2,repo_creation=$3,base_permission=$4,allow_public=$5,allow_outside_collaborators=$6 WHERE id=$7`, description, visibility, creation, base, allowPublic, allowOutside, d.ID); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -607,13 +619,18 @@ func (a *App) districtAudit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prefix := "district/" + d.Slug
-	rows, err := a.db.Query(r.Context(), `SELECT COALESCE(u.username,''),e.action,e.target,e.created_at FROM audit_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.target=$1 OR e.target LIKE $1 || '/%' OR EXISTS (SELECT 1 FROM repositories r JOIN users owner ON owner.id=r.owner_id WHERE r.district_id=$2 AND (e.target=owner.username||'/'||r.name OR e.target LIKE owner.username||'/'||r.name||':%' OR e.target LIKE owner.username||'/'||r.name||'/%')) ORDER BY e.created_at DESC LIMIT 100`, prefix, d.ID)
+	limit := 100
+	if r.URL.Query().Get("download") == "1" {
+		limit = 1000
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT COALESCE(u.username,''),e.action,e.target,e.created_at FROM audit_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.target=$1 OR e.target LIKE $1 || '/%' OR EXISTS (SELECT 1 FROM repositories r JOIN users owner ON owner.id=r.owner_id WHERE r.district_id=$2 AND (e.target=owner.username||'/'||r.name OR e.target LIKE owner.username||'/'||r.name||':%' OR e.target LIKE owner.username||'/'||r.name||'/%')) ORDER BY e.created_at DESC LIMIT $3`, prefix, d.ID, limit)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	exported := [][]string{}
 	for rows.Next() {
 		var username, action, target string
 		var created time.Time
@@ -622,9 +639,14 @@ func (a *App) districtAudit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"actor": username, "action": action, "target": target, "created_at": created})
+		exported = append(exported, []string{username, action, target, created.UTC().Format(time.RFC3339)})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
+		return
+	}
+	if r.URL.Query().Get("download") == "1" {
+		a.writeAuditExport(w, d.Slug, exported)
 		return
 	}
 	respond(w, 200, map[string]any{"items": items})

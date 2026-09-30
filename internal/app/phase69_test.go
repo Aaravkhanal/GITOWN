@@ -299,6 +299,7 @@ func TestPhaseSixToNine(t *testing.T) {
 	gitRun(work, "", true, "commit", "-m", "Add note")
 	gitRun(work, "", true, "checkout", "-b", "feature")
 	gitRun(work, writeToken, true, "push", "-u", "origin", "feature")
+	gitRun(work, writeToken, true, "fetch", "origin")
 	var pull Pull
 	owner.request("POST", "/repos/owner/atlas/pulls", map[string]string{"title": "Add note", "base_branch": "main", "head_branch": "feature"}, 201, &pull)
 	owner.request("PUT", fmt.Sprintf("/repos/owner/atlas/pulls/%d/crews", pull.Number), map[string]any{"slugs": []string{"reviewers"}}, 200, nil)

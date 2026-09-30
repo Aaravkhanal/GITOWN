@@ -113,6 +113,9 @@ func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
 		Provenance string `json:"provenance"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
+		CreateTag  bool   `json:"create_tag"`
+		Branch     string `json:"branch"`
+		Signature  string `json:"signature"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -121,14 +124,50 @@ func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
 	in.Title = strings.TrimSpace(in.Title)
 	in.Body = strings.TrimSpace(in.Body)
 	in.Provenance = strings.TrimSpace(in.Provenance)
-	if !validDropTag(in.Tag) || in.Title == "" || len(in.Title) > 200 || len(in.Body) > 20000 || len(in.Provenance) > 4000 {
-		fail(w, 422, "validation_failed", "Use an existing tag name, a title up to 200 characters, and notes within the size limits.")
+	in.Signature = strings.TrimSpace(in.Signature)
+	if !validDropTag(in.Tag) || in.Title == "" || len(in.Title) > 200 || len(in.Body) > 20000 || len(in.Provenance) > 4000 || len(in.Signature) > 8000 {
+		fail(w, 422, "validation_failed", "Use a tag name, a title up to 200 characters, and notes within the size limits.")
 		return
 	}
 	sha, err := a.git.ResolveTag(r.Context(), repo.ID, in.Tag)
-	if err != nil {
-		fail(w, 422, "validation_failed", "Create the Git tag before publishing a drop. Provenance text is recorded as supplied and is not verified.")
+	if err != nil && in.CreateTag {
+		branch := strings.TrimSpace(in.Branch)
+		if branch == "" {
+			branch = repo.DefaultBranch
+		}
+		if branch == "" {
+			branch = "main"
+		}
+		if strings.Contains(branch, "..") || strings.ContainsAny(branch, " \r\n\\") || strings.HasPrefix(branch, "-") {
+			fail(w, 422, "validation_failed", "Choose a branch to tag.")
+			return
+		}
+		out, revErr := a.git.Run(r.Context(), repo.ID, nil, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+branch)
+		if revErr != nil {
+			fail(w, 422, "validation_failed", "The branch to tag does not exist.")
+			return
+		}
+		sha = strings.TrimSpace(string(out))
+		if err = a.git.CreateAnnotatedTag(r.Context(), repo.ID, in.Tag, sha, u.DisplayName, u.Username+"@users.gitown.local", in.Title); err != nil {
+			fail(w, 422, "validation_failed", "The Git tag could not be created.")
+			return
+		}
+		_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.tag_created',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Tag)
+	} else if err != nil {
+		fail(w, 422, "validation_failed", "Create the Git tag before publishing a drop, or set create_tag.")
 		return
+	}
+	verified := false
+	if in.Signature != "" {
+		verified, err = a.verifyProvenance(r.Context(), u.ID, u.Username, in.Provenance, in.Signature)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if !verified {
+			fail(w, 422, "signature_rejected", "The signature does not verify against an SSH signing key registered by this account.")
+			return
+		}
 	}
 	if len(in.Body) == 0 {
 		lines := a.generatedChangelog(r, repo.ID, in.Tag, sha)
@@ -141,7 +180,7 @@ func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
 	}
 	id := auth.ID()
 	var created any
-	err = a.db.QueryRow(r.Context(), `INSERT INTO drops(id,repository_id,tag,title,body,provenance,draft,prerelease,author_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING created_at`, id, repo.ID, in.Tag, in.Title, in.Body, in.Provenance, in.Draft, in.Prerelease, u.ID).Scan(&created)
+	err = a.db.QueryRow(r.Context(), `INSERT INTO drops(id,repository_id,tag,title,body,provenance,draft,prerelease,author_id,signature,provenance_verified) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING created_at`, id, repo.ID, in.Tag, in.Title, in.Body, in.Provenance, in.Draft, in.Prerelease, u.ID, in.Signature, verified).Scan(&created)
 	if conflict(err) {
 		fail(w, 409, "drop_exists", "A drop for that tag already exists.")
 		return
@@ -151,7 +190,7 @@ func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.created',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Tag)
-	respond(w, 201, map[string]any{"tag": in.Tag, "title": in.Title, "body": in.Body, "provenance": in.Provenance, "draft": in.Draft, "prerelease": in.Prerelease, "sha": sha, "created_at": created, "provenance_verified": false})
+	respond(w, 201, map[string]any{"tag": in.Tag, "title": in.Title, "body": in.Body, "provenance": in.Provenance, "draft": in.Draft, "prerelease": in.Prerelease, "sha": sha, "created_at": created, "provenance_verified": verified})
 }
 
 func (a *App) generatedChangelog(r *http.Request, repoID, tag, sha string) []string {
@@ -229,7 +268,9 @@ func (a *App) drop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sha, _ := a.git.ResolveTag(r.Context(), repo.ID, tag)
-	respond(w, 200, map[string]any{"tag": tag, "title": title, "body": body, "provenance": provenance, "provenance_verified": false, "draft": draft, "prerelease": prerelease, "sha": sha, "changelog": a.generatedChangelog(r, repo.ID, tag, sha), "assets": assets})
+	var verified bool
+	_ = a.db.QueryRow(r.Context(), `SELECT provenance_verified FROM drops WHERE repository_id=$1 AND tag=$2`, repo.ID, tag).Scan(&verified)
+	respond(w, 200, map[string]any{"tag": tag, "title": title, "body": body, "provenance": provenance, "provenance_verified": verified, "draft": draft, "prerelease": prerelease, "sha": sha, "changelog": a.generatedChangelog(r, repo.ID, tag, sha), "assets": assets})
 }
 
 func (a *App) updateDrop(w http.ResponseWriter, r *http.Request) {
@@ -266,12 +307,13 @@ func (a *App) updateDrop(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Use a title up to 200 characters and keep notes within the size limits.")
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `UPDATE drops SET title=$1,body=$2,provenance=$3,draft=$4,prerelease=$5 WHERE id=$6`, title, body, provenance, draft, prerelease, id); err != nil {
+	var verified bool
+	if err := a.db.QueryRow(r.Context(), `UPDATE drops SET title=$1,body=$2,provenance=$3,draft=$4,prerelease=$5,provenance_verified=CASE WHEN provenance IS DISTINCT FROM $3 THEN false ELSE provenance_verified END WHERE id=$6 RETURNING provenance_verified`, title, body, provenance, draft, prerelease, id).Scan(&verified); err != nil {
 		serverError(w, err)
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.updated',$2)`, a.user(r).ID, repo.Owner+"/"+repo.Name+":"+tag)
-	respond(w, 200, map[string]any{"tag": tag, "title": title, "draft": draft, "prerelease": prerelease, "provenance_verified": false})
+	respond(w, 200, map[string]any{"tag": tag, "title": title, "draft": draft, "prerelease": prerelease, "provenance_verified": verified})
 }
 
 func (a *App) deleteDrop(w http.ResponseWriter, r *http.Request) {

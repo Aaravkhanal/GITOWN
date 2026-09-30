@@ -14,7 +14,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Accounts, login/logout, Argon2id password hashes, secure password changes with optional token revocation, expiring/revocable browser sessions with device visibility, and request-origin checks.
 - Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
 - Personal access tokens with repository or package scopes, 30-day expiration, and revocation. Package tokens cannot push Git.
-- Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS), including a shallow clone. User SSH keys and deploy keys work through a forced-command gateway when sshd is configured separately. Basic Git LFS batch upload and download is included.
+- Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS), including a shallow clone. User SSH keys and deploy keys work through a forced-command gateway when sshd is configured separately. The gateway trusts the fingerprint that command supplies. Git LFS batch upload, download, and path locks are included. A pack that unpacks over the repository or account quota is rolled back before the client is told it succeeded.
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository Unite requests with drafts, close/reopen, discussions, inline line comments, requested reviewers, formal approve/request-changes reviews tied to exact head commits, review dismissal, owner-configured Merge Guards, squash/rebase/merge, optional source-branch deletion, actual Git diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery.
@@ -28,9 +28,9 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Builder follows: discover who follows a public profile and follow or unfollow other builders.
 - A following feed for visible repository creation, Sparks, issues, and Unite requests from followed builders.
 - Owner-managed repository topics for describing and organizing projects.
-- Public repository discovery with server-backed text/topic search, language and beginner-friendly filters, recent/updated/name/Spark/30-day-trending sorting, fixed-string code search, help-wanted tasks, recommendations, and community collections.
-- Districts (organizations), crews (teams), internal repositories, encrypted district secrets, and a district audit export.
-- Drops (releases) with notes, assets, checksums, and download counts, plus a crate package record with retention and a secret-pattern check. This is not an npm registry.
+- Public repository discovery with server-backed text/topic search, language and beginner-friendly filters, recent/updated/name/Spark/30-day-trending sorting, ranked code search over a capped public text index, help-wanted tasks, topic-overlap recommendations, topic pages, a public contribution graph, and community collections that an operator can feature.
+- Districts (organizations), crews (teams), internal repositories, encrypted district secrets, public-repository and outside-collaborator policies, usage counts, an invoice ledger that does not charge a card, and a district audit CSV.
+- Drops (releases) with notes, assets, checksums, download counts, optional annotated tag creation, and SSH-signature provenance. Crates can be published through the JSON API, an unscoped npm wire subset, or an OCI blob and manifest subset. Publishing checks a fixed pattern list. This is not a full npm registry, a container registry, or a malware engine.
 - Public builder discovery with username/name/bio search, follower and public-repository counts, and 25-result pages.
 - Repository issue boards with To do, In progress, and Done columns; moving to Done closes the issue.
 - Owner-managed issue templates that prefill titles and descriptions for recurring work.
@@ -150,7 +150,7 @@ The initial API modules share one application package for transactional workflow
 ## Next milestones
 
 1. Add email verification, password recovery, MFA, and invitation-based signup.
-2. Run the SSH gateway behind a dedicated sshd, add LFS locking, and measure repository size before a pack can overshoot a quota.
+2. Run the forced-command SSH gateway behind a separately configured sshd. The gateway trusts the fingerprint argument that sshd binds. Multipart LFS transfer, per-user Git rate limits, and a durable receive queue are still absent.
 3. Add a merge queue, forks, cross-repository Unite requests, and deterministic conflict resolution.
 4. Add durable Git event delivery, backups under load, repository reconciliation, observability, and operational hardening.
 

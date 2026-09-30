@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 )
@@ -37,6 +38,10 @@ func (a *App) gitLFS(w http.ResponseWriter, r *http.Request) {
 	op := strings.TrimPrefix(lfsPath, "info/lfs/")
 	if r.Method == "POST" && op == "objects/batch" {
 		a.lfsBatch(w, r, owner, name)
+		return
+	}
+	if op == "locks" || op == "locks/verify" || strings.HasPrefix(op, "locks/") {
+		a.lfsLocks(w, r, owner, name, op)
 		return
 	}
 	oid, isObject := strings.CutPrefix(op, "objects/")
@@ -189,4 +194,145 @@ func (a *App) basicTokenScope(r *http.Request) string {
 		return ""
 	}
 	return scope
+}
+
+var lfsPathPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
+
+func validLFSPath(path string) bool {
+	return lfsPathPattern.MatchString(path) && !strings.Contains(path, "..") && !strings.Contains(path, "//")
+}
+
+func (a *App) lfsLocks(w http.ResponseWriter, r *http.Request, owner, name, op string) {
+	write := r.Method == "POST" && op != "locks/verify" && !strings.HasPrefix(op, "locks?")
+	if op == "locks" && r.Method == "GET" {
+		write = false
+	}
+	repo, user, ok := a.authorizeGit(w, r, owner, name, write && op != "locks/verify")
+	if !ok {
+		return
+	}
+	if op == "locks/verify" {
+		repo, user, ok = a.authorizeGit(w, r, owner, name, false)
+		if !ok {
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/vnd.git-lfs+json")
+	switch {
+	case r.Method == "POST" && op == "locks":
+		if user == nil || !repo.CanWrite || a.basicTokenScope(r) != "repo:write" {
+			http.Error(w, "Repository write permission and repo:write scope are required.", 403)
+			return
+		}
+		var in struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil || !validLFSPath(in.Path) {
+			http.Error(w, "Provide a lock path.", 422)
+			return
+		}
+		id := auth.ID()
+		var created time.Time
+		err := a.db.QueryRow(r.Context(), `INSERT INTO lfs_locks(id,repository_id,path,owner_id) VALUES($1,$2,$3,$4) RETURNING created_at`, id, repo.ID, in.Path, user.ID).Scan(&created)
+		if conflict(err) {
+			http.Error(w, "That path is already locked.", 409)
+			return
+		}
+		if err != nil {
+			http.Error(w, "The lock could not be created.", 500)
+			return
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{"lock": lfsLockJSON(id, in.Path, created, user.Username)})
+	case r.Method == "GET" && op == "locks":
+		path := r.URL.Query().Get("path")
+		query := `SELECT l.id::text,l.path,l.created_at,u.username FROM lfs_locks l JOIN users u ON u.id=l.owner_id WHERE l.repository_id=$1`
+		args := []any{repo.ID}
+		if path != "" {
+			query += ` AND l.path=$2`
+			args = append(args, path)
+		}
+		query += ` ORDER BY l.created_at`
+		rows, err := a.db.Query(r.Context(), query, args...)
+		if err != nil {
+			http.Error(w, "Locks could not be listed.", 500)
+			return
+		}
+		defer rows.Close()
+		locks := []any{}
+		for rows.Next() {
+			var id, lockPath, username string
+			var created time.Time
+			if err = rows.Scan(&id, &lockPath, &created, &username); err != nil {
+				http.Error(w, "Locks could not be listed.", 500)
+				return
+			}
+			locks = append(locks, lfsLockJSON(id, lockPath, created, username))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"locks": locks})
+	case r.Method == "POST" && op == "locks/verify":
+		if user == nil {
+			http.Error(w, "Authentication is required.", 401)
+			return
+		}
+		rows, err := a.db.Query(r.Context(), `SELECT l.id::text,l.path,l.created_at,u.username,l.owner_id::text FROM lfs_locks l JOIN users u ON u.id=l.owner_id WHERE l.repository_id=$1 ORDER BY l.created_at`, repo.ID)
+		if err != nil {
+			http.Error(w, "Locks could not be listed.", 500)
+			return
+		}
+		defer rows.Close()
+		ours := []any{}
+		theirs := []any{}
+		for rows.Next() {
+			var id, lockPath, username, ownerID string
+			var created time.Time
+			if err = rows.Scan(&id, &lockPath, &created, &username, &ownerID); err != nil {
+				http.Error(w, "Locks could not be listed.", 500)
+				return
+			}
+			item := lfsLockJSON(id, lockPath, created, username)
+			if ownerID == user.ID {
+				ours = append(ours, item)
+			} else {
+				theirs = append(theirs, item)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ours": ours, "theirs": theirs, "next_cursor": ""})
+	case r.Method == "POST" && strings.HasPrefix(op, "locks/") && strings.HasSuffix(op, "/unlock"):
+		if user == nil || a.basicTokenScope(r) != "repo:write" {
+			http.Error(w, "Repository write permission and repo:write scope are required.", 403)
+			return
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(op, "locks/"), "/unlock")
+		if !safeObjectID(id) {
+			http.NotFound(w, r)
+			return
+		}
+		var in struct {
+			Force bool `json:"force"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in)
+		var ownerID, lockPath string
+		var created time.Time
+		err := a.db.QueryRow(r.Context(), `SELECT owner_id::text,path,created_at FROM lfs_locks WHERE id=$1 AND repository_id=$2`, id, repo.ID).Scan(&ownerID, &lockPath, &created)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if ownerID != user.ID && !in.Force {
+			http.Error(w, "Only the lock owner can unlock this path.", 403)
+			return
+		}
+		if _, err = a.db.Exec(r.Context(), `DELETE FROM lfs_locks WHERE id=$1`, id); err != nil {
+			http.Error(w, "The lock could not be removed.", 500)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"lock": lfsLockJSON(id, lockPath, created, user.Username)})
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func lfsLockJSON(id, path string, created time.Time, username string) map[string]any {
+	return map[string]any{"id": id, "path": path, "locked_at": created.UTC().Format(time.RFC3339), "owner": map[string]string{"name": username}}
 }

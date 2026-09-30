@@ -48,6 +48,39 @@ function EmailPreference() {
   );
 }
 
+function ContributionStrip({ username }: { username: string }) {
+  const activity = useData<{ total: number; days: { date: string; count: number }[] }>(
+    `/users/${encodeURIComponent(username)}/contributions`,
+  );
+  if (activity.loading) return <Loading />;
+  if (activity.error) return <ErrorMessage error={activity.error} />;
+  const counts = new Map((activity.data?.days || []).map((day) => [day.date, day.count]));
+  const cells: { date: string; count: number }[] = [];
+  const today = new Date();
+  for (let offset = 179; offset >= 0; offset -= 1) {
+    const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - offset));
+    const key = day.toISOString().slice(0, 10);
+    cells.push({ date: key, count: counts.get(key) || 0 });
+  }
+  return (
+    <section className="panel" aria-label="Public contributions">
+      <h2>Public activity</h2>
+      <p className="muted small-text">
+        {activity.data?.total ?? 0} public issues, comments, Sparks, and merged Unite requests in the last 180 UTC days. Private commits are not included.
+      </p>
+      <div className="contribution-strip">
+        {cells.map((cell) => (
+          <span
+            key={cell.date}
+            className={`contribution-cell level-${cell.count === 0 ? 0 : cell.count < 2 ? 1 : cell.count < 4 ? 2 : 3}`}
+            title={`${cell.date}: ${cell.count}`}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function RepositoryCards({
   username,
   repositories,
@@ -153,6 +186,7 @@ export function PublicProfile({
         {person.followers} followers · {person.following} following
       </p>
       <ErrorMessage error={followError} />
+      <ContributionStrip username={person.username} />
       <section className="panel profile-summary">
         <p>{person.bio || "This builder has not added a bio yet."}</p>
         {person.skills && <p>Skills: {person.skills}</p>}

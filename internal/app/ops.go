@@ -84,7 +84,39 @@ func (a *App) noteRepositoryFacts(ctx context.Context, repo *Repository) error {
 	repo.Language = language
 	repo.SizeBytes = size
 	repo.PushedAt = now
+	_ = a.indexRepositoryCode(ctx, repo)
 	return nil
+}
+
+func (a *App) enforceUnpackedQuota(ctx context.Context, repo *Repository, updates []refUpdate) error {
+	if err := a.noteRepositoryFacts(ctx, repo); err != nil {
+		return nil
+	}
+	if err := a.withinQuota(ctx, repo, 0); err != nil {
+		if errors.Is(err, errStorageQuota) {
+			a.rollbackRefs(ctx, repo.ID, updates)
+			_ = a.noteRepositoryFacts(ctx, repo)
+			return errStorageQuota
+		}
+		return nil
+	}
+	return nil
+}
+
+func (a *App) rollbackRefs(ctx context.Context, repoID string, updates []refUpdate) {
+	zero := strings.Repeat("0", 40)
+	for _, update := range updates {
+		if !strings.HasPrefix(update.Ref, "refs/") || strings.Contains(update.Ref, "..") || strings.ContainsAny(update.Ref, " \r\n") {
+			continue
+		}
+		if update.Old == zero && len(update.New) == 40 {
+			_, _, _ = a.git.Command(ctx, 20*time.Second, repoID, "update-ref", "-d", update.Ref, update.New)
+			continue
+		}
+		if len(update.Old) == 40 && len(update.New) == 40 {
+			_, _, _ = a.git.Command(ctx, 20*time.Second, repoID, "update-ref", update.Ref, update.Old, update.New)
+		}
+	}
 }
 
 func primaryLanguage(listing string) string {

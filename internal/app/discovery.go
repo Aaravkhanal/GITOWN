@@ -10,61 +10,12 @@ import (
 )
 
 type CodeMatch struct {
-	Owner      string `json:"owner"`
-	Repository string `json:"repository"`
-	Path       string `json:"path"`
-	Line       int    `json:"line"`
-	Snippet    string `json:"snippet"`
-}
-
-func (a *App) searchCode(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if len(q) < 2 || len(q) > 80 || strings.HasPrefix(q, "-") || strings.ContainsAny(q, "\x00\r\n") {
-		fail(w, 422, "validation_failed", "Use a fixed code query between 2 and 80 characters.")
-		return
-	}
-	rows, err := a.db.Query(r.Context(), `SELECT r.id,u.username,r.name,r.default_branch FROM repositories r JOIN users u ON u.id=r.owner_id WHERE r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC,r.id DESC LIMIT 12`)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer rows.Close()
-	type candidate struct{ id, owner, name, branch string }
-	var repos []candidate
-	for rows.Next() {
-		var item candidate
-		if err = rows.Scan(&item.id, &item.owner, &item.name, &item.branch); err != nil {
-			serverError(w, err)
-			return
-		}
-		repos = append(repos, item)
-	}
-	if err = rows.Err(); err != nil {
-		serverError(w, err)
-		return
-	}
-	matches := []CodeMatch{}
-	for _, repo := range repos {
-		if repo.branch == "" {
-			continue
-		}
-		text, grepErr := a.git.Grep(r.Context(), repo.id, repo.branch, q)
-		if grepErr != nil || text == "" {
-			continue
-		}
-		for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-			path, number, snippet, ok := parseGrepLine(line)
-			if !ok {
-				continue
-			}
-			matches = append(matches, CodeMatch{Owner: repo.owner, Repository: repo.name, Path: path, Line: number, Snippet: snippet})
-			if len(matches) == 40 {
-				respond(w, 200, map[string]any{"items": matches, "limited": true})
-				return
-			}
-		}
-	}
-	respond(w, 200, map[string]any{"items": matches, "limited": false})
+	Owner      string  `json:"owner"`
+	Repository string  `json:"repository"`
+	Path       string  `json:"path"`
+	Line       int     `json:"line"`
+	Snippet    string  `json:"snippet"`
+	Rank       float32 `json:"rank"`
 }
 
 func parseGrepLine(line string) (string, int, string, bool) {
@@ -179,10 +130,14 @@ func (a *App) writeTrending(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) collections(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT c.id,u.username,c.slug,c.title,c.description,c.created_at,
+	filter := ""
+	if r.URL.Query().Get("featured") == "1" {
+		filter = " WHERE c.featured"
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT c.id,u.username,c.slug,c.title,c.description,c.created_at,c.featured,
 		(SELECT count(*)::int FROM collection_items ci JOIN repositories r ON r.id=ci.repository_id WHERE ci.collection_id=c.id AND r.visibility='public' AND r.deleted_at IS NULL)
-		FROM collections c JOIN users u ON u.id=c.owner_id
-		ORDER BY (SELECT count(*) FROM collection_items ci WHERE ci.collection_id=c.id) DESC, c.created_at DESC LIMIT 20`)
+		FROM collections c JOIN users u ON u.id=c.owner_id`+filter+`
+		ORDER BY c.featured DESC, (SELECT count(*) FROM collection_items ci WHERE ci.collection_id=c.id) DESC, c.created_at DESC LIMIT 20`)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -192,12 +147,13 @@ func (a *App) collections(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, owner, slug, title, description string
 		var createdAt time.Time
+		var featured bool
 		var count int
-		if err = rows.Scan(&id, &owner, &slug, &title, &description, &createdAt, &count); err != nil {
+		if err = rows.Scan(&id, &owner, &slug, &title, &description, &createdAt, &featured, &count); err != nil {
 			serverError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"id": id, "owner": owner, "slug": slug, "title": title, "description": description, "created_at": createdAt, "repositories": count})
+		items = append(items, map[string]any{"id": id, "owner": owner, "slug": slug, "title": title, "description": description, "created_at": createdAt, "featured": featured, "repositories": count})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)

@@ -149,19 +149,30 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(key, v)
 		}
 	}
+	// Buffer a receive response so an unpacked repository that exceeds its quota
+	// can be rolled back before the client is told the push succeeded.
+	if write && r.Method == "POST" {
+		body, readErr := io.ReadAll(io.LimitReader(reader, 8<<20))
+		waitErr := cmd.Wait()
+		if waitErr == nil && readErr == nil && status < 300 && user != nil {
+			auditCtx, auditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer auditCancel()
+			if quotaErr := a.enforceUnpackedQuota(auditCtx, repo, updates); errors.Is(quotaErr, errStorageQuota) {
+				http.Error(w, "Repository or account storage quota would be exceeded.", 413)
+				return
+			}
+			a.finishReceive(auditCtx, repo, user.ID, updates, "https")
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+		return
+	}
 	w.WriteHeader(status)
 	_, copyErr := io.Copy(w, reader)
 	if copyErr != nil {
 		cancel()
 	}
-	waitErr := cmd.Wait()
-	// receive-pack may return HTTP 200 even if it rejects refs. Record transport
-	// completion, never falsely claim that every proposed ref was accepted.
-	if write && r.Method == "POST" && waitErr == nil && copyErr == nil && user != nil {
-		auditCtx, auditCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer auditCancel()
-		a.finishReceive(auditCtx, repo, user.ID, updates, "https")
-	}
+	_ = cmd.Wait()
 }
 
 func (a *App) authorizeGit(w http.ResponseWriter, r *http.Request, owner, name string, write bool) (*Repository, *User, bool) {

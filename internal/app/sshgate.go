@@ -424,13 +424,28 @@ func (a *App) SSHSession(ctx context.Context, fingerprint, command string, stdin
 	cmd := exec.CommandContext(ctx, a.git.Binary, gitArgs...)
 	cmd.Env = gitstore.Environment()
 	cmd.Stdin = input
-	cmd.Stdout = stdout
+	var receiveOut bytes.Buffer
+	if service == "git-receive-pack" {
+		cmd.Stdout = &receiveOut
+	} else {
+		cmd.Stdout = stdout
+	}
 	cmd.Stderr = stderr
 	cmd.WaitDelay = time.Second
 	if err = cmd.Run(); err != nil {
+		if service == "git-receive-pack" {
+			_, _ = stdout.Write(receiveOut.Bytes())
+		}
 		return err
 	}
 	if service == "git-receive-pack" {
+		if quotaErr := a.enforceUnpackedQuota(ctx, &grant.repo, updates); errors.Is(quotaErr, errStorageQuota) {
+			fmt.Fprintln(stderr, "repository or account storage quota would be exceeded")
+			return errStorageQuota
+		}
+		if _, err = stdout.Write(receiveOut.Bytes()); err != nil {
+			return err
+		}
 		a.finishReceive(ctx, &grant.repo, grant.actorID, updates, "ssh")
 	}
 	return nil

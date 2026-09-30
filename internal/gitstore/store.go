@@ -144,6 +144,14 @@ func (s *Store) Grep(ctx context.Context, id, rev, query string) (string, error)
 	return string(out), nil
 }
 
+func (s *Store) CreateAnnotatedTag(ctx context.Context, id, name, sha, taggerName, taggerEmail, message string) error {
+	if name == "" || len(name) > 80 || strings.ContainsAny(name, " \x00\r\n\\") || strings.Contains(name, "..") || strings.HasPrefix(name, "-") || len(sha) != 40 || strings.ContainsAny(taggerName, "\r\n") || strings.ContainsAny(taggerEmail, "\r\n") || len(message) > 20000 {
+		return ErrNotFound
+	}
+	_, err := s.Run(ctx, id, strings.NewReader(message+"\n"), "-c", "user.name="+taggerName, "-c", "user.email="+taggerEmail, "tag", "-a", "-F", "-", "--end-of-options", name, sha)
+	return err
+}
+
 func (s *Store) ResolveTag(ctx context.Context, id, name string) (string, error) {
 	if name == "" || len(name) > 80 || strings.ContainsAny(name, " \x00\r\n\\") || strings.Contains(name, "..") || strings.HasPrefix(name, "-") {
 		return "", ErrNotFound

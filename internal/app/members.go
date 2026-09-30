@@ -73,8 +73,17 @@ func (a *App) addMember(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Choose another GITOWN user and a valid collaborator role.")
 		return
 	}
+	allowed, err := a.outsideCollaboratorAllowed(r.Context(), repo.DistrictID, in.Username)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if !allowed {
+		fail(w, 403, "forbidden", "This district does not allow collaborators from outside the district.")
+		return
+	}
 	var member RepositoryMember
-	err := a.db.QueryRow(r.Context(), `WITH selected_user AS (SELECT id,username,display_name FROM users WHERE username=$2), inserted AS (INSERT INTO repository_members(repository_id,user_id,role) SELECT $1,id,$3 FROM selected_user RETURNING user_id,role,created_at) SELECT u.username,u.display_name,i.role,i.created_at FROM inserted i JOIN selected_user u ON u.id=i.user_id`, repo.ID, in.Username, in.Role).Scan(&member.Username, &member.DisplayName, &member.Role, &member.CreatedAt)
+	err = a.db.QueryRow(r.Context(), `WITH selected_user AS (SELECT id,username,display_name FROM users WHERE username=$2), inserted AS (INSERT INTO repository_members(repository_id,user_id,role) SELECT $1,id,$3 FROM selected_user RETURNING user_id,role,created_at) SELECT u.username,u.display_name,i.role,i.created_at FROM inserted i JOIN selected_user u ON u.id=i.user_id`, repo.ID, in.Username, in.Role).Scan(&member.Username, &member.DisplayName, &member.Role, &member.CreatedAt)
 	if conflict(err) {
 		fail(w, 409, "collaborator_exists", "That user is already a collaborator.")
 		return

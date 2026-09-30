@@ -21,6 +21,7 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   Globe2,
+  Hash,
   KeyRound,
   LayoutGrid,
   LockKeyhole,
@@ -35,7 +36,7 @@ import {
   Rss,
   X,
 } from "lucide-react";
-import { CratesPage, DistrictsPage, ExploreMore, SSHKeysPage } from "@/components/ecosystem";
+import { CratesPage, DistrictsPage, ExploreMore, SSHKeysPage, TopicsPage } from "@/components/ecosystem";
 import {
   api,
   post,
@@ -247,13 +248,22 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <Package size={17} /> Crates
               </Link>
               <Link
+                className={section === "topics" ? "selected" : ""}
+                href="/topics"
+              >
+                <Hash size={17} /> Topics
+              </Link>
+              <Link
                 className={section === "settings" ? "selected" : ""}
                 href="/settings/tokens"
               >
                 <KeyRound size={17} /> Access tokens
               </Link>
               {user && (
-                <Link className="" href="/settings/keys">
+                <Link
+                  className={section === "settings" && segments[1] === "keys" ? "selected" : ""}
+                  href="/settings/keys"
+                >
                   <KeyRound size={17} /> SSH keys
                 </Link>
               )}
@@ -331,6 +341,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             ) : (
               <SignInPrompt />
             )
+          ) : section === "topics" ? (
+            <TopicsPage topic={segments[1]} />
           ) : section === "districts" ? (
             user ? (
               <DistrictsPage />

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { post, put, remove, repoPath, type Repo } from "@/lib/api";
+import { patch, post, put, remove, repoPath, type Repo } from "@/lib/api";
 import { ErrorMessage, Loading, useData } from "@/components/ui";
 
 type Collection = {
@@ -10,6 +10,7 @@ type Collection = {
   slug: string;
   title: string;
   repositories: number;
+  featured?: boolean;
 };
 type Task = {
   owner: string;
@@ -24,8 +25,11 @@ type District = {
   description: string;
   visibility: string;
   role?: string;
+  owner?: string;
   repo_creation: string;
   base_permission: string;
+  allow_public?: boolean;
+  allow_outside_collaborators?: boolean;
 };
 type Crate = {
   name: string;
@@ -59,11 +63,14 @@ export function ExploreMore() {
   );
   const tasks = useData<{ items: Task[] }>("/search/tasks?kind=help");
   const collections = useData<{ items: Collection[] }>("/collections");
+  const featured = useData<{ items: Collection[] }>("/collections?featured=1");
+  const topics = useData<{ items: { topic: string; repositories: number }[] }>("/topics");
   const [query, setQuery] = useState("");
   const [codePath, setCodePath] = useState<string | null>(null);
-  const code = useData<{ items: { owner: string; repository: string; path: string; line: number; snippet: string }[] }>(
-    codePath,
-  );
+  const code = useData<{
+    ranked?: boolean;
+    items: { owner: string; repository: string; path: string; line: number; snippet: string; rank?: number }[];
+  }>(codePath);
   return (
     <div className="dashboard-columns">
       <section className="panel">
@@ -106,12 +113,35 @@ export function ExploreMore() {
             ))}
           </ul>
         )}
+        <h2>Featured collections</h2>
+        <p className="muted small-text">
+          Operators mark a collection as featured. These are public repository lists, not a ranking model.
+        </p>
+        <ErrorMessage error={featured.error} />
+        <ul>
+          {(featured.data?.items || []).map((item) => (
+            <li key={`featured-${item.owner}/${item.slug}`}>
+              {item.owner}/{item.slug}: {item.title} ({item.repositories})
+            </li>
+          ))}
+        </ul>
+        <h2>Topics</h2>
+        <ErrorMessage error={topics.error} />
+        <ul>
+          {(topics.data?.items || []).slice(0, 12).map((item) => (
+            <li key={item.topic}>
+              <Link href={`/topics/${item.topic}`}>{item.topic}</Link>{" "}
+              <span className="muted">{item.repositories}</span>
+            </li>
+          ))}
+        </ul>
         <h2>Community collections</h2>
         <ErrorMessage error={collections.error} />
         <ul>
           {(collections.data?.items || []).map((item) => (
             <li key={`${item.owner}/${item.slug}`}>
               {item.owner}/{item.slug}: {item.title} ({item.repositories})
+              {item.featured ? " · featured" : ""}
             </li>
           ))}
         </ul>
@@ -123,12 +153,17 @@ export function ExploreMore() {
         >
           <label>
             Search public code
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Fixed text, 2–80 characters" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Public text, 2–80 characters" />
           </label>
           <button className="button" type="submit">
             Search code
           </button>
         </form>
+        {code.data?.ranked ? (
+          <p className="muted small-text">Ranked from the capped public text index.</p>
+        ) : code.data ? (
+          <p className="muted small-text">Shown from a git grep of recent public repositories. The ranked index had no match.</p>
+        ) : null}
         <ErrorMessage error={code.error} />
         <ul>
           {(code.data?.items || []).map((item) => (
@@ -233,7 +268,200 @@ export function DistrictsPage() {
             ))}
           </ul>
           <DistrictAdmin slug={slug} onChange={() => setVersion((value) => value + 1)} />
+          <DistrictControls slug={slug} />
         </section>
+      )}
+    </div>
+  );
+}
+
+function DistrictControls({ slug }: { slug: string }) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const district = useData<District>(`/districts/${encodeURIComponent(slug)}`, version);
+  const role = district.data?.role;
+  const canAdmin = role === "owner" || role === "admin";
+  const usage = useData<{
+    repositories: number;
+    storage_bytes: number;
+    members: number;
+    secrets: number;
+    open_invoices: number;
+    charges: boolean;
+  }>(canAdmin ? `/districts/${encodeURIComponent(slug)}/usage` : null, version);
+  const invoices = useData<{
+    charges: boolean;
+    items: { id: string; period: string; amount_cents: number; status: string }[];
+  }>(canAdmin ? `/districts/${encodeURIComponent(slug)}/invoices` : null, version);
+  if (district.loading) return <Loading />;
+  if (!district.data) return <ErrorMessage error={district.error || "District unavailable."} />;
+  const current = district.data;
+  return (
+    <div>
+      <h3>Policy</h3>
+      <p className="muted small-text">
+        Public repositories are {current.allow_public ? "allowed" : "blocked"}. Collaborators from outside the district are {current.allow_outside_collaborators ? "allowed" : "blocked"}. Repository creation is limited to {current.repo_creation}. Members receive {current.base_permission} on district repositories.
+      </p>
+      <ErrorMessage error={error || usage.error || invoices.error} />
+      {current.role === "owner" && (
+        <form
+          className="form-panel"
+          key={`${current.allow_public}-${current.allow_outside_collaborators}-${current.repo_creation}-${current.base_permission}`}
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            setError("");
+            try {
+              await patch(`/districts/${encodeURIComponent(slug)}`, {
+                allow_public: data.get("allow_public") === "on",
+                allow_outside_collaborators: data.get("allow_outside") === "on",
+                repo_creation: String(data.get("repo_creation") || current.repo_creation),
+                base_permission: String(data.get("base_permission") || current.base_permission),
+              });
+              setVersion((value) => value + 1);
+            } catch (caught) {
+              setError((caught as Error).message);
+            }
+          }}
+        >
+          <label className="checkbox-label">
+            <input name="allow_public" type="checkbox" defaultChecked={current.allow_public !== false} />
+            <span>Allow public repositories</span>
+          </label>
+          <label className="checkbox-label">
+            <input name="allow_outside" type="checkbox" defaultChecked={current.allow_outside_collaborators !== false} />
+            <span>Allow collaborators from outside the district</span>
+          </label>
+          <label>
+            Who can create repositories
+            <select name="repo_creation" defaultValue={current.repo_creation || "admin"}>
+              <option value="owner">Owner</option>
+              <option value="admin">Admins</option>
+              <option value="member">Members</option>
+            </select>
+          </label>
+          <label>
+            Base permission
+            <select name="base_permission" defaultValue={current.base_permission || "read"}>
+              <option value="none">None</option>
+              <option value="read">Read</option>
+              <option value="triage">Triage</option>
+              <option value="write">Write</option>
+            </select>
+          </label>
+          <button className="button">Save policy</button>
+        </form>
+      )}
+      {canAdmin && (
+        <section>
+          <h3>Usage and invoices</h3>
+          <p className="muted small-text">
+            This ledger records amounts an operator enters. GITOWN does not charge a card.
+            {usage.data ? ` ${usage.data.repositories} repositories, ${usage.data.storage_bytes} bytes, ${usage.data.members} members, ${usage.data.secrets} secrets, ${usage.data.open_invoices} open invoices.` : ""}
+          </p>
+          <p>
+            <a className="button" href={`/api/v1/districts/${encodeURIComponent(slug)}/audit?download=1`}>
+              Download audit CSV
+            </a>
+          </p>
+          <ul>
+            {(invoices.data?.items || []).map((item) => (
+              <li key={item.id}>
+                {item.period} · {item.amount_cents} cents · {item.status}
+                {item.status === "open" && (
+                  <button
+                    className="text-button"
+                    onClick={async () => {
+                      setError("");
+                      try {
+                        await post(`/districts/${encodeURIComponent(slug)}/invoices/${item.id}/pay`, {});
+                        setVersion((value) => value + 1);
+                      } catch (caught) {
+                        setError((caught as Error).message);
+                      }
+                    }}
+                  >
+                    Mark paid
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <form
+            className="form-panel"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              setError("");
+              try {
+                await post(`/districts/${encodeURIComponent(slug)}/invoices`, {
+                  period: String(data.get("period") || ""),
+                  amount_cents: Number(data.get("amount_cents") || 0),
+                });
+                setVersion((value) => value + 1);
+                event.currentTarget.reset();
+              } catch (caught) {
+                setError((caught as Error).message);
+              }
+            }}
+          >
+            <p className="muted small-text">
+              Recording or paying an invoice requires your username in GITOWN_OPERATORS.
+            </p>
+            <label>
+              Period
+              <input name="period" required pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" />
+            </label>
+            <label>
+              Amount in cents
+              <input name="amount_cents" type="number" min={0} max={100000000} required defaultValue={0} />
+            </label>
+            <button className="button">Record invoice</button>
+          </form>
+        </section>
+      )}
+    </div>
+  );
+}
+
+export function TopicsPage({ topic }: { topic?: string }) {
+  const catalog = useData<{ items: { topic: string; repositories: number }[] }>(topic ? null : "/topics");
+  const page = useData<{ topic: string; items: Repo[] }>(
+    topic ? `/topics/${encodeURIComponent(topic)}` : null,
+  );
+  return (
+    <div className="form-page">
+      <h1>{topic ? `Topic · ${topic}` : "Topics"}</h1>
+      <p className="page-description">
+        Topics group public repositories. A topic page lists the public repositories that carry that label.
+      </p>
+      <ErrorMessage error={catalog.error || page.error} />
+      {topic ? (
+        page.loading ? (
+          <Loading />
+        ) : (
+          <ul>
+            {(page.data?.items || []).map((repo) => (
+              <li key={repo.id}>
+                <Link href={repoPath(repo)}>
+                  {repo.owner}/{repo.name}
+                </Link>
+                {repo.language ? <span className="muted"> {repo.language}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )
+      ) : catalog.loading ? (
+        <Loading />
+      ) : (
+        <ul>
+          {(catalog.data?.items || []).map((item) => (
+            <li key={item.topic}>
+              <Link href={`/topics/${item.topic}`}>{item.topic}</Link>{" "}
+              <span className="muted">{item.repositories} repositories</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
@@ -304,7 +532,7 @@ export function CratesPage() {
     <div className="form-page">
       <h1>Crates</h1>
       <p className="page-description">
-        A crate is a package record labeled npm. This is not the npm wire protocol and it does not scan for malware. Publishing rejects a few private-key headers and token prefixes.
+        A crate is a package record. Unscoped npm publish, packument, and tarball requests are served at /npm. OCI blob and manifest requests are served at /v2. Publishing checks a fixed pattern list: private-key headers, token prefixes, and a few dangerous command strings. That list is not a malware engine, and these endpoints are not a full npm registry or a container registry.
       </p>
       <ErrorMessage error={error || crates.error} />
       <form
@@ -365,7 +593,9 @@ export function CratesPage() {
 
 export function SSHKeysPage() {
   const [version, setVersion] = useState(0);
+  const [signingVersion, setSigningVersion] = useState(0);
   const keys = useData<{ items: SSHKey[] }>("/user/ssh-keys", version);
+  const signing = useData<{ items: SSHKey[] }>("/user/signing-keys", signingVersion);
   const [error, setError] = useState("");
   const [line, setLine] = useState("");
   return (
@@ -434,6 +664,64 @@ export function SSHKeysPage() {
           ))}
         </ul>
       )}
+      <h2>Signing keys</h2>
+      <p className="page-description">
+        A signing key verifies drop provenance with ssh-keygen. The same public key may also be an authentication key. Verification uses the keys you register here. It is not Sigstore and it does not consult a global keyring.
+      </p>
+      <ErrorMessage error={signing.error} />
+      <form
+        className="panel form-panel"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          setError("");
+          try {
+            await post("/user/signing-keys", {
+              title: String(data.get("title") || ""),
+              public_key: String(data.get("public_key") || ""),
+            });
+            setSigningVersion((value) => value + 1);
+            event.currentTarget.reset();
+          } catch (caught) {
+            setError((caught as Error).message);
+          }
+        }}
+      >
+        <label>
+          Title
+          <input name="title" required maxLength={80} />
+        </label>
+        <label>
+          Public key
+          <textarea name="public_key" required rows={4} />
+        </label>
+        <button className="button primary">Add signing key</button>
+      </form>
+      {signing.loading ? (
+        <Loading />
+      ) : (
+        <ul>
+          {(signing.data?.items || []).map((item) => (
+            <li key={item.id}>
+              {item.title} <code>{item.fingerprint}</code>{" "}
+              <button
+                className="text-button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove(`/user/signing-keys/${item.id}`);
+                    setSigningVersion((value) => value + 1);
+                  } catch (caught) {
+                    setError((caught as Error).message);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -455,7 +743,7 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
   return (
     <section>
       <p className="muted small-text">
-        A drop is a release for a Git tag that already exists. Provenance is publisher-supplied text and is not a verified signature.
+        A drop is a release. You can attach it to a tag that already exists, or create an annotated tag from a branch while publishing. If you supply an SSH signature, GITOWN verifies it against a signing key registered by the publisher and records that result. A note without a signature stays unverified. This is not Sigstore.
       </p>
       <ErrorMessage error={error || drops.error || detail.error} />
       {canWrite && (
@@ -470,6 +758,11 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
                 tag: String(data.get("tag") || ""),
                 title: String(data.get("title") || ""),
                 provenance: String(data.get("provenance") || ""),
+                signature: String(data.get("signature") || ""),
+                branch: String(data.get("branch") || ""),
+                create_tag: data.get("create_tag") === "on",
+                draft: data.get("draft") === "on",
+                prerelease: data.get("prerelease") === "on",
               });
               setTag(created.tag);
               setVersion((value) => value + 1);
@@ -479,16 +772,36 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
           }}
         >
           <label>
-            Existing tag
+            Tag
             <input name="tag" required />
           </label>
           <label>
             Title
             <input name="title" required maxLength={200} />
           </label>
+          <label className="checkbox-label">
+            <input name="create_tag" type="checkbox" />
+            <span>Create the annotated tag from a branch if it does not exist</span>
+          </label>
+          <label>
+            Branch
+            <input name="branch" placeholder="Default branch" />
+          </label>
           <label>
             Provenance note
-            <input name="provenance" maxLength={4000} placeholder="Publisher-supplied. Not verified." />
+            <input name="provenance" maxLength={4000} placeholder="Text that the signature covers" />
+          </label>
+          <label>
+            SSH signature
+            <textarea name="signature" rows={4} placeholder="Optional. Verified against your signing keys." />
+          </label>
+          <label className="checkbox-label">
+            <input name="draft" type="checkbox" />
+            <span>Draft</span>
+          </label>
+          <label className="checkbox-label">
+            <input name="prerelease" type="checkbox" />
+            <span>Prerelease</span>
           </label>
           <button className="button primary">Publish drop</button>
         </form>
@@ -512,7 +825,11 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
       {detail.data && tag && (
         <article className="panel">
           <h2>{detail.data.title}</h2>
-          <p>{detail.data.provenance_verified ? "Verified" : "Provenance is not verified."}</p>
+          <p>
+            {detail.data.provenance_verified
+              ? "Signature verified against an SSH signing key registered by the publisher."
+              : "Provenance is not verified. Add a signature and a registered SSH signing key to verify it."}
+          </p>
           {detail.data.provenance && <p>{detail.data.provenance}</p>}
           <pre>{detail.data.body}</pre>
           <ul>

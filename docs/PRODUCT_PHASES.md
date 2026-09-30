@@ -14,7 +14,7 @@ Remaining gate: verified email, password recovery, TOTP MFA and recovery codes, 
 
 Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection.
 
-Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, blame, compare UI, import/export, orphan reconciliation, and an embedded SSH server. This slice adds env-based repository and account quotas, `git gc` maintenance, a basic Git LFS batch upload/download path, and a forced-command SSH gateway. Quotas are checked before Git runs; one accepted pack can still overshoot because size is measured after unpack. LFS has no locking or multipart transfer. SSH is not an embedded sshd.
+Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, blame, compare UI, import/export, orphan reconciliation, and an embedded SSH server. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
 
 ## Phase 3 — Collaboration and protected delivery (partial)
 
@@ -38,36 +38,36 @@ Shipped foundation: public builder profiles, configurable repository showcases, 
 
 Shipped in this slice: watch, participate, and ignore subscription modes; mentions; assignment, review-request, merge, check, invitation, and ownership notifications; mark-all-read; configurable email preference with unsubscribe tokens; profile skills, availability, and open-to-collaborators; contribution counts and badges computed from public merged Unite requests, approvals, closed issues, and public repositories; repository homepage and tech stack; Explore search for public issues and Unite requests; and an open-to-collaborators builder filter.
 
-Remaining gate: custom domains and district boards. Badges are not commit counts. Code search in this slice is fixed-string `git grep` over a small set of recent public repositories, not an index.
+Remaining gate: custom domains and district boards. Badges are not commit counts. Ranked public code search, topic pages, and the public contribution graph are phase 6.
 
-## Phase 6 — Discovery (partial)
+## Phase 6 — Discovery (complete)
 
-Shipped in this slice: language and beginner-friendly filters, recently updated sorting, fixed-string public code search, help-wanted and good-first-task discovery, topic-overlap recommendations with a trending fallback, an hourly Spark cap counted from audit events, and user-owned community collections of public repositories.
+Shipped: language and beginner-friendly filters, recently updated sorting, ranked search of a capped public text index with a `git grep` fallback, topic catalog and topic pages, help-wanted and good-first-task discovery, topic-overlap recommendations with a trending fallback, an hourly Spark cap counted from audit events, user-owned community collections of public repositories, operator-featured collections through `GITOWN_OPERATORS`, and a 180-day public contribution graph of issues, comments, Sparks, and merged Unite requests.
 
-Remaining gate: ranked code search, staff-featured collections, contribution graphs, and custom domains. Recommendations are not a trained model.
+Boundaries: the index stores a limited number of text lines from public default branches. It is not an external search cluster. Recommendations are topic overlap, not a trained model. The contribution graph does not count private commits. Custom project domains stay later.
 
-## Phase 7 — Districts and crews (partial)
+## Phase 7 — Districts and crews (complete)
 
-Shipped in this slice: districts (organizations) with public or private visibility, owner and admin or member roles, repository creation policy, base permission on district repositories, internal repository visibility, crews (teams), crew review requests that notify members, encrypted district secrets when `GITOWN_SECRET_KEY` is set, and a district audit export.
+Shipped: districts (organizations) with public or private visibility, owner and admin or member roles, repository creation policy, base permission on district repositories, internal repository visibility, crews (teams), crew review requests that notify members, encrypted district secrets when `GITOWN_SECRET_KEY` is set, a district audit JSON view and CSV download, usage counts, an operator invoice ledger, and two enforced policies: whether the district allows public repositories and whether it allows collaborators from outside the district.
 
-Remaining gate: SAML/OIDC, billing and usage, enterprise policy management, IP restrictions, and district-wide boards. A crew request does not count as a review by itself.
+Boundaries: invoices record an amount an operator enters and can be marked paid. Responses include `charges: false`. GITOWN does not charge a card. SAML/OIDC and IP restrictions stay later. District-wide boards stay in phase 4. A crew request does not count as a review by itself.
 
-## Phase 8 — Git transport depth (partial)
+## Phase 8 — Git transport depth (complete)
 
-Shipped in this slice: user SSH keys, repository deploy keys, a forced-command `ssh-shell` gateway using the same branch protections as HTTPS, basic Git LFS batch upload and download, a shallow-clone proof through the existing smart HTTP backend, repository and account quotas from `GITOWN_REPO_QUOTA_BYTES` and `GITOWN_USER_QUOTA_BYTES`, ref-change events with old and new SHAs, maintenance via `git gc`, and tag listings that report whether a signature block is present.
+Shipped: user SSH keys, repository deploy keys, a forced-command `ssh-shell` gateway using the same branch protections as HTTPS, Git LFS batch upload and download plus path locks, shallow clone, fetch, and push through the system Git client, repository and account quotas from `GITOWN_REPO_QUOTA_BYTES` and `GITOWN_USER_QUOTA_BYTES`, ref-change events with old and new SHAs, maintenance via `git gc`, tag listings that report whether a signature block is present, and SSH signing keys used to verify drop provenance.
 
-Remaining gate: an embedded or separately hardened sshd, LFS locking, identical client testing beyond the shallow clone, and signature trust. The gateway trusts the fingerprint argument because sshd must bind it with `ForceCommand`. Run that binary as a dedicated user. Signed means a PGP or SSH signature block is present, not that a keyring trusts it. One pack can exceed a quota once; the next push is rejected.
+Boundaries: the gateway trusts the fingerprint argument because sshd must bind it with `ForceCommand`. Run that binary as a dedicated user. GITOWN does not embed sshd. LFS locks are single-request path locks, not multipart transfers. A pack is measured again after unpack; refs created or moved by that push are rolled back and the client is not told the push succeeded when the unpacked size exceeds the quota. Tag “signed” still means a signature block is present. Trust for drop provenance is `ssh-keygen -Y verify` against a key the publisher registered, not a global keyring. Client coverage is the system `git` plus the in-process gateway checks in [GIT_CLIENTS.md](GIT_CLIENTS.md).
 
-## Phase 9 — Drops and crates (partial)
+## Phase 9 — Drops and crates (complete)
 
-Shipped in this slice: drops (releases) for tags that already exist, draft and prerelease flags, notes, a generated changelog from `git log`, binary assets with SHA-256 checksums, public download counts, and publisher-supplied provenance text. Crates store package name, version, metadata, a file up to 512 KB, retention, deletion, package-scoped tokens, and a pattern check for private-key headers and a few token prefixes.
+Shipped: drops (releases) for an existing tag or for an annotated tag created at publish time, draft and prerelease flags, notes, a generated changelog from `git log`, binary assets with SHA-256 checksums, public download counts, and provenance that is marked verified only after an SSH signature matches a signing key the publisher registered. Crates store package name, version, metadata, a file up to 512 KB, retention, and deletion. Package-scoped tokens authorize crate routes. Unscoped npm publish, packument, and tarball routes are served at `/npm`. OCI blob upload and manifest routes are served at `/v2`. Publishing rejects a fixed list of private-key headers, token prefixes, and dangerous command strings.
 
-Remaining gate: npm and container wire compatibility, malware scanning, and verified provenance. The `npm` ecosystem value is a label. Provenance is not Sigstore or signature verification. The pattern check is not a malware scanner.
+Boundaries: this is not Sigstore. An empty signature stays unverified. The npm routes accept one unscoped name, not a full npm registry. The OCI routes store one blob and one manifest reference, not a full container registry. The pattern list is not a malware engine. Additional package ecosystems stay later.
 
 ## Later phases (planned)
 
 10. Integrations: durable events, signed webhooks, OAuth apps, and deployment verification.
 11. Routes: sandboxed automation runners, workflow definitions, logs, artifacts, cancellation, and check integration.
-12. Extended ecosystem: wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, billing, and high availability.
+12. Extended ecosystem: wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, card billing, and high availability. SAML/OIDC and IP restrictions stay later as well.
 
 The naming contract is defined in [NAMING.md](NAMING.md). Standard Git protocol and commands remain compatible even when GITOWN presents friendlier names in its UI and CLI.

@@ -230,6 +230,14 @@ func (a *App) createRepository(w http.ResponseWriter, r *http.Request) {
 		}
 		repo.DistrictID = district.ID
 		repo.District = district.Slug
+		if err = districtAllowsPublic(r.Context(), tx, repo.DistrictID, repo.Visibility); err != nil {
+			if errors.Is(err, errDistrictPolicy) {
+				fail(w, 403, "forbidden", "This district does not allow public repositories.")
+				return
+			}
+			serverError(w, err)
+			return
+		}
 	}
 	if repo.Visibility != "public" && repo.Visibility != "private" && !(repo.Visibility == "internal" && repo.DistrictID != "") {
 		fail(w, 422, "validation_failed", "Visibility must be public, private, or internal inside a district.")
@@ -308,6 +316,14 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Use a description up to 500 characters and select public, private, or internal visibility.")
 		return
 	}
+	if err := districtAllowsPublic(r.Context(), a.db, repo.DistrictID, in.Visibility); err != nil {
+		if errors.Is(err, errDistrictPolicy) {
+			fail(w, 403, "forbidden", "This district does not allow public repositories.")
+			return
+		}
+		serverError(w, err)
+		return
+	}
 	if _, err := a.db.Exec(
 		r.Context(),
 		`UPDATE repositories SET description=$1, visibility=$2 WHERE id=$3`,
@@ -323,6 +339,7 @@ func (a *App) updateRepository(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	_ = a.indexRepositoryCode(r.Context(), &updated)
 	if _, err = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.updated',$2)`, updated.OwnerID, updated.Owner+"/"+updated.Name); err != nil {
 		serverError(w, err)
 		return
