@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { patch, post, remove, repoPath, type Repo } from "@/lib/api";
-import { ErrorMessage, Loading, useData } from "@/components/ui";
+import {
+  ErrorMessage,
+  Loading,
+  useData,
+  WebhookSettings,
+} from "@/components/ui";
 import { BoardView } from "@/components/board";
 
 type Collection = {
@@ -588,6 +593,10 @@ export function DistrictDetail({
         <>
           <DistrictAdmin slug={slug} onChange={refresh} />
           <DistrictSecrets slug={slug} />
+          <WebhookSettings
+            endpoint={`/districts/${encodeURIComponent(slug)}`}
+            description="Send a signed HTTP POST to another service whenever something happens in any repository under this district."
+          />
         </>
       )}
       {role && <DistrictControls slug={slug} />}

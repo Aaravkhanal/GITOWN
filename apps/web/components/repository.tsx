@@ -74,6 +74,7 @@ import {
   ErrorMessage,
   Loading,
   useData,
+  WebhookSettings,
 } from "./ui";
 import { BoardView } from "./board";
 import { WatchMenu } from "./watch";
@@ -1215,6 +1216,12 @@ function RepositorySettings({
         <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       )}
       {repo.can_manage && <DeployKeySettings endpoint={endpoint} />}
+      {repo.can_manage && (
+        <WebhookSettings
+          endpoint={endpoint}
+          description="Send a signed HTTP POST to another service whenever something happens in this repository."
+        />
+      )}
       {repo.can_manage && (
         <RepositoryMaintenance
           endpoint={endpoint}

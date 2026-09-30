@@ -197,6 +197,11 @@ hr {
   background: #c1a0ef0e;
   border-color: #c1a0ef40;
 }
+.badge.red {
+  color: var(--red);
+  background: #f6a6a60a;
+  border-color: #f6a6a655;
+}
 .avatar {
   display: inline-flex;
   align-items: center;
@@ -1717,6 +1722,87 @@ textarea {
 .deploy-key-row > div span {
   color: var(--muted);
   font-size: 11px;
+}
+.webhook-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.webhook-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  color: #b9c8bf;
+  font-size: 12px;
+  font-weight: 500;
+}
+.webhook-events {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px 14px;
+}
+.webhook-events legend {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 4px;
+}
+.webhook-events .checkbox-row {
+  flex-direction: row;
+  align-items: center;
+  font-size: 12px;
+}
+.webhook-form .button {
+  align-self: start;
+}
+.webhook-list {
+  border-top: 1px solid var(--border);
+  margin: 20px -24px -24px;
+}
+.webhook-row-group {
+  border-bottom: 1px solid var(--border);
+}
+.webhook-row-group:last-child {
+  border-bottom: 0;
+}
+.webhook-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+}
+.webhook-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.webhook-row > div span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.webhook-deliveries {
+  padding: 0 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.webhook-delivery-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.webhook-delivery-row > span:first-child {
+  flex: 1;
+  min-width: 0;
 }
 .danger-icon {
   color: var(--red);

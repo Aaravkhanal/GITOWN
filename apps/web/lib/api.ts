@@ -119,6 +119,38 @@ export type RefEvent = {
   actor: string;
   created_at: string;
 };
+export type WebhookEvent =
+  | "push"
+  | "issue.opened"
+  | "issue.closed"
+  | "issue.reopened"
+  | "issue.commented"
+  | "pull.opened"
+  | "pull.closed"
+  | "pull.reopened"
+  | "pull.merged"
+  | "pull.reviewed"
+  | "pull.commented"
+  | "drop.published";
+export type Webhook = {
+  id: string;
+  url: string;
+  events: WebhookEvent[];
+  active: boolean;
+  created_at: string;
+  secret?: string;
+};
+export type WebhookDelivery = {
+  id: string;
+  event: string;
+  status: "pending" | "sending" | "success" | "failed";
+  attempts: number;
+  response_status: number | null;
+  response_body: string | null;
+  last_error: string | null;
+  created_at: string;
+  delivered_at: string | null;
+};
 export type Commit = {
   sha: string;
   message: string;
