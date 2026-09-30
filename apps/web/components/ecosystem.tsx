@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { patch, post, put, remove, repoPath, type Repo } from "@/lib/api";
+import { patch, post, remove, repoPath, type Repo } from "@/lib/api";
 import { ErrorMessage, Loading, useData } from "@/components/ui";
 import { BoardView } from "@/components/board";
 
@@ -38,6 +38,14 @@ type Crate = {
   visibility: string;
   owner: string;
   retention: number;
+  ecosystem: string;
+};
+type CrateVersion = {
+  version: string;
+  metadata: string;
+  sha256: string;
+  size_bytes: number;
+  created_at: string;
 };
 type SSHKey = {
   id: string;
@@ -56,7 +64,117 @@ type DropAsset = {
   sha256: string;
   size_bytes: number;
   download_count: number;
+  content_type: string;
 };
+
+const inlinePattern =
+  /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|_([^_\n]+)_|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/;
+
+/** Renders a run of inline markdown (code/bold/italic/links) as safe React
+ * nodes. Never interprets the text as HTML. */
+function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+  while (remaining) {
+    const match = inlinePattern.exec(remaining);
+    if (!match || match.index === undefined) {
+      nodes.push(remaining);
+      break;
+    }
+    if (match.index > 0) nodes.push(remaining.slice(0, match.index));
+    const id = `${keyPrefix}-${key++}`;
+    if (match[1] !== undefined) nodes.push(<code key={id}>{match[1]}</code>);
+    else if (match[2] !== undefined)
+      nodes.push(<strong key={id}>{match[2]}</strong>);
+    else if (match[3] !== undefined) nodes.push(<em key={id}>{match[3]}</em>);
+    else if (match[4] !== undefined) nodes.push(<em key={id}>{match[4]}</em>);
+    else if (match[5] !== undefined)
+      nodes.push(
+        <a key={id} href={match[6]} target="_blank" rel="noreferrer noopener">
+          {match[5]}
+        </a>,
+      );
+    remaining = remaining.slice(match.index + match[0].length);
+  }
+  return nodes;
+}
+
+/** A minimal, safe Markdown renderer for release notes: headings, bold,
+ * italic, inline code, fenced code blocks, links, and lists. Everything is
+ * built as React elements, never as raw HTML, so there is no injection risk
+ * regardless of what a release note contains. */
+function ReleaseNotes({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+  let blockKey = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    if (line.startsWith("```")) {
+      const fence: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        fence.push(lines[i]);
+        i++;
+      }
+      i++;
+      blocks.push(
+        <pre key={blockKey++}>
+          <code>{fence.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    if (heading) {
+      const key = blockKey++;
+      const content = renderInline(heading[2], `h-${key}`);
+      if (heading[1].length === 1) blocks.push(<h3 key={key}>{content}</h3>);
+      else if (heading[1].length === 2)
+        blocks.push(<h4 key={key}>{content}</h4>);
+      else blocks.push(<h5 key={key}>{content}</h5>);
+      i++;
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*]\s+/, ""));
+        i++;
+      }
+      const key = blockKey++;
+      blocks.push(
+        <ul key={key}>
+          {items.map((item, index) => (
+            <li key={index}>{renderInline(item, `li-${key}-${index}`)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    const paragraph: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].startsWith("```") &&
+      !/^(#{1,3})\s+/.test(lines[i]) &&
+      !/^[-*]\s+/.test(lines[i])
+    ) {
+      paragraph.push(lines[i]);
+      i++;
+    }
+    const key = blockKey++;
+    blocks.push(
+      <p key={key}>{renderInline(paragraph.join(" "), `p-${key}`)}</p>,
+    );
+  }
+  return <div className="release-notes">{blocks}</div>;
+}
 
 export function ExploreMore() {
   const recommendations = useData<{ items: Repo[]; personalized: boolean }>(
@@ -1421,53 +1539,70 @@ function DistrictAdmin({
   );
 }
 
-export function CratesPage() {
+function CrateDetail({
+  name,
+  ecosystem,
+  onClose,
+}: {
+  name: string;
+  ecosystem: string;
+  onClose: () => void;
+}) {
   const [version, setVersion] = useState(0);
-  const crates = useData<{ items: Crate[] }>("/crates", version);
   const [error, setError] = useState("");
+  const crate = useData<Crate & { versions: CrateVersion[] }>(
+    `/crates/${encodeURIComponent(name)}?ecosystem=${ecosystem}`,
+    version,
+  );
+  if (crate.loading) return <Loading />;
+  if (crate.error || !crate.data)
+    return <ErrorMessage error={crate.error || "Package not found."} />;
   return (
-    <div className="form-page">
-      <h1>Crates</h1>
-      <p className="page-description">
-        A crate is a package record. Unscoped npm publish, packument, and
-        tarball requests are served at /npm. OCI blob and manifest requests are
-        served at /v2. Publishing checks a fixed pattern list: private-key
-        headers, token prefixes, and a few dangerous command strings. That list
-        is not a malware engine, and these endpoints are not a full npm registry
-        or a container registry.
+    <article className="panel">
+      <div className="section-heading">
+        <h2>{crate.data.name}</h2>
+        <button className="text-button" onClick={onClose}>
+          Back to crates
+        </button>
+      </div>
+      <ErrorMessage error={error} />
+      <p className="muted small-text">
+        {crate.data.ecosystem} · {crate.data.visibility} · keep{" "}
+        {crate.data.retention} version{crate.data.retention === 1 ? "" : "s"}
       </p>
-      <ErrorMessage error={error || crates.error} />
+      {crate.data.description && <p>{crate.data.description}</p>}
       <form
-        className="panel form-panel"
+        className="form-panel"
         onSubmit={async (event) => {
           event.preventDefault();
           const data = new FormData(event.currentTarget);
           setError("");
           try {
-            await post("/crates", {
-              name: String(data.get("name") || ""),
-              description: String(data.get("description") || ""),
-              visibility: String(data.get("visibility") || "public"),
-              retention: Number(data.get("retention") || 20),
-            });
+            await patch(
+              `/crates/${encodeURIComponent(name)}?ecosystem=${ecosystem}`,
+              {
+                description: String(data.get("description") || ""),
+                visibility: String(data.get("visibility") || "public"),
+                retention: Number(data.get("retention") || 20),
+              },
+            );
             setVersion((value) => value + 1);
-            event.currentTarget.reset();
           } catch (caught) {
             setError((caught as Error).message);
           }
         }}
       >
         <label>
-          Name
-          <input name="name" required pattern="[a-z0-9][a-z0-9._-]{0,60}" />
-        </label>
-        <label>
           Description
-          <input name="description" maxLength={500} />
+          <input
+            name="description"
+            maxLength={500}
+            defaultValue={crate.data.description}
+          />
         </label>
         <label>
           Visibility
-          <select name="visibility" defaultValue="public">
+          <select name="visibility" defaultValue={crate.data.visibility}>
             <option value="public">Public</option>
             <option value="private">Private</option>
           </select>
@@ -1479,22 +1614,165 @@ export function CratesPage() {
             type="number"
             min={1}
             max={100}
-            defaultValue={20}
+            defaultValue={crate.data.retention}
           />
         </label>
-        <button className="button primary">Create crate</button>
+        <button className="button">Save settings</button>
       </form>
-      {crates.loading ? (
-        <Loading />
-      ) : (
+      <h3>Versions</h3>
+      {crate.data.versions.length ? (
         <ul>
-          {(crates.data?.items || []).map((item) => (
-            <li key={item.name}>
-              {item.owner}/{item.name} · {item.visibility} · keep{" "}
-              {item.retention}
+          {crate.data.versions.map((item) => (
+            <li key={item.version}>
+              <a
+                href={`/api/v1/crates/${encodeURIComponent(name)}/versions/${encodeURIComponent(item.version)}/download?ecosystem=${ecosystem}`}
+              >
+                {item.version}
+              </a>{" "}
+              <span className="muted">
+                {item.size_bytes} bytes · {item.sha256}
+              </span>
+              <button
+                className="text-button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove(
+                      `/crates/${encodeURIComponent(name)}/versions/${encodeURIComponent(item.version)}?ecosystem=${ecosystem}`,
+                    );
+                    setVersion((value) => value + 1);
+                  } catch (caught) {
+                    setError((caught as Error).message);
+                  }
+                }}
+              >
+                Delete
+              </button>
             </li>
           ))}
         </ul>
+      ) : (
+        <p className="muted small-text">
+          No versions published yet. Publish with npm publish (for npm crates)
+          or the generic /crates/{"{name}"}/versions API.
+        </p>
+      )}
+    </article>
+  );
+}
+
+export function CratesPage() {
+  const [version, setVersion] = useState(0);
+  const [ecosystem, setEcosystem] = useState("npm");
+  const [open, setOpen] = useState<string | null>(null);
+  const crates = useData<{ items: Crate[] }>(
+    `/crates?ecosystem=${ecosystem}`,
+    version,
+  );
+  const [error, setError] = useState("");
+  return (
+    <div className="form-page">
+      <h1>Crates</h1>
+      <p className="page-description">
+        A crate is a package record. Unscoped npm publish, packument, and
+        tarball requests are served at /npm. OCI blob and manifest requests are
+        served at /v2 and share this same visibility model — a pushed image is
+        private until its owner makes it public here. Publishing checks a fixed
+        pattern list: private-key headers, token prefixes, and a few dangerous
+        command strings. That list is not a malware engine, and these endpoints
+        are not a full npm registry or a container registry.
+      </p>
+      <ErrorMessage error={error || crates.error} />
+      {open ? (
+        <CrateDetail
+          name={open}
+          ecosystem={ecosystem}
+          onClose={() => setOpen(null)}
+        />
+      ) : (
+        <>
+          <div className="toolbar">
+            <button
+              className={`text-button ${ecosystem === "npm" ? "active" : ""}`}
+              onClick={() => setEcosystem("npm")}
+            >
+              npm
+            </button>
+            <button
+              className={`text-button ${ecosystem === "oci" ? "active" : ""}`}
+              onClick={() => setEcosystem("oci")}
+            >
+              OCI images
+            </button>
+          </div>
+          <form
+            className="panel form-panel"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const data = new FormData(event.currentTarget);
+              setError("");
+              try {
+                await post("/crates", {
+                  name: String(data.get("name") || ""),
+                  description: String(data.get("description") || ""),
+                  visibility: String(data.get("visibility") || "public"),
+                  retention: Number(data.get("retention") || 20),
+                  ecosystem,
+                });
+                setVersion((value) => value + 1);
+                event.currentTarget.reset();
+              } catch (caught) {
+                setError((caught as Error).message);
+              }
+            }}
+          >
+            <label>
+              Name
+              <input name="name" required pattern="[a-z0-9][a-z0-9._-]{0,60}" />
+            </label>
+            <label>
+              Description
+              <input name="description" maxLength={500} />
+            </label>
+            <label>
+              Visibility
+              <select name="visibility" defaultValue="public">
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </label>
+            <label>
+              Retention
+              <input
+                name="retention"
+                type="number"
+                min={1}
+                max={100}
+                defaultValue={20}
+              />
+            </label>
+            <button className="button primary">
+              Create {ecosystem === "oci" ? "OCI record" : "crate"}
+            </button>
+          </form>
+          {crates.loading ? (
+            <Loading />
+          ) : (
+            <ul>
+              {(crates.data?.items || []).map((item) => (
+                <li key={item.name}>
+                  <button
+                    className="text-button"
+                    onClick={() => setOpen(item.name)}
+                  >
+                    {item.owner}/{item.name}
+                  </button>{" "}
+                  · {item.visibility} · keep {item.retention}
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
@@ -1657,12 +1935,16 @@ export function DropsPanel({
   const [version, setVersion] = useState(0);
   const [tag, setTag] = useState("");
   const [error, setError] = useState("");
-  const drops = useData<{ items: DropItem[] }>(`${endpoint}/drops`, version);
+  const drops = useData<{ items: DropItem[]; latest: string }>(
+    `${endpoint}/drops`,
+    version,
+  );
   const detail = useData<{
     title: string;
     body: string;
     provenance: string;
     provenance_verified: boolean;
+    tag_signed: boolean;
     draft: boolean;
     assets: DropAsset[];
     changelog: string[];
@@ -1750,29 +2032,53 @@ export function DropsPanel({
       {drops.loading ? (
         <Loading />
       ) : (
-        <ul>
-          {(drops.data?.items || []).map((item) => (
-            <li key={item.tag}>
-              <button className="text-button" onClick={() => setTag(item.tag)}>
-                {item.tag}
-              </button>{" "}
-              {item.title}
-              {item.prerelease ? " · prerelease" : ""}
-              {item.draft ? " · draft" : ""}
-            </li>
-          ))}
-        </ul>
+        <>
+          {drops.data?.latest && (
+            <p className="muted small-text">
+              Latest release:{" "}
+              <button
+                className="text-button"
+                onClick={() => setTag(drops.data!.latest)}
+              >
+                {drops.data.latest}
+              </button>
+            </p>
+          )}
+          <ul>
+            {(drops.data?.items || []).map((item) => (
+              <li key={item.tag}>
+                <button
+                  className="text-button"
+                  onClick={() => setTag(item.tag)}
+                >
+                  {item.tag}
+                </button>{" "}
+                {item.title}
+                {item.tag === drops.data?.latest ? " · latest" : ""}
+                {item.prerelease ? " · prerelease" : ""}
+                {item.draft ? " · draft" : ""}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {detail.data && tag && (
         <article className="panel">
           <h2>{detail.data.title}</h2>
-          <p>
+          <p className="muted small-text">
+            Tag signature:{" "}
+            {detail.data.tag_signed
+              ? "verified — this Git tag carries a good signature from a registered signing key."
+              : "unverified — this Git tag is unsigned, or its signature does not match a registered key."}
+          </p>
+          <p className="muted small-text">
+            Release provenance:{" "}
             {detail.data.provenance_verified
-              ? "Signature verified against an SSH signing key registered by the publisher."
-              : "Provenance is not verified. Add a signature and a registered SSH signing key to verify it."}
+              ? "verified — the publisher signed a note about this release with a registered SSH signing key."
+              : "unverified — no signed note was attached to this release."}
           </p>
           {detail.data.provenance && <p>{detail.data.provenance}</p>}
-          <pre>{detail.data.body}</pre>
+          <ReleaseNotes text={detail.data.body} />
           <ul>
             {(detail.data.assets || []).map((asset) => (
               <li key={asset.name}>
@@ -1782,7 +2088,8 @@ export function DropsPanel({
                   {asset.name}
                 </a>{" "}
                 <span className="muted">
-                  {asset.download_count} downloads · {asset.sha256}
+                  {asset.content_type} · {asset.download_count} downloads ·{" "}
+                  {asset.sha256}
                 </span>
                 {canWrite && (
                   <button
@@ -1843,7 +2150,7 @@ export function DropsPanel({
               onClick={async () => {
                 setError("");
                 try {
-                  await put(`${endpoint}/drops/${encodeURIComponent(tag)}`, {
+                  await patch(`${endpoint}/drops/${encodeURIComponent(tag)}`, {
                     draft: false,
                   });
                   setVersion((value) => value + 1);
