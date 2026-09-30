@@ -36,7 +36,13 @@ import {
   Rss,
   X,
 } from "lucide-react";
-import { CratesPage, DistrictsPage, ExploreMore, SSHKeysPage, TopicsPage } from "@/components/ecosystem";
+import {
+  CratesPage,
+  DistrictsPage,
+  ExploreMore,
+  SSHKeysPage,
+  TopicsPage,
+} from "@/components/ecosystem";
 import {
   api,
   post,
@@ -254,14 +260,22 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <Hash size={17} /> Topics
               </Link>
               <Link
-                className={section === "settings" ? "selected" : ""}
+                className={
+                  section === "settings" && segments[1] === "tokens"
+                    ? "selected"
+                    : ""
+                }
                 href="/settings/tokens"
               >
                 <KeyRound size={17} /> Access tokens
               </Link>
               {user && (
                 <Link
-                  className={section === "settings" && segments[1] === "keys" ? "selected" : ""}
+                  className={
+                    section === "settings" && segments[1] === "keys"
+                      ? "selected"
+                      : ""
+                  }
                   href="/settings/keys"
                 >
                   <KeyRound size={17} /> SSH keys
@@ -273,22 +287,50 @@ export function Workspace({ segments }: { segments: string[] }) {
                 </Link>
               )}
               {user && (
-                <Link className="" href="/settings/profile">
+                <Link
+                  className={
+                    section === "settings" && segments[1] === "profile"
+                      ? "selected"
+                      : ""
+                  }
+                  href="/settings/profile"
+                >
                   <ShieldCheck size={17} /> Edit profile
                 </Link>
               )}
               {user && (
-                <Link className="" href="/settings/sessions">
+                <Link
+                  className={
+                    section === "settings" && segments[1] === "sessions"
+                      ? "selected"
+                      : ""
+                  }
+                  href="/settings/sessions"
+                >
                   <ShieldCheck size={17} /> Signed-in devices
                 </Link>
               )}
               {user && (
-                <Link className="" href="/settings/security">
+                <Link
+                  className={
+                    section === "settings" && segments[1] === "security"
+                      ? "selected"
+                      : ""
+                  }
+                  href="/settings/security"
+                >
                   <LockKeyhole size={17} /> Account security
                 </Link>
               )}
               {user && (
-                <Link className="" href="/settings/repositories">
+                <Link
+                  className={
+                    section === "settings" && segments[1] === "repositories"
+                      ? "selected"
+                      : ""
+                  }
+                  href="/settings/repositories"
+                >
                   <Trash2 size={17} /> Deleted repositories
                 </Link>
               )}
@@ -900,11 +942,11 @@ function Dashboard({ explore }: { explore: boolean }) {
                 >
                   <div className="repo-card-main">
                     <h3>
-                      {item.title}{" "}
-                      <span className="muted">#{item.number}</span>
+                      {item.title} <span className="muted">#{item.number}</span>
                     </h3>
                     <p>
-                      {item.owner}/{item.repository} · {item.kind} · {item.state}
+                      {item.owner}/{item.repository} · {item.kind} ·{" "}
+                      {item.state}
                     </p>
                     {item.preview && <p>{item.preview}</p>}
                   </div>

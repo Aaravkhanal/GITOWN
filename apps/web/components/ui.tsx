@@ -6,23 +6,30 @@ import { api } from "@/lib/api";
 
 export function useData<T>(path: string | null, version = 0) {
   const [state, setState] = useState<{
+    path?: string | null;
     data?: T;
     error?: string;
     loading: boolean;
-  }>({ loading: !!path });
+  }>({ path, loading: !!path });
   useEffect(() => {
     let current = true;
     if (!path) {
-      setState({ loading: false });
+      setState({ path, loading: false });
       return;
     }
-    setState({ loading: true });
+    // Refreshing the same resource keeps the current data on screen so
+    // saving a form does not unmount the page behind a loading spinner.
+    setState((previous) =>
+      previous.path === path && previous.data !== undefined
+        ? previous
+        : { path, loading: true },
+    );
     api<T>(path)
       .then((data) => {
-        if (current) setState({ data, loading: false });
+        if (current) setState({ path, data, loading: false });
       })
       .catch((error) => {
-        if (current) setState({ error: error.message, loading: false });
+        if (current) setState({ path, error: error.message, loading: false });
       });
     return () => {
       current = false;
