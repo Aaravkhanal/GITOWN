@@ -6,27 +6,19 @@ For the user-facing numbered product plan and its exact completion gates, see [P
 
 ## Current product boundary
 
-GITOWN already supports accounts, private/public/internal repositories, role-based collaborators, HTTP Git clone/fetch/push, a forced-command SSH gateway, Git LFS batch transfer and path locks, repository browsing, issues with planning views, same-repository Unite requests with reviews and Merge Guards, notifications, public discovery, districts and crews, Drops, crate records with an unscoped npm subset and an OCI blob and manifest subset, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
+GITOWN already supports accounts, private/public/internal repositories, invitation-based collaborators with role changes and confirmed ownership transfer, HTTP and SSH Git clone/fetch/push, a forced-command SSH gateway, Git LFS batch transfer and path locks, repository browsing, issues with planning views and district-wide boards, same-repository Unite requests with formal reviews, inline diff comments, and branch rules enforced identically across browser edits, API merges, HTTPS, and SSH, a durable notification and email-outbox pipeline, public discovery, districts and crews, Drops, crate records with an unscoped npm subset and an OCI blob and manifest subset, repository lifecycle recovery, a local CLI, backups, and browser/integration tests.
 
-It remains a development alpha. It is not yet safe for untrusted public hosting. Product phases 6–9 are complete for their in-scope list, with the boundaries in [PRODUCT_PHASES.md](PRODUCT_PHASES.md): capped code search, an invoice ledger that does not charge a card, a forced-command SSH gateway, SSH-key provenance, an unscoped npm subset, an OCI blob and manifest subset, and a fixed pattern list. SAML/OIDC, IP restrictions, an embedded sshd, Sigstore, card charging, and a full npm or container registry stay later. Phases 1–5 and the delivery order below still have open gates.
+It remains a development alpha. It is not yet safe for untrusted public hosting. Product phases 3–9 are complete for their in-scope list, with the boundaries in [PRODUCT_PHASES.md](PRODUCT_PHASES.md): no merge queue or forks yet, an invoice ledger that does not charge a card, a forced-command SSH gateway, SSH-key provenance, an unscoped npm subset, an OCI blob and manifest subset, and a fixed pattern list. SAML/OIDC, IP restrictions, an embedded sshd, Sigstore, card charging, and a full npm or container registry stay later. Phases 1–2 and the remaining delivery order below still have open gates.
 
 ## Delivery order
 
-### 1. Collaboration core
+### 1. Collaboration core (complete)
 
-- Pull-request discussions and a unified timeline.
-- Formal reviews: approve, request changes, dismiss, and stale-review handling.
-- Inline diff comments anchored to commit, file, side, and line.
-- PR assignees, mentions, subscriptions, and an in-app inbox. Issue assignees and milestones are shipped.
-- Edit history and moderation controls for user-authored content.
+Unite request discussions, a deduplicated timeline, formal reviews (approve, request changes, dismiss with an audit event, stale-review handling), inline diff comments anchored to commit/file/side/line with replies and resolution, assignees, mentions, subscriptions, an in-app inbox, and comment edit history all shipped in phase 3.
 
-### 2. Protected delivery
+### 2. Protected delivery (complete)
 
-- Branch-rule data model and repository settings UI.
-- Required pull requests, approvals, resolved conversations, and status checks.
-- Consistent policy enforcement in HTTP push and API merges.
-- Squash/rebase merge methods, source-branch deletion, and deterministic stale-head behavior.
-- Status/check API followed by a safe merge queue.
+The branch-rule data model and settings UI, required Unite requests, approvals, resolved conversations, named reviewers/crews, and status checks, consistent policy enforcement across browser edits, API merges, HTTPS pushes, and SSH pushes, squash/rebase/merge methods with protection-aware source-branch deletion, and a status/check API all shipped in phase 3. A safe merge queue stays later.
 
 ### 3. Identity and account security
 
