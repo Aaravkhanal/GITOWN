@@ -16,6 +16,7 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/Aaravkhanal/GITOWN/internal/config"
 	"github.com/Aaravkhanal/GITOWN/internal/gitstore"
+	"github.com/Aaravkhanal/GITOWN/internal/version"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -29,6 +30,9 @@ type App struct {
 	passwords  chan struct{}
 	transports chan struct{}
 	dummyHash  string
+	// mailer delivers rendered email; nil means SMTP is not configured and
+	// queued mail is recorded as suppressed rather than sent.
+	mailer func(context.Context, outgoingMail) error
 }
 type rateWindow struct {
 	count int
@@ -48,7 +52,11 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{cfg: cfg, db: db, git: git, rates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_"))}, nil
+	a := &App{cfg: cfg, db: db, git: git, rates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_"))}
+	if cfg.SMTPAddr != "" {
+		a.mailer = a.sendSMTP
+	}
+	return a, nil
 }
 
 func (a *App) Handler() http.Handler {
@@ -60,23 +68,27 @@ func (a *App) Handler() http.Handler {
 			fail(w, 503, "unavailable", "Database is unavailable.")
 			return
 		}
-		respond(w, 200, map[string]string{"status": "ok"})
+		respond(w, 200, map[string]string{"status": "ok", "version": version.Version})
 	})
 	mux.HandleFunc("POST /api/v1/auth/register", a.register)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", a.me)
 	mux.HandleFunc("GET /api/v1/users/{username}/profile", a.profile)
+	mux.HandleFunc("GET /api/v1/users/{username}/followers", a.followers)
+	mux.HandleFunc("GET /api/v1/users/{username}/following", a.following)
 	mux.HandleFunc("PUT /api/v1/users/{username}/follow", a.updateFollow)
 	mux.HandleFunc("PUT /api/v1/user/profile", a.updateProfile)
 	mux.HandleFunc("PUT /api/v1/user/showcase", a.updateShowcase)
 	mux.HandleFunc("GET /api/v1/user/notifications", a.notifications)
+	mux.HandleFunc("GET /api/v1/user/notifications/unread-count", a.unreadNotifications)
 	mux.HandleFunc("GET /api/v1/user/feed", a.feed)
 	mux.HandleFunc("PUT /api/v1/user/notifications/read", a.readAllNotifications)
 	mux.HandleFunc("PUT /api/v1/user/notifications/{id}/read", a.readNotification)
 	mux.HandleFunc("GET /api/v1/user/email-notifications", a.emailPreference)
 	mux.HandleFunc("PUT /api/v1/user/email-notifications", a.updateEmailPreference)
 	mux.HandleFunc("GET /api/v1/email/unsubscribe", a.unsubscribeEmail)
+	mux.HandleFunc("POST /api/v1/email/unsubscribe", a.confirmUnsubscribe)
 	mux.HandleFunc("GET /api/v1/user/invitations", a.userInvitations)
 	mux.HandleFunc("POST /api/v1/user/invitations/{id}/accept", a.respondInvitation)
 	mux.HandleFunc("POST /api/v1/user/invitations/{id}/decline", a.respondInvitation)
@@ -175,6 +187,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/transfer", a.createTransfer)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/transfer", a.cancelTransfer)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/presentation", a.updatePresentation)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/showcase", a.repositoryShowcase)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/subscription", a.repositorySubscription)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/subscription", a.updateRepositorySubscription)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/branch-rules", a.branchRule)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/branch-rules", a.updateBranchRule)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/issues", a.issues)
@@ -286,7 +301,10 @@ func (a *App) Handler() http.Handler {
 				limit = 8 << 20
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
-			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
+			// RFC 8058 one-click unsubscribe comes from mail clients: no
+			// Origin header, form-encoded body, secret token in the URL.
+			oneClick := r.Method == "POST" && r.URL.Path == "/api/v1/email/unsubscribe" && r.URL.Query().Get("token") != ""
+			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick {
 				if r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
 					return

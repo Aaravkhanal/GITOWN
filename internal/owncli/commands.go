@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-const Version = "0.1.0"
-
 type Command struct {
 	Name        string
 	GitArgs     []string

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Aaravkhanal/GITOWN/internal/app"
 	"github.com/Aaravkhanal/GITOWN/internal/config"
+	"github.com/Aaravkhanal/GITOWN/internal/version"
 	"github.com/Aaravkhanal/GITOWN/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -58,6 +59,7 @@ func run() error {
 		}
 		return nil
 	}
+	application.StartWorkers(ctx)
 	server := &http.Server{Addr: cfg.Address, Handler: application.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 2 * time.Minute, WriteTimeout: 3 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 32 * 1024}
 	go func() {
 		<-ctx.Done()
@@ -65,7 +67,7 @@ func run() error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	slog.Info("GITOWN API ready", "address", cfg.Address, "origin", cfg.Origin)
+	slog.Info("GITOWN API ready", "address", cfg.Address, "origin", cfg.Origin, "version", version.Version, "smtp", cfg.SMTPAddr != "")
 	err = server.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

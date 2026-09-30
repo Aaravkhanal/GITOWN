@@ -203,7 +203,7 @@ func (a *App) createPullThread(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_comment", "", thread.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -581,63 +581,12 @@ func (a *App) updateCommitStatus(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "The target URL must be an http or https link up to 500 characters.")
 		return
 	}
-	var matches []string
-	if in.State != "pending" {
-		rows, err := a.db.Query(r.Context(), `SELECT id,head_branch FROM pull_requests WHERE repository_id=$1 AND state='open'`, repo.ID)
-		if err != nil {
-			serverError(w, err)
-			return
-		}
-		type candidate struct{ id, branch string }
-		var candidates []candidate
-		for rows.Next() {
-			var item candidate
-			if err = rows.Scan(&item.id, &item.branch); err != nil {
-				rows.Close()
-				serverError(w, err)
-				return
-			}
-			candidates = append(candidates, item)
-		}
-		rows.Close()
-		if err = rows.Err(); err != nil {
-			serverError(w, err)
-			return
-		}
-		for _, item := range candidates {
-			if head, resolveErr := a.git.Resolve(r.Context(), repo.ID, item.branch); resolveErr == nil && head == sha {
-				matches = append(matches, item.id)
-			}
-		}
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
+	if _, err := a.db.Exec(r.Context(), `INSERT INTO commit_statuses(repository_id,sha,context,state,description,target_url,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(repository_id,sha,context) DO UPDATE SET state=excluded.state,description=excluded.description,target_url=excluded.target_url,updated_by=excluded.updated_by,updated_at=now()`, repo.ID, sha, in.Context, in.State, in.Description, in.TargetURL, u.ID); err != nil {
 		serverError(w, err)
 		return
 	}
-	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `INSERT INTO commit_statuses(repository_id,sha,context,state,description,target_url,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(repository_id,sha,context) DO UPDATE SET state=excluded.state,description=excluded.description,target_url=excluded.target_url,updated_by=excluded.updated_by,updated_at=now()`, repo.ID, sha, in.Context, in.State, in.Description, in.TargetURL, u.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	kind := "check_success"
-	if in.State != "success" {
-		kind = "check_failure"
-	}
-	for _, pullID := range matches {
-		if err = notifyPullKey(r.Context(), tx, pullID, u.ID, kind, sha+":"+in.Context+":"+in.State); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'commit.status',$2)`, u.ID, fmt.Sprintf("%s/%s@%s:%s=%s", repo.Owner, repo.Name, sha, in.Context, in.State)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
+	a.notifyCheckResult(r.Context(), repo, u.ID, sha, in.Context, in.State, in.Description)
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'commit.status',$2)`, u.ID, fmt.Sprintf("%s/%s@%s:%s=%s", repo.Owner, repo.Name, sha, in.Context, in.State))
 	respond(w, 200, map[string]string{"sha": sha, "context": in.Context, "state": in.State, "description": in.Description, "target_url": in.TargetURL})
 }
 

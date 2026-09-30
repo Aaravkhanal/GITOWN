@@ -428,7 +428,7 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = a.noteMentions(r.Context(), tx, repo, u, i.Body, i.ID, "", ""); err != nil {
+	if err = a.AnnounceIssue(r.Context(), tx, repo, u, i.ID, i.Title+"\n"+i.Body); err != nil {
 		serverError(w, err)
 		return
 	}

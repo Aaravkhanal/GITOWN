@@ -124,7 +124,11 @@ func (a *App) contributions(w http.ResponseWriter, r *http.Request) {
 		UNION ALL
 		SELECT to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM issue_comments c JOIN issues i ON i.id=c.issue_id JOIN repositories r ON r.id=i.repository_id WHERE c.author_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL AND c.created_at>now()-interval '180 days'
 		UNION ALL
-		SELECT to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM repository_sparks s JOIN repositories r ON r.id=s.repository_id WHERE s.user_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL AND s.created_at>now()-interval '180 days'
+		SELECT to_char(e.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM ref_events e JOIN repositories r ON r.id=e.repository_id WHERE e.actor_id=$1 AND e.new_sha<>repeat('0',40) AND r.visibility='public' AND r.deleted_at IS NULL AND e.created_at>now()-interval '180 days'
+		UNION ALL
+		SELECT to_char(rv.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM pull_reviews rv JOIN pull_requests p ON p.id=rv.pull_request_id JOIN repositories r ON r.id=p.repository_id WHERE rv.reviewer_id=$1 AND p.author_id<>$1 AND r.visibility='public' AND r.deleted_at IS NULL AND rv.created_at>now()-interval '180 days'
+		UNION ALL
+		SELECT to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM pull_comments c JOIN pull_requests p ON p.id=c.pull_request_id JOIN repositories r ON r.id=p.repository_id WHERE c.author_id=$1 AND r.visibility='public' AND r.deleted_at IS NULL AND c.created_at>now()-interval '180 days'
 		UNION ALL
 		SELECT to_char(COALESCE(p.merged_at, p.created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM pull_requests p JOIN repositories r ON r.id=p.repository_id WHERE p.author_id=$1 AND p.state='merged' AND r.visibility='public' AND r.deleted_at IS NULL AND COALESCE(p.merged_at, p.created_at)>now()-interval '180 days'
 	) events GROUP BY day ORDER BY day`, userID)

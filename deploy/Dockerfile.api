@@ -5,7 +5,9 @@ RUN go mod download
 COPY apps/server ./apps/server
 COPY internal ./internal
 COPY migrations ./migrations
-RUN CGO_ENABLED=0 go build -trimpath -o /gitown ./apps/server
+COPY package.json ./package.json
+RUN version=$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json) \
+    && CGO_ENABLED=0 go build -trimpath -ldflags "-X github.com/Aaravkhanal/GITOWN/internal/version.Version=${version}" -o /gitown ./apps/server
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && rm -rf /var/lib/apt/lists/* \

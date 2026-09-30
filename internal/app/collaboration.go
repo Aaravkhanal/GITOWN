@@ -430,6 +430,10 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.AnnouncePull(r.Context(), tx, repo, u, p.ID, p.Title+"\n"+p.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'opened',$3)`, p.ID, u.ID, p.Title); err != nil {
 		serverError(w, err)
 		return
@@ -665,7 +669,7 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_comment", "", comment.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -781,7 +785,11 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_review"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_review", "", review.Body); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, review.Body, "", p.ID, "review-"+review.ID); err != nil {
 		serverError(w, err)
 		return
 	}

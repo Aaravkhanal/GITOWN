@@ -18,12 +18,13 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
 - Same-repository Unite requests with drafts, close/reopen, discussions, inline line comments, requested reviewers, formal approve/request-changes reviews tied to exact head commits, review dismissal, owner-configured Merge Guards, squash/rebase/merge, optional source-branch deletion, actual Git diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery.
-- Repository invitations, ownership-transfer confirmation, and an email outbox that uses SMTP only when it is configured.
+- Repository invitations, ownership-transfer confirmation, and a durable email outbox: a background worker sends each notification with retries and backoff, bundles digest readers' updates into one email per interval, adds per-message unsubscribe links with one-click support, and records mail as suppressed when SMTP is not configured.
 - Issue planning with priority, iteration, estimates, due dates, duplicates, comment editing, and board, table, and roadmap views.
-- Explore search across public issues and Unite requests, profile skills and availability, and watch/participate/ignore notifications.
-- Issue and Unite following with inbox updates for discussions, reviews, state changes, and merges.
+- Explore search across public issues and Unite requests, and builder search by skills, location, and availability.
+- Notifications: repository watching (owners and maintainers watch by default), per-thread watch/participate/ignore, mentions in bodies, comments, reviews, and edits, assignment and review-request notices, check results for Unite authors, follower notices, and a paged inbox with unread counts and filters.
 - Issue creation, descriptions, close/reopen, assignees, milestones with due dates and progress, chronological discussions, reusable colored labels, and activity history.
-- Public builder profiles with bio, location, HTTPS website, public repository listings, and a six-repository showcase.
+- Public builder profiles with bio, location, skills, up to five links, follower and following lists, contribution history from pushes, reviews, issues, and merged Unite requests, tiered badges earned by shipped work, and a six-repository showcase with stack, Sparks, and Drop downloads.
+- Generated project showcase pages (`/repos/<owner>/<name>/showcase`) that combine the README, setup section, screenshots, demo link, tech stack, contributors, latest Drop, roadmap, and help-wanted issues.
 - Repository Sparks: signed-in users can appreciate visible repositories; everyone with access can see the count.
 - Builder follows: discover who follows a public profile and follow or unfollow other builders.
 - A following feed for visible repository creation, Sparks, issues, and Unite requests from followed builders.
@@ -63,6 +64,10 @@ If ports are occupied, choose alternate ports:
 ```sh
 GITOWN_WEB_PORT=3100 GITOWN_API_PORT=8180 npm run dev
 ```
+
+To send email, export `GITOWN_SMTP_ADDR` (host:port) and `GITOWN_SMTP_FROM`, plus `GITOWN_SMTP_USER` and `GITOWN_SMTP_PASSWORD` if your server requires authentication. STARTTLS is used whenever the server offers it. `GITOWN_DIGEST_INTERVAL` (default `60m`) controls how often digest emails are sent. Without SMTP, GITOWN keeps an honest delivery record and marks messages as suppressed.
+
+The release version comes from the root `package.json`. `npm run dev`, `make build`, `make cli`, and the API Dockerfile inject it into the Go binaries; `/healthz`, `gitown version`, and the web sidebar report it. Set `NEXT_PUBLIC_GITOWN_CHANNEL=stable` to hide the release-channel badge.
 
 If you already have a dedicated database, export `DATABASE_URL` first. The launcher will use it without starting PostgreSQL. It does **not** automatically load `.env` into your shell. `.env` is used by Docker Compose.
 

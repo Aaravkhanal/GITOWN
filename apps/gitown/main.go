@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/Aaravkhanal/GITOWN/internal/owncli"
+	"github.com/Aaravkhanal/GITOWN/internal/version"
 )
 
 func main() {
@@ -15,7 +16,7 @@ func main() {
 		return
 	}
 	if args[0] == "version" || args[0] == "--version" || args[0] == "-v" {
-		fmt.Println("gitown", owncli.Version)
+		fmt.Println("gitown", version.Version)
 		return
 	}
 	gitArgs, err := owncli.Resolve(args)

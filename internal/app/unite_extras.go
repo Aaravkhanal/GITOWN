@@ -434,7 +434,7 @@ func (a *App) createThreadReply(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_comment", "", in.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -498,6 +498,10 @@ func (a *App) editPullComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `UPDATE pull_comments SET body=$1,updated_at=now() WHERE id=$2`, in.Body, r.PathValue("id")); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, in.Body, "", p.ID, r.PathValue("id")); err != nil {
 		serverError(w, err)
 		return
 	}

@@ -79,8 +79,8 @@ func TestCollaborationDepth(t *testing.T) {
 	var repo Repository
 	owner.request("POST", "/repos", map[string]any{"name": "depth", "description": "Depth", "visibility": "public", "readme": true}, 201, &repo)
 	other.request("GET", "/users/owner/profile", nil, 200, &profile)
-	if len(profile.Badges) == 0 || profile.Contributions.PublicRepositories != 1 {
-		t.Fatalf("contribution badge missing: %+v", profile)
+	if len(profile.Badges) != 0 || profile.Contributions.PublicRepositories != 1 {
+		t.Fatalf("owning a repository alone should not earn a badge: %+v", profile)
 	}
 	owner.request("PUT", "/repos/owner/depth/presentation", map[string]string{"homepage": "https://example.com", "stack": "Go"}, 200, nil)
 	var shown struct {

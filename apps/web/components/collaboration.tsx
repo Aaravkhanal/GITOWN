@@ -20,6 +20,7 @@ import {
   type TimelineItem,
 } from "@/lib/api";
 import { Badge, CopyButton, ErrorMessage, Loading, useData } from "./ui";
+import { PresentationSettings } from "./showcase";
 
 export function IssuePlanning({
   endpoint,
@@ -797,44 +798,9 @@ export function OwnerDelivery({
   homepage?: string;
   stack?: string;
 }) {
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   return (
     <section className="panel settings-form">
-      <h2>Project presentation</h2>
-      <ErrorMessage error={error} />
-      {notice && <p className="green-text">{notice}</p>}
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          setError("");
-          setNotice("");
-          try {
-            await put(`${endpoint}/presentation`, {
-              homepage: data.get("homepage"),
-              stack: data.get("stack"),
-            });
-            setNotice("Presentation saved.");
-          } catch (saveError) {
-            setError((saveError as Error).message);
-          }
-        }}
-      >
-        <label>
-          Homepage
-          <input
-            name="homepage"
-            defaultValue={homepage || ""}
-            placeholder="https://example.com"
-          />
-        </label>
-        <label>
-          Tech stack
-          <input name="stack" defaultValue={stack || ""} maxLength={200} />
-        </label>
-        <button className="button small-button">Save presentation</button>
-      </form>
+      <PresentationSettings endpoint={endpoint} homepage={homepage} stack={stack} />
     </section>
   );
 }
