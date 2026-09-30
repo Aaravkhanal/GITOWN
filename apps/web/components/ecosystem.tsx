@@ -318,13 +318,8 @@ export function ExploreMore() {
 export function DistrictsPage() {
   const [version, setVersion] = useState(0);
   const districts = useData<{ items: District[] }>("/districts", version);
-  const [slug, setSlug] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const selected = useData<{ items: Repo[] }>(
-    slug ? `/districts/${slug}/repos` : null,
-    version,
-  );
   return (
     <div className="form-page">
       <h1>Districts</h1>
@@ -341,12 +336,11 @@ export function DistrictsPage() {
           setBusy(true);
           setError("");
           try {
-            const created = await post<District>("/districts", {
+            await post<District>("/districts", {
               slug: String(data.get("slug") || ""),
               name: String(data.get("name") || ""),
               visibility: String(data.get("visibility") || "public"),
             });
-            setSlug(created.slug);
             setVersion((value) => value + 1);
             event.currentTarget.reset();
           } catch (caught) {
@@ -381,12 +375,7 @@ export function DistrictsPage() {
         <ul>
           {(districts.data?.items || []).map((item) => (
             <li key={item.slug}>
-              <button
-                className="text-button"
-                onClick={() => setSlug(item.slug)}
-              >
-                {item.name}
-              </button>{" "}
+              <Link href={`/districts/${item.slug}`}>{item.name}</Link>{" "}
               <span className="muted">
                 {item.slug} · {item.visibility}
                 {item.role ? ` · ${item.role}` : ""}
@@ -395,12 +384,64 @@ export function DistrictsPage() {
           ))}
         </ul>
       )}
-      {slug && (
-        <section className="panel">
-          <h2>{slug}</h2>
-          <ErrorMessage error={selected.error} />
+    </div>
+  );
+}
+
+// DistrictDetail is the district's own linkable page: a public district
+// renders for any visitor, and a private one returns the same "not found"
+// the API gives a non-member so its existence isn't revealed.
+export function DistrictDetail({
+  slug,
+  currentUsername,
+}: {
+  slug: string;
+  currentUsername?: string;
+}) {
+  const [version, setVersion] = useState(0);
+  const district = useData<District>(
+    `/districts/${encodeURIComponent(slug)}`,
+    version,
+  );
+  const repos = useData<{ items: Repo[] }>(
+    `/districts/${encodeURIComponent(slug)}/repos`,
+    version,
+  );
+  if (district.loading) return <Loading />;
+  if (!district.data)
+    return (
+      <ErrorMessage
+        error={
+          district.error ||
+          "District not found, or it is private and you are not a member."
+        }
+      />
+    );
+  const current = district.data;
+  const role = current.role;
+  const canAdmin = role === "owner" || role === "admin";
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <div className="form-page">
+      <div className="page-heading">
+        <div>
+          <h1>{current.name}</h1>
+          <p className="page-description">
+            {slug} · {current.visibility}
+            {current.owner ? ` · owned by ${current.owner}` : ""}
+            {role ? ` · you are ${role}` : ""}
+          </p>
+          {current.description && <p>{current.description}</p>}
+        </div>
+      </div>
+      <section className="panel">
+        <h2>Repositories</h2>
+        <ErrorMessage error={repos.error} />
+        {repos.loading ? (
+          <Loading />
+        ) : repos.data?.items.length ? (
           <ul>
-            {(selected.data?.items || []).map((repo) => (
+            {repos.data.items.map((repo) => (
               <li key={repo.id}>
                 <Link href={repoPath(repo)}>
                   {repo.owner}/{repo.name}
@@ -409,15 +450,371 @@ export function DistrictsPage() {
               </li>
             ))}
           </ul>
-          <DistrictAdmin
+        ) : (
+          <p className="muted">No repositories yet.</p>
+        )}
+      </section>
+      <DistrictBoard slug={slug} />
+      {role && (
+        <>
+          <DistrictMembers
             slug={slug}
-            onChange={() => setVersion((value) => value + 1)}
+            role={role}
+            currentUsername={currentUsername}
+            onChange={refresh}
           />
-          <DistrictControls slug={slug} />
-          <DistrictBoard slug={slug} />
-        </section>
+          <DistrictCrews slug={slug} canAdmin={canAdmin} />
+        </>
+      )}
+      {canAdmin && (
+        <>
+          <DistrictAdmin slug={slug} onChange={refresh} />
+          <DistrictSecrets slug={slug} />
+        </>
+      )}
+      {role && <DistrictControls slug={slug} />}
+    </div>
+  );
+}
+
+function DistrictMembers({
+  slug,
+  role,
+  currentUsername,
+  onChange,
+}: {
+  slug: string;
+  role: string;
+  currentUsername?: string;
+  onChange: () => void;
+}) {
+  const [version, setVersion] = useState(0);
+  const members = useData<{
+    items: { username: string; display_name: string; role: string }[];
+  }>(`/districts/${encodeURIComponent(slug)}/members`, version);
+  const [error, setError] = useState("");
+  const canAdmin = role === "owner" || role === "admin";
+  const refresh = () => {
+    setVersion((value) => value + 1);
+    onChange();
+  };
+  return (
+    <section className="panel">
+      <h2>Members</h2>
+      <ErrorMessage error={error || members.error} />
+      {members.loading ? (
+        <Loading />
+      ) : members.data?.items.length ? (
+        <ul>
+          {members.data.items.map((member) => (
+            <li key={member.username}>
+              {member.display_name || member.username} · {member.role}
+              {canAdmin && member.username !== currentUsername && (
+                <>
+                  {" "}
+                  {role === "owner" && member.role === "member" && (
+                    <button
+                      className="text-button"
+                      onClick={async () => {
+                        setError("");
+                        try {
+                          await post(
+                            `/districts/${encodeURIComponent(slug)}/members`,
+                            { username: member.username, role: "admin" },
+                          );
+                          refresh();
+                        } catch (caught) {
+                          setError((caught as Error).message);
+                        }
+                      }}
+                    >
+                      Make admin
+                    </button>
+                  )}
+                  {member.role === "admin" && (
+                    <button
+                      className="text-button"
+                      onClick={async () => {
+                        setError("");
+                        try {
+                          await post(
+                            `/districts/${encodeURIComponent(slug)}/members`,
+                            { username: member.username, role: "member" },
+                          );
+                          refresh();
+                        } catch (caught) {
+                          setError((caught as Error).message);
+                        }
+                      }}
+                    >
+                      Remove admin
+                    </button>
+                  )}{" "}
+                  <button
+                    className="text-button"
+                    onClick={async () => {
+                      setError("");
+                      try {
+                        await remove(
+                          `/districts/${encodeURIComponent(slug)}/members/${encodeURIComponent(member.username)}`,
+                        );
+                        refresh();
+                      } catch (caught) {
+                        setError((caught as Error).message);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No members yet.</p>
+      )}
+    </section>
+  );
+}
+
+function DistrictCrews({
+  slug,
+  canAdmin,
+}: {
+  slug: string;
+  canAdmin: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const crews = useData<{
+    items: {
+      slug: string;
+      name: string;
+      description: string;
+      members: number;
+    }[];
+  }>(`/districts/${encodeURIComponent(slug)}/crews`, version);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <section className="panel">
+      <h2>Crews</h2>
+      <ErrorMessage error={error || crews.error} />
+      {crews.loading ? (
+        <Loading />
+      ) : crews.data?.items.length ? (
+        <ul>
+          {crews.data.items.map((crew) => (
+            <li key={crew.slug}>
+              <button
+                className="text-button"
+                onClick={() =>
+                  setExpanded(expanded === crew.slug ? null : crew.slug)
+                }
+              >
+                {crew.name}
+              </button>{" "}
+              <span className="muted">
+                {crew.slug} · {crew.members} member
+                {crew.members === 1 ? "" : "s"}
+              </span>
+              {canAdmin && (
+                <>
+                  {" "}
+                  <button
+                    className="text-button"
+                    onClick={async () => {
+                      setError("");
+                      try {
+                        await remove(
+                          `/districts/${encodeURIComponent(slug)}/crews/${encodeURIComponent(crew.slug)}`,
+                        );
+                        if (expanded === crew.slug) setExpanded(null);
+                        refresh();
+                      } catch (caught) {
+                        setError((caught as Error).message);
+                      }
+                    }}
+                  >
+                    Delete crew
+                  </button>
+                </>
+              )}
+              {expanded === crew.slug && (
+                <CrewMembers
+                  slug={slug}
+                  crew={crew.slug}
+                  canAdmin={canAdmin}
+                  onChange={refresh}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No crews yet.</p>
+      )}
+    </section>
+  );
+}
+
+function CrewMembers({
+  slug,
+  crew,
+  canAdmin,
+  onChange,
+}: {
+  slug: string;
+  crew: string;
+  canAdmin: boolean;
+  onChange: () => void;
+}) {
+  const [version, setVersion] = useState(0);
+  const members = useData<{
+    items: { username: string; display_name: string }[];
+  }>(
+    `/districts/${encodeURIComponent(slug)}/crews/${encodeURIComponent(crew)}/members`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const refresh = () => {
+    setVersion((value) => value + 1);
+    onChange();
+  };
+  return (
+    <div className="panel">
+      <ErrorMessage error={error || members.error} />
+      {members.loading ? (
+        <Loading />
+      ) : members.data?.items.length ? (
+        <ul>
+          {members.data.items.map((member) => (
+            <li key={member.username}>
+              {member.display_name || member.username}
+              {canAdmin && (
+                <>
+                  {" "}
+                  <button
+                    className="text-button"
+                    onClick={async () => {
+                      setError("");
+                      try {
+                        await remove(
+                          `/districts/${encodeURIComponent(slug)}/crews/${encodeURIComponent(crew)}/members/${encodeURIComponent(member.username)}`,
+                        );
+                        refresh();
+                      } catch (caught) {
+                        setError((caught as Error).message);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No crew members yet.</p>
+      )}
+      {canAdmin && (
+        <form
+          className="inline-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            setError("");
+            try {
+              await post(
+                `/districts/${encodeURIComponent(slug)}/crews/${encodeURIComponent(crew)}/members`,
+                { username: String(data.get("username") || "") },
+              );
+              event.currentTarget.reset();
+              refresh();
+            } catch (caught) {
+              setError((caught as Error).message);
+            }
+          }}
+        >
+          <input name="username" placeholder="builder" required />
+          <button className="button small-button">Add to crew</button>
+        </form>
       )}
     </div>
+  );
+}
+
+function DistrictSecrets({ slug }: { slug: string }) {
+  const [version, setVersion] = useState(0);
+  const secrets = useData<{ items: { name: string; created_at: string }[] }>(
+    `/districts/${encodeURIComponent(slug)}/secrets`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <section className="panel">
+      <h2>Secrets</h2>
+      <p className="muted small-text">
+        Encrypted at rest and never shown again after they are stored. Stored
+        for future use by Routes automation; nothing in GITOWN consumes them
+        yet.
+      </p>
+      <ErrorMessage error={error || secrets.error} />
+      {secrets.loading ? (
+        <Loading />
+      ) : secrets.data?.items.length ? (
+        <ul>
+          {secrets.data.items.map((item) => (
+            <li key={item.name}>
+              {item.name}{" "}
+              <button
+                className="text-button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove(
+                      `/districts/${encodeURIComponent(slug)}/secrets/${encodeURIComponent(item.name)}`,
+                    );
+                    refresh();
+                  } catch (caught) {
+                    setError((caught as Error).message);
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">No secrets yet.</p>
+      )}
+      <form
+        className="inline-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          setError("");
+          try {
+            await post(`/districts/${encodeURIComponent(slug)}/secrets`, {
+              name: String(data.get("name") || ""),
+              value: String(data.get("value") || ""),
+            });
+            event.currentTarget.reset();
+            refresh();
+          } catch (caught) {
+            setError((caught as Error).message);
+          }
+        }}
+      >
+        <input name="name" placeholder="SECRET_NAME" required />
+        <input name="value" placeholder="value" type="password" required />
+        <button className="button small-button">Store secret</button>
+      </form>
+    </section>
   );
 }
 
@@ -493,13 +890,19 @@ function DistrictControls({ slug }: { slug: string }) {
       {current.role === "owner" && (
         <form
           className="form-panel"
-          key={`${current.allow_public}-${current.allow_outside_collaborators}-${current.repo_creation}-${current.base_permission}`}
+          key={`${current.description}-${current.visibility}-${current.allow_public}-${current.allow_outside_collaborators}-${current.repo_creation}-${current.base_permission}`}
           onSubmit={async (event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
             setError("");
             try {
               await patch(`/districts/${encodeURIComponent(slug)}`, {
+                description: String(
+                  data.get("description") ?? current.description,
+                ),
+                visibility: String(
+                  data.get("visibility") || current.visibility,
+                ),
                 allow_public: data.get("allow_public") === "on",
                 allow_outside_collaborators: data.get("allow_outside") === "on",
                 repo_creation: String(
@@ -515,6 +918,22 @@ function DistrictControls({ slug }: { slug: string }) {
             }
           }}
         >
+          <label>
+            Description
+            <textarea
+              name="description"
+              maxLength={500}
+              rows={3}
+              defaultValue={current.description}
+            />
+          </label>
+          <label>
+            Visibility
+            <select name="visibility" defaultValue={current.visibility}>
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
+          </label>
           <label className="checkbox-label">
             <input
               name="allow_public"

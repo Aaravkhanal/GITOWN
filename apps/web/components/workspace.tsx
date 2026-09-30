@@ -40,6 +40,7 @@ import {
   CollectionDetail,
   CollectionsPage,
   CratesPage,
+  DistrictDetail,
   DistrictsPage,
   ExploreMore,
   SSHKeysPage,
@@ -435,6 +436,12 @@ export function Workspace({ segments }: { segments: string[] }) {
             />
           ) : section === "collections" ? (
             <CollectionsPage currentUsername={user?.username} />
+          ) : section === "districts" && segments[1] ? (
+            <DistrictDetail
+              key={segments[1]}
+              slug={segments[1]}
+              currentUsername={user?.username}
+            />
           ) : section === "districts" ? (
             user ? (
               <DistrictsPage />
