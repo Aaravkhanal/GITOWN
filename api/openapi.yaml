@@ -275,6 +275,131 @@ paths:
       responses:
         "200": { description: Deleted }
         "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/webhooks:
+    get:
+      summary: List a district's webhooks. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Webhooks (never includes the secret)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: >
+        Create a district-wide webhook. Requires district admin. Fires for
+        matching events across every repository owned by the district.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { $ref: "#/components/schemas/WebhookEvent" }
+      responses:
+        "201":
+          description: Webhook created; secret is shown once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/webhooks/{id}:
+    patch:
+      summary: >
+        Update a district webhook's URL, events, active flag, or regenerate
+        its secret. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { $ref: "#/components/schemas/WebhookEvent" }
+                active: { type: boolean }
+                regenerate_secret: { type: boolean }
+      responses:
+        "200":
+          description: Updated webhook; secret is present only when regenerated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove a district webhook. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Webhook removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/webhooks/{id}/deliveries:
+    get:
+      summary: >
+        List a district webhook's delivery attempts, most recent first.
+        Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+        - {
+            name: per_page,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100 },
+          }
+      responses:
+        "200":
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/webhooks/{id}/deliveries/{deliveryId}/replay:
+    post:
+      summary: >
+        Re-send a past district webhook delivery's exact event and payload.
+        Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - {
+            name: deliveryId,
+            in: path,
+            required: true,
+            schema: { type: string },
+          }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "201": { description: A new delivery was queued }
+        "404": { $ref: "#/components/responses/Error" }
   /districts/{slug}/audit:
     get:
       summary: District audit log. Requires district admin.
@@ -1762,6 +1887,131 @@ paths:
       summary: Remove a deploy key
       responses:
         "200": { description: Deploy key removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/webhooks:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List a repository's webhooks as a manager
+      responses:
+        "200":
+          description: Webhooks (never includes the secret)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Webhook" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a webhook subscription for this repository
+      description: >
+        The URL must be https:// and must not resolve to a private, loopback,
+        or link-local address; this is re-checked on every delivery attempt,
+        not only at creation, so a target that later repoints at an internal
+        address is refused rather than followed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, events]
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { $ref: "#/components/schemas/WebhookEvent" }
+      responses:
+        "201":
+          description: Webhook created; secret is shown once
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/webhooks/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string } },
+      ]
+    patch:
+      summary: Update a webhook's URL, events, active flag, or regenerate its secret
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, format: uri }
+                events:
+                  type: array
+                  items: { $ref: "#/components/schemas/WebhookEvent" }
+                active: { type: boolean }
+                regenerate_secret: { type: boolean }
+      responses:
+        "200":
+          description: Updated webhook; secret is present only when regenerated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Webhook" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Remove a webhook
+      responses:
+        "200": { description: Webhook removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/webhooks/{id}/deliveries:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string } },
+        { name: page, in: query, schema: { type: integer, minimum: 1 } },
+        {
+          name: per_page,
+          in: query,
+          schema: { type: integer, minimum: 1, maximum: 100 },
+        },
+      ]
+    get:
+      summary: List a webhook's delivery attempts, most recent first
+      responses:
+        "200":
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookDelivery" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/webhooks/{id}/deliveries/{deliveryId}/replay:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string } },
+        {
+          name: deliveryId,
+          in: path,
+          required: true,
+          schema: { type: string },
+        },
+      ]
+    post:
+      summary: Re-send a past delivery's exact event and payload
+      responses:
+        "201": { description: A new delivery was queued }
         "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/refs:
     parameters:
@@ -3498,6 +3748,51 @@ components:
         via: { type: string, enum: [https, ssh, api] }
         actor: { type: string, description: Empty when the actor is unknown. }
         created_at: { type: string, format: date-time }
+    WebhookEvent:
+      type: string
+      enum:
+        [
+          push,
+          issue.opened,
+          issue.closed,
+          issue.reopened,
+          issue.commented,
+          pull.opened,
+          pull.closed,
+          pull.reopened,
+          pull.merged,
+          pull.reviewed,
+          pull.commented,
+          drop.published,
+        ]
+    Webhook:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/WebhookEvent" }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        secret:
+          type: string
+          description: >
+            Present only in the create response, or an update response that
+            regenerated it. Never returned by any later read — verify
+            deliveries against the value shown then.
+    WebhookDelivery:
+      type: object
+      properties:
+        id: { type: string }
+        event: { type: string }
+        status: { type: string, enum: [pending, sending, success, failed] }
+        attempts: { type: integer }
+        response_status: { type: integer, nullable: true }
+        response_body: { type: string, nullable: true }
+        last_error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        delivered_at: { type: string, format: date-time, nullable: true }
     BranchRule:
       type: object
       properties:
