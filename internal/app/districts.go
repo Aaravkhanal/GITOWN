@@ -459,6 +459,47 @@ func (a *App) createCrew(w http.ResponseWriter, r *http.Request) {
 	respond(w, 201, map[string]any{"slug": in.Slug, "name": in.Name, "description": in.Description, "created_at": created})
 }
 
+func (a *App) crewMembers(w http.ResponseWriter, r *http.Request) {
+	d := a.loadDistrict(w, r, false)
+	if d == nil {
+		return
+	}
+	if d.Role == "" {
+		fail(w, 403, "forbidden", "District membership is required.")
+		return
+	}
+	var crewID string
+	err := a.db.QueryRow(r.Context(), `SELECT id::text FROM crews WHERE district_id=$1 AND slug=$2`, d.ID, r.PathValue("crew")).Scan(&crewID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Crew not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT u.username,u.display_name FROM crew_members m JOIN users u ON u.id=m.user_id WHERE m.crew_id=$1 ORDER BY u.username`, crewID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	for rows.Next() {
+		var username, display string
+		if err = rows.Scan(&username, &display); err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, map[string]any{"username": username, "display_name": display})
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"items": items})
+}
+
 func (a *App) addCrewMember(w http.ResponseWriter, r *http.Request) {
 	d := a.loadDistrict(w, r, true)
 	if d == nil {
@@ -525,6 +566,34 @@ func (a *App) removeCrewMember(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "Crew member not found.")
 		return
 	}
+	respond(w, 200, map[string]bool{"removed": true})
+}
+
+func (a *App) deleteCrew(w http.ResponseWriter, r *http.Request) {
+	d := a.loadDistrict(w, r, true)
+	if d == nil {
+		return
+	}
+	crewSlug := strings.ToLower(r.PathValue("crew"))
+	var required bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM repository_branch_rules br JOIN repositories rp ON rp.id=br.repository_id WHERE rp.district_id=$1 AND ('crew:'||$2)=ANY(br.required_reviewers))`, d.ID, crewSlug).Scan(&required); err != nil {
+		serverError(w, err)
+		return
+	}
+	if required {
+		fail(w, 409, "crew_required", "This crew is required by a branch protection rule; remove it from the rule before deleting the crew.")
+		return
+	}
+	tag, err := a.db.Exec(r.Context(), `DELETE FROM crews WHERE district_id=$1 AND slug=$2`, d.ID, crewSlug)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		fail(w, 404, "not_found", "Crew not found.")
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'crew.deleted',$2)`, a.user(r).ID, "district/"+d.Slug+"/crews/"+crewSlug)
 	respond(w, 200, map[string]bool{"removed": true})
 }
 
