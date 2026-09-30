@@ -121,6 +121,175 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "201": { description: Created district }
+  /districts/{slug}:
+    get:
+      security: []
+      summary: A district's own page. Public for a public district; requires membership for a private one.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: District }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update district settings. Owner only.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Updated district }
+        "403": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/members:
+    get:
+      summary: List district members. Requires membership.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Members }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add or re-role a member. Granting admin requires the owner.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Membership saved }
+        "403": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/members/{username}:
+    delete:
+      summary: Remove a district member. Removing an admin requires the owner.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: username, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Removed }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/crews:
+    get:
+      summary: List a district's crews. Requires membership.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Crews }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a crew. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "201": { description: Crew created }
+        "403": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/crews/{crew}:
+    delete:
+      summary: Delete a crew. Requires district admin. Refused while a branch rule requires this crew.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: crew, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: A branch protection rule still requires this crew
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /districts/{slug}/crews/{crew}/members:
+    get:
+      summary: List a crew's members. Requires membership.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: crew, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Crew members }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Add a district member to a crew. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: crew, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Added }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/crews/{crew}/members/{username}:
+    delete:
+      summary: Remove a crew member. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: crew, in: path, required: true, schema: { type: string } }
+        - { name: username, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/secrets:
+    get:
+      summary: List a district's secret names (never values). Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Secret names }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Store or replace a secret, encrypted at rest. Requires district admin and GITOWN_SECRET_KEY.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "201": { description: Stored }
+        "403": { $ref: "#/components/responses/Error" }
+        "503":
+          description: GITOWN_SECRET_KEY is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /districts/{slug}/secrets/{name}:
+    get:
+      summary: Read one secret's value. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Secret value }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a secret. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/audit:
+    get:
+      summary: District audit log. Requires district admin.
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - {
+            name: download,
+            in: query,
+            schema: { type: string, enum: ["1"] },
+            description: Returns a CSV attachment instead of JSON,
+          }
+      responses:
+        "200": { description: Audit events, or a CSV file when download=1 }
+        "403": { $ref: "#/components/responses/Error" }
+  /districts/{slug}/repos:
+    get:
+      security: []
+      summary: A district's repositories, filtered to what the caller can see
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Repositories }
+        "404": { $ref: "#/components/responses/Error" }
   /crates:
     get:
       summary: List crate records. Unscoped npm and OCI routes are outside this JSON API.
