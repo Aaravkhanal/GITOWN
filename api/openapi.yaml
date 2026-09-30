@@ -804,10 +804,7 @@ paths:
       responses:
         "200":
           {
-            description: Statuses with state,
-            description,
-            target_url,
-            and reporter,
+            description: "Statuses with state, description, target_url, and reporter",
           }
   /repos/{owner}/{repo}/commits/{sha}/status:
     post:
@@ -1658,6 +1655,146 @@ paths:
       responses:
         "200": { description: Collaborator removed }
         "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/deploy-keys:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List a repository's deploy keys as a manager
+      responses:
+        "200":
+          description: Deploy keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/DeployKey" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Register a deploy key, scoped to only this repository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, public_key]
+              properties:
+                title: { type: string }
+                public_key: { type: string }
+                write:
+                  type: boolean
+                  description: Allow this key to push, not only clone or fetch.
+      responses:
+        "201":
+          description: Deploy key registered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeployKey" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/deploy-keys/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string } },
+      ]
+    delete:
+      summary: Remove a deploy key
+      responses:
+        "200": { description: Deploy key removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/refs:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        {
+          name: offset,
+          in: query,
+          schema: { type: integer, minimum: 0, maximum: 5000 },
+        },
+      ]
+    get:
+      summary: List ref-change events (branch and tag creates, updates, and deletes)
+      description: >
+        Every ref update GITOWN accepts is recorded here with its old and new
+        SHA, the actor, and how the push arrived (https, ssh, or api),
+        regardless of which of those paths made the change.
+      responses:
+        "200":
+          description: Ref events, most recent first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/RefEvent" }
+                  has_more: { type: boolean }
+        "403": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/maintenance:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    put:
+      summary: Repack a repository's Git storage now
+      description: >
+        GITOWN also runs this automatically for any repository that hasn't
+        been maintained in 14 days, a few at a time, on the same background
+        worker loop that delivers email.
+      responses:
+        "200":
+          description: Maintenance finished
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  size_bytes: { type: integer }
+                  language: { type: string }
+                  last_maintained_at: { type: string, format: date-time }
+        "403": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/tags:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List a repository's tags
+      description: >
+        `signed` reflects `git tag -v` verifying the tag against a signing
+        key someone has registered with GITOWN, the same trust store used
+        for commit signature verification on protected branches — not a
+        search for a signature-shaped block of text.
+      responses:
+        "200":
+          description: Tags, most recently created first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        sha: { type: string }
+                        subject: { type: string }
+                        signed: { type: boolean }
+        "403": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/permissions:
     parameters:
       [
@@ -3287,6 +3424,26 @@ components:
         username: { type: string }
         display_name: { type: string }
         role: { $ref: "#/components/schemas/RepositoryRole" }
+        created_at: { type: string, format: date-time }
+    DeployKey:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        fingerprint: { type: string }
+        write: { type: boolean }
+        created_at: { type: string, format: date-time }
+        authorized_keys:
+          type: string
+          description: Present only in the create response.
+    RefEvent:
+      type: object
+      properties:
+        ref: { type: string }
+        old_sha: { type: string }
+        new_sha: { type: string }
+        via: { type: string, enum: [https, ssh, api] }
+        actor: { type: string, description: Empty when the actor is unknown. }
         created_at: { type: string, format: date-time }
     BranchRule:
       type: object

@@ -29,9 +29,10 @@ The branch-rule data model and settings UI, required Unite requests, approvals, 
 
 ### 4. Git and code experience
 
-- SSH transport with forced commands and identical branch policy enforcement.
+SSH transport with forced commands and identical branch policy enforcement, repository size accounting and quotas, on-demand and scheduled `git gc` maintenance, tag signatures verified against the same registered-key trust store as commits, and LFS batch transfer with path locks all shipped in phase 8, alongside a deploy-key and push-activity UI. Still open in this section:
+
 - Raw downloads, rendered sanitized Markdown, syntax highlighting, tags, blame, and pagination.
-- Repository size accounting, quotas, maintenance, orphan reconciliation, and LFS.
+- Orphan storage reconciliation.
 - CLI installers, shell completion, signed releases, and server/token profiles.
 
 ### 5. Integrations and operations
