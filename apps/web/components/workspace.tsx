@@ -37,6 +37,8 @@ import {
   X,
 } from "lucide-react";
 import {
+  CollectionDetail,
+  CollectionsPage,
   CratesPage,
   DistrictsPage,
   ExploreMore,
@@ -424,6 +426,15 @@ export function Workspace({ segments }: { segments: string[] }) {
             )
           ) : section === "topics" ? (
             <TopicsPage topic={segments[1]} />
+          ) : section === "collections" && segments[1] && segments[2] ? (
+            <CollectionDetail
+              key={`${segments[1]}/${segments[2]}`}
+              owner={segments[1]}
+              slug={segments[2]}
+              currentUsername={user?.username}
+            />
+          ) : section === "collections" ? (
+            <CollectionsPage currentUsername={user?.username} />
           ) : section === "districts" ? (
             user ? (
               <DistrictsPage />

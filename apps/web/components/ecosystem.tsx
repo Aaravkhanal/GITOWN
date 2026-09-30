@@ -62,12 +62,24 @@ export function ExploreMore() {
   const recommendations = useData<{ items: Repo[]; personalized: boolean }>(
     "/search/recommendations",
   );
-  const tasks = useData<{ items: Task[] }>("/search/tasks?kind=help");
-  const collections = useData<{ items: Collection[] }>("/collections");
-  const featured = useData<{ items: Collection[] }>("/collections?featured=1");
-  const topics = useData<{ items: { topic: string; repositories: number }[] }>(
-    "/topics",
+  const [helpOffset, setHelpOffset] = useState(0);
+  const tasks = useData<{ items: Task[]; has_more: boolean }>(
+    `/search/tasks?kind=help&offset=${helpOffset}`,
   );
+  const [firstOffset, setFirstOffset] = useState(0);
+  const firstTasks = useData<{ items: Task[]; has_more: boolean }>(
+    `/search/tasks?kind=first&offset=${firstOffset}`,
+  );
+  const [collectionsOffset, setCollectionsOffset] = useState(0);
+  const collections = useData<{ items: Collection[]; has_more: boolean }>(
+    `/collections?offset=${collectionsOffset}`,
+  );
+  const featured = useData<{ items: Collection[] }>("/collections?featured=1");
+  const [topicsOffset, setTopicsOffset] = useState(0);
+  const topics = useData<{
+    items: { topic: string; repositories: number }[];
+    has_more: boolean;
+  }>(`/topics?offset=${topicsOffset}`);
   const [query, setQuery] = useState("");
   const [codePath, setCodePath] = useState<string | null>(null);
   const code = useData<{
@@ -125,6 +137,58 @@ export function ExploreMore() {
             ))}
           </ul>
         )}
+        {(helpOffset > 0 || tasks.data?.has_more) && (
+          <div className="form-actions">
+            <button
+              className="button small-button"
+              disabled={helpOffset === 0}
+              onClick={() => setHelpOffset(Math.max(0, helpOffset - 25))}
+            >
+              Previous
+            </button>
+            <button
+              className="button small-button"
+              disabled={!tasks.data?.has_more}
+              onClick={() => setHelpOffset(helpOffset + 25)}
+            >
+              Next
+            </button>
+          </div>
+        )}
+        <h2>Good first task</h2>
+        <ErrorMessage error={firstTasks.error} />
+        {firstTasks.loading ? (
+          <Loading />
+        ) : (
+          <ul>
+            {(firstTasks.data?.items || []).map((task) => (
+              <li key={`${task.owner}/${task.repository}#${task.number}`}>
+                <Link href={`/repos/${task.owner}/${task.repository}/issues`}>
+                  {task.owner}/{task.repository}#{task.number}
+                </Link>{" "}
+                {task.title}
+              </li>
+            ))}
+          </ul>
+        )}
+        {(firstOffset > 0 || firstTasks.data?.has_more) && (
+          <div className="form-actions">
+            <button
+              className="button small-button"
+              disabled={firstOffset === 0}
+              onClick={() => setFirstOffset(Math.max(0, firstOffset - 25))}
+            >
+              Previous
+            </button>
+            <button
+              className="button small-button"
+              disabled={!firstTasks.data?.has_more}
+              onClick={() => setFirstOffset(firstOffset + 25)}
+            >
+              Next
+            </button>
+          </div>
+        )}
         <h2>Featured collections</h2>
         <p className="muted small-text">
           Operators mark a collection as featured. These are public repository
@@ -134,30 +198,76 @@ export function ExploreMore() {
         <ul>
           {(featured.data?.items || []).map((item) => (
             <li key={`featured-${item.owner}/${item.slug}`}>
-              {item.owner}/{item.slug}: {item.title} ({item.repositories})
+              <Link href={`/collections/${item.owner}/${item.slug}`}>
+                {item.owner}/{item.slug}: {item.title}
+              </Link>{" "}
+              ({item.repositories})
             </li>
           ))}
         </ul>
         <h2>Topics</h2>
         <ErrorMessage error={topics.error} />
         <ul>
-          {(topics.data?.items || []).slice(0, 12).map((item) => (
+          {(topics.data?.items || []).map((item) => (
             <li key={item.topic}>
               <Link href={`/topics/${item.topic}`}>{item.topic}</Link>{" "}
               <span className="muted">{item.repositories}</span>
             </li>
           ))}
         </ul>
+        {(topicsOffset > 0 || topics.data?.has_more) && (
+          <div className="form-actions">
+            <button
+              className="button small-button"
+              disabled={topicsOffset === 0}
+              onClick={() => setTopicsOffset(Math.max(0, topicsOffset - 50))}
+            >
+              Previous
+            </button>
+            <button
+              className="button small-button"
+              disabled={!topics.data?.has_more}
+              onClick={() => setTopicsOffset(topicsOffset + 50)}
+            >
+              Next
+            </button>
+          </div>
+        )}
         <h2>Community collections</h2>
+        <p className="muted small-text">
+          <Link href="/collections">Create or browse collections</Link>
+        </p>
         <ErrorMessage error={collections.error} />
         <ul>
           {(collections.data?.items || []).map((item) => (
             <li key={`${item.owner}/${item.slug}`}>
-              {item.owner}/{item.slug}: {item.title} ({item.repositories})
-              {item.featured ? " · featured" : ""}
+              <Link href={`/collections/${item.owner}/${item.slug}`}>
+                {item.owner}/{item.slug}: {item.title}
+              </Link>{" "}
+              ({item.repositories}){item.featured ? " · featured" : ""}
             </li>
           ))}
         </ul>
+        {(collectionsOffset > 0 || collections.data?.has_more) && (
+          <div className="form-actions">
+            <button
+              className="button small-button"
+              disabled={collectionsOffset === 0}
+              onClick={() =>
+                setCollectionsOffset(Math.max(0, collectionsOffset - 20))
+              }
+            >
+              Previous
+            </button>
+            <button
+              className="button small-button"
+              disabled={!collections.data?.has_more}
+              onClick={() => setCollectionsOffset(collectionsOffset + 20)}
+            >
+              Next
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -542,11 +652,14 @@ function DistrictControls({ slug }: { slug: string }) {
 }
 
 export function TopicsPage({ topic }: { topic?: string }) {
-  const catalog = useData<{ items: { topic: string; repositories: number }[] }>(
-    topic ? null : "/topics",
-  );
-  const page = useData<{ topic: string; items: Repo[] }>(
-    topic ? `/topics/${encodeURIComponent(topic)}` : null,
+  const [catalogOffset, setCatalogOffset] = useState(0);
+  const catalog = useData<{
+    items: { topic: string; repositories: number }[];
+    has_more: boolean;
+  }>(topic ? null : `/topics?offset=${catalogOffset}`);
+  const [pageOffset, setPageOffset] = useState(0);
+  const page = useData<{ topic: string; items: Repo[]; has_more: boolean }>(
+    topic ? `/topics/${encodeURIComponent(topic)}?offset=${pageOffset}` : null,
   );
   return (
     <div className="form-page">
@@ -560,30 +673,267 @@ export function TopicsPage({ topic }: { topic?: string }) {
         page.loading ? (
           <Loading />
         ) : (
-          <ul>
-            {(page.data?.items || []).map((repo) => (
-              <li key={repo.id}>
-                <Link href={repoPath(repo)}>
-                  {repo.owner}/{repo.name}
-                </Link>
-                {repo.language ? (
-                  <span className="muted"> {repo.language}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul>
+              {(page.data?.items || []).map((repo) => (
+                <li key={repo.id}>
+                  <Link href={repoPath(repo)}>
+                    {repo.owner}/{repo.name}
+                  </Link>
+                  {repo.language ? (
+                    <span className="muted"> {repo.language}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {(pageOffset > 0 || page.data?.has_more) && (
+              <div className="form-actions">
+                <button
+                  className="button"
+                  disabled={pageOffset === 0}
+                  onClick={() => setPageOffset(Math.max(0, pageOffset - 30))}
+                >
+                  Previous
+                </button>
+                <button
+                  className="button"
+                  disabled={!page.data?.has_more}
+                  onClick={() => setPageOffset(pageOffset + 30)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         )
       ) : catalog.loading ? (
         <Loading />
       ) : (
+        <>
+          <ul>
+            {(catalog.data?.items || []).map((item) => (
+              <li key={item.topic}>
+                <Link href={`/topics/${item.topic}`}>{item.topic}</Link>{" "}
+                <span className="muted">{item.repositories} repositories</span>
+              </li>
+            ))}
+          </ul>
+          {(catalogOffset > 0 || catalog.data?.has_more) && (
+            <div className="form-actions">
+              <button
+                className="button"
+                disabled={catalogOffset === 0}
+                onClick={() =>
+                  setCatalogOffset(Math.max(0, catalogOffset - 50))
+                }
+              >
+                Previous
+              </button>
+              <button
+                className="button"
+                disabled={!catalog.data?.has_more}
+                onClick={() => setCatalogOffset(catalogOffset + 50)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+type CollectionDetailData = {
+  owner: string;
+  slug: string;
+  title: string;
+  description: string;
+  created_at: string;
+  items: Repo[];
+};
+
+export function CollectionsPage({
+  currentUsername,
+}: {
+  currentUsername?: string;
+}) {
+  const [version, setVersion] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const collections = useData<{ items: Collection[]; has_more: boolean }>(
+    `/collections?offset=${offset}`,
+    version,
+  );
+  const [error, setError] = useState("");
+  return (
+    <div className="form-page">
+      <h1>Collections</h1>
+      <p className="page-description">
+        A collection is a curated, public list of repositories. Anyone signed in
+        can start one; an operator can mark a collection as featured so it
+        appears on the Explore page.
+      </p>
+      {currentUsername && (
+        <form
+          className="panel form-panel"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            setError("");
+            try {
+              await post<{ owner: string; slug: string }>("/collections", {
+                slug: String(data.get("slug") || ""),
+                title: String(data.get("title") || ""),
+                description: String(data.get("description") || ""),
+              });
+              setVersion((value) => value + 1);
+              event.currentTarget.reset();
+            } catch (caught) {
+              setError((caught as Error).message);
+            }
+          }}
+        >
+          <ErrorMessage error={error} />
+          <label>
+            Slug
+            <input name="slug" required pattern="[a-z0-9][a-z0-9-]{0,38}" />
+          </label>
+          <label>
+            Title
+            <input name="title" required maxLength={80} />
+          </label>
+          <label>
+            Description
+            <input name="description" maxLength={300} />
+          </label>
+          <button className="button primary">Create collection</button>
+        </form>
+      )}
+      <ErrorMessage error={collections.error} />
+      {collections.loading ? (
+        <Loading />
+      ) : (
         <ul>
-          {(catalog.data?.items || []).map((item) => (
-            <li key={item.topic}>
-              <Link href={`/topics/${item.topic}`}>{item.topic}</Link>{" "}
-              <span className="muted">{item.repositories} repositories</span>
+          {(collections.data?.items || []).map((item) => (
+            <li key={`${item.owner}/${item.slug}`}>
+              <Link href={`/collections/${item.owner}/${item.slug}`}>
+                {item.owner}/{item.slug}: {item.title}
+              </Link>{" "}
+              <span className="muted">
+                {item.repositories} repositories
+                {item.featured ? " · featured" : ""}
+              </span>
             </li>
           ))}
         </ul>
+      )}
+      {(offset > 0 || collections.data?.has_more) && (
+        <div className="form-actions">
+          <button
+            className="button"
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - 20))}
+          >
+            Previous
+          </button>
+          <button
+            className="button"
+            disabled={!collections.data?.has_more}
+            onClick={() => setOffset(offset + 20)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CollectionDetail({
+  owner,
+  slug,
+  currentUsername,
+}: {
+  owner: string;
+  slug: string;
+  currentUsername?: string;
+}) {
+  const [version, setVersion] = useState(0);
+  const detail = useData<CollectionDetailData>(
+    `/collections/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const isCurator = currentUsername === owner;
+  if (detail.loading) return <Loading />;
+  if (!detail.data)
+    return <ErrorMessage error={detail.error || "Collection not found."} />;
+  return (
+    <div className="form-page">
+      <h1>{detail.data.title}</h1>
+      <p className="page-description">
+        {owner}/{slug}
+        {detail.data.description ? ` · ${detail.data.description}` : ""}
+      </p>
+      <ErrorMessage error={error} />
+      {isCurator && (
+        <form
+          className="panel form-panel"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            setError("");
+            try {
+              await post(
+                `/collections/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}/items`,
+                { repository: String(data.get("repository") || "") },
+              );
+              setVersion((value) => value + 1);
+              event.currentTarget.reset();
+            } catch (caught) {
+              setError((caught as Error).message);
+            }
+          }}
+        >
+          <label>
+            Add a public repository (owner/name)
+            <input name="repository" required placeholder="owner/name" />
+          </label>
+          <button className="button primary">Add to collection</button>
+        </form>
+      )}
+      <ul>
+        {detail.data.items.map((repo) => (
+          <li key={repo.id}>
+            <Link href={repoPath(repo)}>
+              {repo.owner}/{repo.name}
+            </Link>
+            {repo.language ? (
+              <span className="muted"> {repo.language}</span>
+            ) : null}
+            {isCurator && (
+              <button
+                className="text-button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove(
+                      `/collections/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}/items/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`,
+                    );
+                    setVersion((value) => value + 1);
+                  } catch (caught) {
+                    setError((caught as Error).message);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {!detail.data.items.length && (
+        <p className="muted">No repositories in this collection yet.</p>
       )}
     </div>
   );

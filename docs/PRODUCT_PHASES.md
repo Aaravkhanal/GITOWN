@@ -48,9 +48,11 @@ Boundaries: custom project domains stay later.
 
 ## Phase 6 — Discovery (complete)
 
-Shipped: language and beginner-friendly filters, recently updated sorting, ranked search of a capped public text index with a `git grep` fallback, topic catalog and topic pages, help-wanted and good-first-task discovery, topic-overlap recommendations with a trending fallback, an hourly Spark cap counted from audit events, user-owned community collections of public repositories, operator-featured collections through `GITOWN_OPERATORS`, and a 180-day public contribution graph of issues, comments, Sparks, and merged Unite requests.
+Shipped: language and beginner-friendly filters, recently updated sorting, ranked search of a capped public text index with a `git grep` fallback, a paged topic catalog and paged topic pages, both help-wanted and good-first-task discovery surfaced in the Explore page (not just the API), paged featured and community collections, recommendations that blend topic overlap with repositories owned by people the viewer follows and fall back to trending, an hourly Spark cap counted from audit events, user-owned community collections of public repositories with a UI to create one and curate its items, operator-featured collections through `GITOWN_OPERATORS`, and a 180-day public contribution graph of issues, comments, Sparks, and merged Unite requests.
 
-Boundaries: the index stores a limited number of text lines from public default branches. It is not an external search cluster. Recommendations are topic overlap, not a trained model. The contribution graph does not count private commits. Custom project domains stay later.
+Every listing that decorates a page of repositories with the viewer's role and capabilities (search, topics, recommendations, trending, collections) does it with a fixed, small number of queries per page instead of one to two extra queries per repository.
+
+Boundaries: the index stores a limited number of text lines from public default branches. It is not an external search cluster. Recommendations are topic overlap and follow-graph proximity, not a trained model. The contribution graph does not count private commits. Code search is a separate box from the main Explore query, not yet unified into one query bar across repositories, builders, work, and code. Custom project domains stay later.
 
 ## Phase 7 — Districts and crews (complete)
 

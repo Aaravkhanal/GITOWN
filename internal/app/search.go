@@ -212,7 +212,6 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	result := RepositorySearch{Items: []Repository{}}
-	u := a.user(r)
 	for rows.Next() {
 		repo, scanErr := scanRepo(rows)
 		if scanErr != nil {
@@ -223,13 +222,13 @@ func (a *App) searchRepositories(w http.ResponseWriter, r *http.Request) {
 			result.HasMore = offset < 1000
 			break
 		}
-		if err = a.decorate(r.Context(), &repo, u); err != nil {
-			serverError(w, err)
-			return
-		}
 		result.Items = append(result.Items, repo)
 	}
 	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.decorateAll(r.Context(), result.Items, a.user(r)); err != nil {
 		serverError(w, err)
 		return
 	}

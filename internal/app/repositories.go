@@ -56,43 +56,52 @@ func scanRepo(row scanner) (Repository, error) {
 func (a *App) scanRepoList(r *http.Request, rows pgx.Rows) ([]Repository, error) {
 	defer rows.Close()
 	items := []Repository{}
-	viewer := a.user(r)
 	for rows.Next() {
 		repo, err := scanRepo(rows)
 		if err != nil {
 			return nil, err
 		}
-		if err = a.decorate(r.Context(), &repo, viewer); err != nil {
-			return nil, err
-		}
 		items = append(items, repo)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := a.decorateAll(r.Context(), items, a.user(r)); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
-func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
+
+// districtAccess holds one repository's district admission facts for a
+// viewer, batched up front so a page of repositories costs a fixed number
+// of queries instead of one per row.
+type districtAccess struct {
+	OwnerID    string
+	Base       string
+	MemberRole string
+}
+
+// applyRepoAccess computes a repository's role and capability flags for a
+// viewer from already-fetched facts (the viewer's membership role, if any,
+// and the repository's district admission, if any). Both decorate and
+// decorateAll funnel through this single function so a single-repository
+// lookup and a batched page produce identical results.
+func applyRepoAccess(repo *Repository, u *User, memberRole string, hasMemberRole bool, district districtAccess, hasDistrict bool, gitURL string) {
 	if u != nil && u.ID == repo.OwnerID {
 		repo.Role = "owner"
-	} else if u != nil {
-		err := a.db.QueryRow(ctx, `SELECT role FROM repository_members WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID).Scan(&repo.Role)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
+	} else if u != nil && hasMemberRole {
+		repo.Role = memberRole
 	}
 	manage := repo.Role == "owner"
-	if u != nil && repo.DistrictID != "" {
-		var districtOwner, base, memberRole string
-		err := a.db.QueryRow(ctx, `SELECT d.owner_id::text,d.base_permission,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id=$2),'') FROM districts d WHERE d.id=$1`, repo.DistrictID, u.ID).Scan(&districtOwner, &base, &memberRole)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err == nil && (u.ID == districtOwner || memberRole == "admin") {
+	if u != nil && repo.DistrictID != "" && hasDistrict {
+		if u.ID == district.OwnerID || district.MemberRole == "admin" {
 			if repo.Role != "owner" {
 				repo.Role = higherRole(repo.Role, "maintain")
 			}
 			manage = true
-		} else if err == nil && memberRole == "member" {
-			if base == "read" || base == "triage" || base == "write" {
-				repo.Role = higherRole(repo.Role, base)
+		} else if district.MemberRole == "member" {
+			if district.Base == "read" || district.Base == "triage" || district.Base == "write" {
+				repo.Role = higherRole(repo.Role, district.Base)
 			}
 			if repo.Visibility == "internal" && repo.Role == "" {
 				repo.Role = "read"
@@ -104,9 +113,101 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 	repo.CanManage = manage || repo.Role == "owner"
 	repo.CanMaintain = repo.CanManage || repo.Role == "maintain"
 	repo.CanComment = u != nil && !repo.Archived
-	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
+	repo.CloneURL = gitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
 	if host := strings.TrimSpace(os.Getenv("GITOWN_SSH_HOST")); host != "" && !strings.ContainsAny(host, " \t\r\n") {
 		repo.SSHCloneURL = "git@" + host + ":" + repo.Owner + "/" + repo.Name + ".git"
+	}
+}
+
+func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
+	var memberRole string
+	var hasMemberRole bool
+	if u != nil && u.ID != repo.OwnerID {
+		err := a.db.QueryRow(ctx, `SELECT role FROM repository_members WHERE repository_id=$1 AND user_id=$2`, repo.ID, u.ID).Scan(&memberRole)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		hasMemberRole = err == nil
+	}
+	var district districtAccess
+	var hasDistrict bool
+	if u != nil && repo.DistrictID != "" {
+		err := a.db.QueryRow(ctx, `SELECT d.owner_id::text,d.base_permission,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id=$2),'') FROM districts d WHERE d.id=$1`, repo.DistrictID, u.ID).Scan(&district.OwnerID, &district.Base, &district.MemberRole)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		hasDistrict = err == nil
+	}
+	applyRepoAccess(repo, u, memberRole, hasMemberRole, district, hasDistrict, a.cfg.GitURL)
+	return nil
+}
+
+// decorateAll is the batched form of decorate: it issues at most one query
+// for membership roles and one for district admission across the whole
+// page, instead of up to two queries per repository.
+func (a *App) decorateAll(ctx context.Context, repos []Repository, u *User) error {
+	if len(repos) == 0 {
+		return nil
+	}
+	memberRoles := map[string]string{}
+	if u != nil {
+		ids := make([]string, len(repos))
+		for i, repo := range repos {
+			ids[i] = repo.ID
+		}
+		rows, err := a.db.Query(ctx, `SELECT repository_id::text,role FROM repository_members WHERE user_id=$1 AND repository_id = ANY($2)`, u.ID, ids)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id, role string
+			if err = rows.Scan(&id, &role); err != nil {
+				rows.Close()
+				return err
+			}
+			memberRoles[id] = role
+		}
+		if err = rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+	districts := map[string]districtAccess{}
+	if u != nil {
+		seen := map[string]bool{}
+		var ids []string
+		for _, repo := range repos {
+			if repo.DistrictID != "" && !seen[repo.DistrictID] {
+				seen[repo.DistrictID] = true
+				ids = append(ids, repo.DistrictID)
+			}
+		}
+		if len(ids) > 0 {
+			rows, err := a.db.Query(ctx, `SELECT d.id::text,d.owner_id::text,d.base_permission,COALESCE((SELECT m.role FROM district_members m WHERE m.district_id=d.id AND m.user_id=$2),'') FROM districts d WHERE d.id = ANY($1)`, ids, u.ID)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var id string
+				var da districtAccess
+				if err = rows.Scan(&id, &da.OwnerID, &da.Base, &da.MemberRole); err != nil {
+					rows.Close()
+					return err
+				}
+				districts[id] = da
+			}
+			if err = rows.Err(); err != nil {
+				rows.Close()
+				return err
+			}
+			rows.Close()
+		}
+	}
+	for i := range repos {
+		memberRole, hasMemberRole := memberRoles[repos[i].ID]
+		district, hasDistrict := districts[repos[i].DistrictID]
+		applyRepoAccess(&repos[i], u, memberRole, hasMemberRole, district, hasDistrict, a.cfg.GitURL)
 	}
 	return nil
 }
@@ -164,13 +265,13 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		if err = a.decorate(r.Context(), &repo, u); err != nil {
-			serverError(w, err)
-			return
-		}
 		repos = append(repos, repo)
 	}
 	if err := rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err := a.decorateAll(r.Context(), repos, u); err != nil {
 		serverError(w, err)
 		return
 	}

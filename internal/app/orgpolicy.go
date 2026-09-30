@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -60,14 +61,36 @@ func (a *App) outsideCollaboratorAllowed(ctx context.Context, districtID, userna
 	return allow || inside, nil
 }
 
+func offsetParam(w http.ResponseWriter, r *http.Request) (int, bool) {
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var err error
+		offset, err = strconv.Atoi(raw)
+		if err != nil {
+			fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+			return 0, false
+		}
+	}
+	if offset < 0 || offset > 1000 {
+		fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+		return 0, false
+	}
+	return offset, true
+}
+
 func (a *App) topicCatalog(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), `SELECT t.topic, count(*)::int FROM repository_topics t JOIN repositories r ON r.id=t.repository_id WHERE r.visibility='public' AND r.deleted_at IS NULL GROUP BY t.topic ORDER BY count(*) DESC, t.topic LIMIT 50`)
+	offset, ok := offsetParam(w, r)
+	if !ok {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT t.topic, count(*)::int FROM repository_topics t JOIN repositories r ON r.id=t.repository_id WHERE r.visibility='public' AND r.deleted_at IS NULL GROUP BY t.topic ORDER BY count(*) DESC, t.topic LIMIT 51 OFFSET $1`, offset)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	hasMore := false
 	for rows.Next() {
 		var topic string
 		var count int
@@ -75,13 +98,17 @@ func (a *App) topicCatalog(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
+		if len(items) == 50 {
+			hasMore = offset < 1000
+			break
+		}
 		items = append(items, map[string]any{"topic": topic, "repositories": count})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"items": items})
+	respond(w, 200, map[string]any{"items": items, "has_more": hasMore})
 }
 
 func (a *App) topicPage(w http.ResponseWriter, r *http.Request) {
@@ -90,17 +117,39 @@ func (a *App) topicPage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "Topic not found.")
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repository_topics t JOIN repositories r ON r.id=t.repository_id JOIN users u ON u.id=r.owner_id WHERE t.topic=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC, r.id DESC LIMIT 30`, topic)
+	offset, ok := offsetParam(w, r)
+	if !ok {
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repository_topics t JOIN repositories r ON r.id=t.repository_id JOIN users u ON u.id=r.owner_id WHERE t.topic=$1 AND r.visibility='public' AND r.deleted_at IS NULL ORDER BY r.pushed_at DESC, r.id DESC LIMIT 31 OFFSET $2`, topic, offset)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	items, err := a.scanRepoList(r, rows)
-	if err != nil {
+	defer rows.Close()
+	rawItems := []Repository{}
+	for rows.Next() {
+		repo, scanErr := scanRepo(rows)
+		if scanErr != nil {
+			serverError(w, scanErr)
+			return
+		}
+		rawItems = append(rawItems, repo)
+	}
+	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"topic": topic, "items": items})
+	hasMore := false
+	if len(rawItems) > 30 {
+		rawItems = rawItems[:30]
+		hasMore = offset < 1000
+	}
+	if err = a.decorateAll(r.Context(), rawItems, a.user(r)); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"topic": topic, "items": rawItems, "has_more": hasMore})
 }
 
 func (a *App) contributions(w http.ResponseWriter, r *http.Request) {

@@ -54,17 +54,31 @@ func (a *App) searchTasks(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Kind must be help, first, or empty.")
 		return
 	}
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var convErr error
+		offset, convErr = strconv.Atoi(raw)
+		if convErr != nil {
+			fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+			return
+		}
+	}
+	if offset < 0 || offset > 1000 {
+		fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+		return
+	}
 	rows, err := a.db.Query(r.Context(), `SELECT u.username,r.name,i.number,i.title,l.name FROM issues i
 		JOIN repositories r ON r.id=i.repository_id JOIN users u ON u.id=r.owner_id
 		JOIN issue_labels il ON il.issue_id=i.id JOIN labels l ON l.id=il.label_id
 		WHERE r.visibility='public' AND r.deleted_at IS NULL AND i.state='open' AND lower(l.name)=ANY($1)
-		ORDER BY i.created_at DESC,i.id DESC LIMIT 25`, names)
+		ORDER BY i.created_at DESC,i.id DESC LIMIT 26 OFFSET $2`, names, offset)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	hasMore := false
 	for rows.Next() {
 		var owner, name, title, label string
 		var number int
@@ -72,13 +86,17 @@ func (a *App) searchTasks(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
+		if len(items) == 25 {
+			hasMore = offset < 1000
+			break
+		}
 		items = append(items, map[string]any{"owner": owner, "repository": name, "number": number, "title": title, "label": label})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"items": items})
+	respond(w, 200, map[string]any{"items": items, "has_more": hasMore})
 }
 
 func (a *App) recommendations(w http.ResponseWriter, r *http.Request) {
@@ -87,16 +105,26 @@ func (a *App) recommendations(w http.ResponseWriter, r *http.Request) {
 		a.writeTrending(w, r)
 		return
 	}
+	// Candidates come from two signals: repositories that share a topic with
+	// work the viewer owns or Sparked, and repositories owned by someone the
+	// viewer follows. Followed-owner repositories are ranked first (that is
+	// the more direct signal), then both groups fall back to spark count and
+	// recency.
 	rows, err := a.db.Query(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id
 		WHERE r.visibility='public' AND r.deleted_at IS NULL AND r.owner_id<>$1
 		AND NOT EXISTS (SELECT 1 FROM repository_sparks rs WHERE rs.repository_id=r.id AND rs.user_id=$1)
-		AND EXISTS (
-			SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic IN (
-				SELECT t2.topic FROM repository_topics t2 JOIN repositories mine ON mine.id=t2.repository_id
-				WHERE mine.deleted_at IS NULL AND (mine.owner_id=$1 OR EXISTS (SELECT 1 FROM repository_sparks s WHERE s.repository_id=mine.id AND s.user_id=$1))
+		AND (
+			EXISTS (
+				SELECT 1 FROM repository_topics rt WHERE rt.repository_id=r.id AND rt.topic IN (
+					SELECT t2.topic FROM repository_topics t2 JOIN repositories mine ON mine.id=t2.repository_id
+					WHERE mine.deleted_at IS NULL AND (mine.owner_id=$1 OR EXISTS (SELECT 1 FROM repository_sparks s WHERE s.repository_id=mine.id AND s.user_id=$1))
+				)
 			)
+			OR EXISTS (SELECT 1 FROM user_follows f WHERE f.follower_id=$1 AND f.followed_id=r.owner_id)
 		)
-		ORDER BY (SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC, r.pushed_at DESC LIMIT 12`, u.ID)
+		ORDER BY
+			(CASE WHEN EXISTS (SELECT 1 FROM user_follows f WHERE f.follower_id=$1 AND f.followed_id=r.owner_id) THEN 1 ELSE 0 END) DESC,
+			(SELECT count(*) FROM repository_sparks rs WHERE rs.repository_id=r.id) DESC, r.pushed_at DESC LIMIT 12`, u.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -134,16 +162,30 @@ func (a *App) collections(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("featured") == "1" {
 		filter = " WHERE c.featured"
 	}
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var convErr error
+		offset, convErr = strconv.Atoi(raw)
+		if convErr != nil {
+			fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+			return
+		}
+	}
+	if offset < 0 || offset > 1000 {
+		fail(w, 422, "validation_failed", "Offset must be between zero and 1000.")
+		return
+	}
 	rows, err := a.db.Query(r.Context(), `SELECT c.id,u.username,c.slug,c.title,c.description,c.created_at,c.featured,
 		(SELECT count(*)::int FROM collection_items ci JOIN repositories r ON r.id=ci.repository_id WHERE ci.collection_id=c.id AND r.visibility='public' AND r.deleted_at IS NULL)
 		FROM collections c JOIN users u ON u.id=c.owner_id`+filter+`
-		ORDER BY c.featured DESC, (SELECT count(*) FROM collection_items ci WHERE ci.collection_id=c.id) DESC, c.created_at DESC LIMIT 20`)
+		ORDER BY c.featured DESC, (SELECT count(*) FROM collection_items ci WHERE ci.collection_id=c.id) DESC, c.created_at DESC LIMIT 21 OFFSET $1`, offset)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	hasMore := false
 	for rows.Next() {
 		var id, owner, slug, title, description string
 		var createdAt time.Time
@@ -153,13 +195,17 @@ func (a *App) collections(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
+		if len(items) == 20 {
+			hasMore = offset < 1000
+			break
+		}
 		items = append(items, map[string]any{"id": id, "owner": owner, "slug": slug, "title": title, "description": description, "created_at": createdAt, "featured": featured, "repositories": count})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"items": items})
+	respond(w, 200, map[string]any{"items": items, "has_more": hasMore})
 }
 
 func (a *App) createCollection(w http.ResponseWriter, r *http.Request) {
