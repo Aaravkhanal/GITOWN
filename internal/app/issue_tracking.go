@@ -436,11 +436,30 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, "issue.opened", webhookIssuePayload(repo, u.Username, i)); err != nil {
+		serverError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
 	}
 	respond(w, 201, i)
+}
+
+// webhookIssuePayload is the shared envelope for every issue-related
+// webhook event: which repository, who acted, and the issue itself.
+func webhookIssuePayload(repo *Repository, actor string, i Issue) map[string]any {
+	return map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      actor,
+		"issue": map[string]any{
+			"number": i.Number,
+			"title":  i.Title,
+			"state":  i.State,
+			"url":    fmt.Sprintf("/repos/%s/%s/issues/%d", repo.Owner, repo.Name, i.Number),
+		},
+	}
 }
 
 // updateIssue changes an issue's state, title, or body. Triage users can
@@ -563,6 +582,16 @@ func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
 		if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "issue."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
 			serverError(w, err)
 			return
+		}
+		if previousState != in.State {
+			webhookKind := "issue.closed"
+			if in.State == "open" {
+				webhookKind = "issue.reopened"
+			}
+			if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, webhookKind, webhookIssuePayload(repo, u.Username, Issue{Number: number, Title: title, State: in.State})); err != nil {
+				serverError(w, err)
+				return
+			}
 		}
 	} else if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.edited',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
 		serverError(w, err)
@@ -687,6 +716,15 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.commented',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, "issue.commented", map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      u.Username,
+		"issue":      map[string]any{"number": number},
+		"comment":    map[string]string{"body": comment.Body},
+	}); err != nil {
 		serverError(w, err)
 		return
 	}

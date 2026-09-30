@@ -27,13 +27,30 @@ type App struct {
 	git        *gitstore.Store
 	ratesMu    sync.Mutex
 	rates      map[string]rateWindow
+	apiRatesMu sync.Mutex
+	apiRates   map[string]rateWindow
 	passwords  chan struct{}
 	transports chan struct{}
 	dummyHash  string
 	// mailer delivers rendered email; nil means SMTP is not configured and
 	// queued mail is recorded as suppressed rather than sent.
 	mailer func(context.Context, outgoingMail) error
+	// webhookClient sends webhook deliveries. New() always sets this to a
+	// client whose dialer refuses private/loopback addresses; tests swap it
+	// for one pointed at a local receiver rather than weakening that dialer.
+	webhookClient *http.Client
 }
+
+// apiRateLimitPerMinute bounds the general /api/ surface per authenticated
+// identity (session or access token) or, for an anonymous caller, per IP.
+// Many pages here fire a dozen or more parallel useData requests on load
+// (commits, issues, milestones, labels, members, drops, ...), so a single
+// active session can legitimately generate hundreds of requests a minute;
+// 300 turned out to be tight enough to trip the e2e suite itself doing
+// completely normal interactive use. This stays well below what a scripted
+// scrape or abuse loop would want while covering that real usage. This is
+// separate from authLimit, which is a much tighter, login-specific limit.
+const apiRateLimitPerMinute = 1200
 type rateWindow struct {
 	count int
 	until time.Time
@@ -52,7 +69,7 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, db: db, git: git, rates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_"))}
+	a := &App{cfg: cfg, db: db, git: git, rates: make(map[string]rateWindow), apiRates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_")), webhookClient: newWebhookHTTPClient()}
 	if cfg.SMTPAddr != "" {
 		a.mailer = a.sendSMTP
 	}
@@ -148,6 +165,12 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/districts/{slug}/invoices/{id}/pay", a.payDistrictInvoice)
 	mux.HandleFunc("GET /api/v1/districts/{slug}/repos", a.districtRepos)
 	mux.HandleFunc("GET /api/v1/districts/{slug}/board", a.districtBoard)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/webhooks", a.districtWebhooks)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/webhooks", a.createDistrictWebhook)
+	mux.HandleFunc("PATCH /api/v1/districts/{slug}/webhooks/{id}", a.updateDistrictWebhook)
+	mux.HandleFunc("DELETE /api/v1/districts/{slug}/webhooks/{id}", a.deleteDistrictWebhook)
+	mux.HandleFunc("GET /api/v1/districts/{slug}/webhooks/{id}/deliveries", a.districtWebhookDeliveries)
+	mux.HandleFunc("POST /api/v1/districts/{slug}/webhooks/{id}/deliveries/{deliveryId}/replay", a.replayDistrictWebhookDelivery)
 	mux.HandleFunc("GET /api/v1/user/ssh-keys", a.sshKeys)
 	mux.HandleFunc("POST /api/v1/user/ssh-keys", a.createSSHKey)
 	mux.HandleFunc("DELETE /api/v1/user/ssh-keys/{id}", a.deleteSSHKey)
@@ -270,6 +293,12 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/deploy-keys", a.deployKeys)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/deploy-keys", a.createDeployKey)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/deploy-keys/{id}", a.deleteDeployKey)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/webhooks", a.repoWebhooks)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/webhooks", a.createRepoWebhook)
+	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/webhooks/{id}", a.updateRepoWebhook)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/webhooks/{id}", a.deleteRepoWebhook)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries", a.repoWebhookDeliveries)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries/{deliveryId}/replay", a.replayRepoWebhookDelivery)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/maintenance", a.maintainRepository)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/district", a.updateRepositoryDistrict)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/refs", a.refEvents)
@@ -298,6 +327,14 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
+			// GITOWN-API-Version is a real, checkable signal for whenever a
+			// future breaking version ships; /api/v1/ is the only version
+			// today, so there is nothing to route yet, just a value clients
+			// can already start comparing against.
+			w.Header().Set("GITOWN-API-Version", "v1")
+			if !a.apiRateLimit(w, r) {
+				return
+			}
 			limit := int64(1 << 20)
 			asset := r.Method == "POST" && strings.Contains(r.URL.Path, "/drops/") && strings.HasSuffix(r.URL.Path, "/assets")
 			if asset {
@@ -413,6 +450,41 @@ func (a *App) authLimit(w http.ResponseWriter, r *http.Request) bool {
 		fail(w, 429, "busy", "Please try again in a moment.")
 		return false
 	}
+}
+
+// apiRateLimit bounds every /api/ request by identity: a signed-in session
+// or access token gets its own bucket (so one busy user never starves
+// another), and an anonymous caller falls back to a per-IP bucket. Tokens
+// are hashed before use as a map key so a raw secret is never held in
+// memory outside the request that presented it.
+func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	key := "ip:" + ip
+	if c, err := r.Cookie("gitown_session"); err == nil && c.Value != "" {
+		key = "s:" + auth.Digest(c.Value)
+	} else if raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && raw != "" {
+		key = "t:" + auth.Digest(raw)
+	}
+	a.apiRatesMu.Lock()
+	defer a.apiRatesMu.Unlock()
+	now := time.Now()
+	for k, v := range a.apiRates {
+		if now.After(v.until) {
+			delete(a.apiRates, k)
+		}
+	}
+	v := a.apiRates[key]
+	if v.until.IsZero() {
+		v.until = now.Add(time.Minute)
+	}
+	if v.count >= apiRateLimitPerMinute || (len(a.apiRates) >= 50000 && v.count == 0) {
+		w.Header().Set("Retry-After", "60")
+		fail(w, 429, "rate_limited", "Too many requests. Try again in a moment.")
+		return false
+	}
+	v.count++
+	a.apiRates[key] = v
+	return true
 }
 
 func (a *App) session(w http.ResponseWriter, r *http.Request, u User) error {

@@ -450,11 +450,30 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, "pull.opened", webhookPullPayload(repo, u.Username, p)); err != nil {
+		serverError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
 	}
 	respond(w, 201, p)
+}
+
+// webhookPullPayload is the shared envelope for every unite-request-related
+// webhook event: which repository, who acted, and the pull itself.
+func webhookPullPayload(repo *Repository, actor string, p Pull) map[string]any {
+	return map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      actor,
+		"pull": map[string]any{
+			"number": p.Number,
+			"title":  p.Title,
+			"state":  p.State,
+			"url":    fmt.Sprintf("/repos/%s/%s/pulls/%d", repo.Owner, repo.Name, p.Number),
+		},
+	}
 }
 
 func (a *App) getPull(w http.ResponseWriter, r *http.Request, repo *Repository) *Pull {
@@ -566,14 +585,20 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 		}
 		if p.State != in.State {
 			kind := "pull_closed"
+			webhookKind := "pull.closed"
 			if in.State == "open" {
 				kind = "pull_reopened"
+				webhookKind = "pull.reopened"
 			}
 			if err = notifyPull(r.Context(), tx, p.ID, u.ID, kind); err != nil {
 				serverError(w, err)
 				return
 			}
 			if err = syncPullBoard(r.Context(), tx, repo.ID, p.ID, strings.TrimPrefix(kind, "pull_")); err != nil {
+				serverError(w, err)
+				return
+			}
+			if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, webhookKind, webhookPullPayload(repo, u.Username, Pull{Number: p.Number, Title: p.Title, State: in.State})); err != nil {
 				serverError(w, err)
 				return
 			}
@@ -689,6 +714,15 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, "pull.commented", map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      u.Username,
+		"pull":       map[string]any{"number": p.Number},
+		"comment":    map[string]string{"body": comment.Body},
+	}); err != nil {
+		serverError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
@@ -798,6 +832,15 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "pull.reviewed."+review.State, fmt.Sprintf("%s/%s#%d@%s", repo.Owner, repo.Name, p.Number, currentHead)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.fireWebhook(r.Context(), tx, repo.ID, repo.DistrictID, "pull.reviewed", map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      u.Username,
+		"pull":       map[string]any{"number": p.Number},
+		"review":     map[string]string{"state": review.State, "body": review.Body},
+	}); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -1017,6 +1060,9 @@ func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Reposit
 		return err
 	}
 	if err = notifyPull(ctx, tx, p.ID, u.ID, "pull_merged"); err != nil {
+		return err
+	}
+	if err = a.fireWebhook(ctx, tx, repo.ID, repo.DistrictID, "pull.merged", webhookPullPayload(&repo, u.Username, Pull{Number: p.Number, Title: p.Title, State: "merged"})); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

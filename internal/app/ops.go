@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -168,6 +169,19 @@ func (a *App) finishReceive(ctx context.Context, repo *Repository, actorID strin
 	for _, update := range updates {
 		if update.Ref == "refs/heads/"+repo.DefaultBranch {
 			a.closeIssuesFromPush(ctx, repo, actorID, update.Old, update.New)
+		}
+	}
+	if len(updates) > 0 {
+		branches := make([]string, 0, len(updates))
+		for _, update := range updates {
+			branches = append(branches, strings.TrimPrefix(update.Ref, "refs/heads/"))
+		}
+		if err := a.fireWebhook(ctx, a.db, repo.ID, repo.DistrictID, "push", map[string]any{
+			"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+			"via":        via,
+			"branches":   branches,
+		}); err != nil {
+			slog.Error("webhook enqueue failed", "error", err, "kind", "push")
 		}
 	}
 	_ = a.noteRepositoryFacts(ctx, repo)

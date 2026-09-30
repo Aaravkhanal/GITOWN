@@ -96,6 +96,7 @@ func queueAddressMail(ctx context.Context, tx pgx.Tx, email, kind, subject, body
 // maintenance) until ctx is cancelled.
 func (a *App) StartWorkers(ctx context.Context) {
 	a.startMaintenanceSweep(ctx)
+	a.startWebhookWorker(ctx)
 	go func() {
 		ticker := time.NewTicker(mailWorkerInterval)
 		defer ticker.Stop()

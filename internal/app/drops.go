@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -207,7 +208,27 @@ func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.created',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Tag)
+	if !in.Draft {
+		if err = a.fireWebhook(r.Context(), a.db, repo.ID, repo.DistrictID, "drop.published", webhookDropPayload(repo, u.Username, in.Tag, in.Title)); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	respond(w, 201, map[string]any{"tag": in.Tag, "title": in.Title, "body": in.Body, "provenance": in.Provenance, "draft": in.Draft, "prerelease": in.Prerelease, "sha": sha, "created_at": created, "provenance_verified": verified})
+}
+
+// webhookDropPayload is the shared envelope for the drop.published webhook
+// event.
+func webhookDropPayload(repo *Repository, actor, tag, title string) map[string]any {
+	return map[string]any{
+		"repository": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		"actor":      actor,
+		"drop": map[string]string{
+			"tag":   tag,
+			"title": title,
+			"url":   fmt.Sprintf("/repos/%s/%s/drops/%s", repo.Owner, repo.Name, tag),
+		},
+	}
 }
 
 func (a *App) generatedChangelog(r *http.Request, repoID, tag, sha string) []string {
@@ -326,6 +347,7 @@ func (a *App) updateDrop(w http.ResponseWriter, r *http.Request) {
 	if in.Provenance != nil {
 		provenance = strings.TrimSpace(*in.Provenance)
 	}
+	previousDraft := draft
 	if in.Draft != nil {
 		draft = *in.Draft
 	}
@@ -341,7 +363,14 @@ func (a *App) updateDrop(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.updated',$2)`, a.user(r).ID, repo.Owner+"/"+repo.Name+":"+tag)
+	u := a.user(r)
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.updated',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+tag)
+	if previousDraft && !draft {
+		if err := a.fireWebhook(r.Context(), a.db, repo.ID, repo.DistrictID, "drop.published", webhookDropPayload(repo, u.Username, tag, title)); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	respond(w, 200, map[string]any{"tag": tag, "title": title, "draft": draft, "prerelease": prerelease, "provenance_verified": verified})
 }
 

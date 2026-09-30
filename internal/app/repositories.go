@@ -252,8 +252,21 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("mine") == "true" {
 		query += ` AND (r.owner_id::text=$1 OR EXISTS (SELECT 1 FROM repository_members rm WHERE rm.repository_id=r.id AND rm.user_id::text=$1) OR EXISTS (SELECT 1 FROM districts d WHERE d.id=r.district_id AND (d.owner_id::text=$1 OR EXISTS (SELECT 1 FROM district_members dm WHERE dm.district_id=d.id AND dm.user_id::text=$1))))`
 	}
-	query += ` ORDER BY r.created_at DESC LIMIT 100`
-	rows, err := a.db.Query(r.Context(), query, id)
+	// Default matches the previous hard-coded LIMIT 100 so existing callers
+	// (e.g. the dashboard stats, which sum every returned repo) see the same
+	// page unless they ask for more; page/per_page now let a caller reach
+	// repositories beyond the old, previously unreachable 100th result.
+	page, perPage, ok := pageParams(w, r, 100, 200)
+	if !ok {
+		return
+	}
+	var total int
+	if err := a.db.QueryRow(r.Context(), `SELECT count(*) FROM (`+query+`) t`, id).Scan(&total); err != nil {
+		serverError(w, err)
+		return
+	}
+	query += ` ORDER BY r.created_at DESC LIMIT $2 OFFSET $3`
+	rows, err := a.db.Query(r.Context(), query, id, perPage, (page-1)*perPage)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -276,6 +289,9 @@ func (a *App) repositories(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
+	w.Header().Set("X-Page", strconv.Itoa(page))
+	w.Header().Set("X-Per-Page", strconv.Itoa(perPage))
 	respond(w, 200, repos)
 }
 
