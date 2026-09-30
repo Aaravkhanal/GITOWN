@@ -5,6 +5,18 @@ export type PublicRepository = {
   description: string;
   archived: boolean;
   created_at: string;
+  homepage: string;
+  stack: string;
+  sparks: number;
+  latest_drop: string;
+  downloads: number;
+};
+export type ProfileLink = { label: string; url: string };
+export type ContributionBadge = {
+  id: string;
+  label: string;
+  tier: "bronze" | "silver" | "gold";
+  reason: string;
 };
 export type Profile = {
   username: string;
@@ -13,8 +25,10 @@ export type Profile = {
   website: string;
   location: string;
   skills: string;
+  skill_tags: string[];
   availability: string;
   open_to_collaborators: boolean;
+  links: ProfileLink[];
   created_at: string;
   followers: number;
   following: number;
@@ -22,10 +36,16 @@ export type Profile = {
   contributions: {
     merged_unites: number;
     approvals: number;
+    reviews: number;
+    helped_ship: number;
     closed_issues: number;
+    resolved_issues: number;
+    pushes: number;
+    docs_unites: number;
+    external_merges: number;
     public_repositories: number;
   };
-  badges: string[];
+  badges: ContributionBadge[];
   showcase: PublicRepository[];
   repositories: PublicRepository[];
 };
@@ -61,6 +81,8 @@ export type BuilderSearch = {
     display_name: string;
     bio: string;
     location: string;
+    skills: string;
+    availability: string;
     followers: number;
     repositories: number;
     open_to_collaborators: boolean;
@@ -139,9 +161,11 @@ export type BoardItem = {
 export type Notification = {
   id: number;
   kind:
+    | "issue_opened"
     | "issue_comment"
     | "issue_closed"
     | "issue_reopened"
+    | "pull_opened"
     | "pull_comment"
     | "pull_review"
     | "pull_closed"
@@ -154,6 +178,7 @@ export type Notification = {
     | "ownership_transfer"
     | "check_success"
     | "check_failure"
+    | "follow"
     | string;
   actor: string;
   owner: string;
@@ -161,8 +186,46 @@ export type Notification = {
   issue: number | null;
   pull: number | null;
   title: string;
+  excerpt: string;
   created_at: string;
   read_at: string | null;
+};
+export type FollowEntry = {
+  username: string;
+  display_name: string;
+  bio: string;
+};
+export type Screenshot = { url: string; caption: string };
+export type RepositoryShowcase = {
+  repository: Repo;
+  readme: string;
+  setup: string;
+  screenshots: Screenshot[];
+  stack: string[];
+  sparks: number;
+  contributors: {
+    username: string;
+    display_name: string;
+    merged: number;
+    role: "owner" | "contributor";
+  }[];
+  latest_drop: {
+    tag: string;
+    title: string;
+    downloads: number;
+    created_at: string;
+  } | null;
+  roadmap: {
+    title: string;
+    due_date: string | null;
+    open_issues: number;
+    closed_issues: number;
+  }[];
+  tasks: { number: number; title: string; labels: string[] }[];
+};
+export type RepositoryWatch = {
+  mode: "watching" | "participating" | "ignoring" | "";
+  implicit: boolean;
 };
 export type FeedEvent = {
   kind:

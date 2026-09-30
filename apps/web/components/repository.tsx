@@ -71,6 +71,7 @@ import {
   useData,
 } from "./ui";
 import { BoardView } from "./board";
+import { WatchMenu } from "./watch";
 import {
   CommentEdit,
   IssuePlanning,
@@ -152,6 +153,7 @@ export function RepositoryPage({
         </div>
         <div className="toolbar-actions">
           <SparkButton endpoint={endpoint} />
+          <WatchMenu endpoint={endpoint} />
           <button className="button" onClick={() => setClone(!clone)}>
             <Terminal size={16} />
             Clone repository
@@ -827,6 +829,21 @@ function CodeBrowser({
           <History size={15} />
           Created {date(repo.created_at)}
         </span>
+        {repo.homepage && (
+          <a href={repo.homepage} target="_blank" rel="noopener noreferrer">
+            <Globe2 size={15} /> Live demo
+          </a>
+        )}
+        {repo.stack && (
+          <span>
+            <Code2 size={15} /> {repo.stack}
+          </span>
+        )}
+        {repo.visibility !== "private" && (
+          <Link className="text-link" href={`${repoPath(repo)}/showcase`}>
+            Project showcase <ArrowRight size={14} />
+          </Link>
+        )}
         <hr />
         <h3>Ready to contribute?</h3>
         <p>Clone your repository, make a change, and push a new branch.</p>
@@ -2257,9 +2274,9 @@ function IssueSubscription({
       <h4>Updates</h4>
       <ErrorMessage error={subscription.error} />
       <p className="muted small-text">
-        Get inbox updates when someone comments or changes this issue. Watch
-        receives every update, participate receives the ones you joined, and
-        ignore stays quiet.
+        Participate follows the conversation and state changes on this issue.
+        Watch also includes every other update, and ignore stays quiet even
+        when you are mentioned.
       </p>
       <SubscriptionMode path={path} version={refreshVersion} />
     </section>
@@ -2946,9 +2963,9 @@ function PullSubscription({
       <h4>Updates</h4>
       <ErrorMessage error={subscription.error} />
       <p className="muted small-text">
-        Get inbox updates for comments, reviews, state changes, and merges.
-        Watch receives every update, participate receives the ones you joined,
-        and ignore stays quiet.
+        Participate follows comments, reviews, state changes, and merges. Watch
+        also includes check results, and ignore stays quiet even when you are
+        mentioned.
       </p>
       <SubscriptionMode path={path} version={0} />
     </section>

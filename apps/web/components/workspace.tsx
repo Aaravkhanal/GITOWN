@@ -68,7 +68,8 @@ import {
 } from "./ui";
 import { RepositoryPage } from "./repository";
 import { ProfileSettings, PublicProfile } from "./profile";
-import { Inbox } from "./inbox";
+import { Inbox, useUnreadCount } from "./inbox";
+import { ProjectShowcase, UnsubscribePage } from "./showcase";
 import { FollowingFeed } from "./feed";
 
 type Session = {
@@ -118,6 +119,16 @@ export function Workspace({ segments }: { segments: string[] }) {
     }
   }
   const [notice, setNotice] = useState("");
+  const [inboxVersion, setInboxVersion] = useState(0);
+  const unread = useUnreadCount(inboxVersion, !!user);
+  const districts = useData<{ items: { owner: string; role?: string }[] }>(
+    user ? "/districts" : null,
+  );
+  const memberships =
+    districts.data?.items.filter(
+      (district) => district.owner === user?.username || !!district.role,
+    ).length || 0;
+  const channel = (process.env.NEXT_PUBLIC_GITOWN_CHANNEL || "").trim();
   const authPage = section === "login" || section === "register";
   return (
     <SessionContext.Provider
@@ -198,9 +209,17 @@ export function Workspace({ segments }: { segments: string[] }) {
               </span>
               <div>
                 <strong>{user?.username || "Your workspace"}</strong>
-                <span>Personal account</span>
+                <span>
+                  {!user
+                    ? "Signed out"
+                    : memberships
+                      ? `Personal · ${memberships} district${memberships === 1 ? "" : "s"}`
+                      : "Personal account"}
+                </span>
               </div>
-              <Badge>ALPHA</Badge>
+              {channel && channel !== "stable" && (
+                <Badge>{channel.toUpperCase()}</Badge>
+              )}
             </div>
             <p className="nav-label">WORKSPACE</p>
             <nav className="side-nav" aria-label="Workspace navigation">
@@ -227,6 +246,14 @@ export function Workspace({ segments }: { segments: string[] }) {
                   href="/inbox"
                 >
                   <Bell size={17} /> Inbox
+                  {unread > 0 && (
+                    <span
+                      className="trailing nav-count"
+                      aria-label={`${unread} unread notifications`}
+                    >
+                      {unread > 99 ? "99+" : unread}
+                    </span>
+                  )}
                 </Link>
               )}
               {user && (
@@ -346,8 +373,12 @@ export function Workspace({ segments }: { segments: string[] }) {
               </Link>
             </div>
             <div className="sidebar-bottom">
-              <span className="live-dot" /> Independent by design
-              <span>v0.1</span>
+              <span
+                className={`live-dot ${session.error ? "offline" : ""}`}
+                aria-hidden="true"
+              />{" "}
+              {session.error ? "API unavailable" : "Connected"}
+              <span>v{process.env.NEXT_PUBLIC_GITOWN_VERSION || "dev"}</span>
             </div>
           </aside>
         )}
@@ -365,9 +396,11 @@ export function Workspace({ segments }: { segments: string[] }) {
             <AuthPage mode={section} />
           ) : section === "new" ? (
             <NewRepository />
+          ) : section === "unsubscribe" ? (
+            <UnsubscribePage />
           ) : section === "inbox" ? (
             user ? (
-              <Inbox />
+              <Inbox onChange={() => setInboxVersion((value) => value + 1)} />
             ) : (
               <SignInPrompt />
             )
@@ -419,9 +452,15 @@ export function Workspace({ segments }: { segments: string[] }) {
             <TokensPage />
           ) : section === "u" && segments[1] ? (
             <PublicProfile
+              key={segments[1]}
               username={segments[1]}
               currentUsername={user?.username}
+              tab={segments[2]}
             />
+          ) : section === "repos" &&
+            segments.length === 4 &&
+            segments[3] === "showcase" ? (
+            <ProjectShowcase owner={segments[1]} name={segments[2]} />
           ) : section === "repos" && segments.length >= 3 ? (
             <RepositoryPage
               key={segments.slice(0, 3).join("/")}

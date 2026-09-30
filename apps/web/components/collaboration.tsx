@@ -11,6 +11,7 @@ import {
   type Label,
 } from "@/lib/api";
 import { Badge, ErrorMessage, Loading, useData } from "./ui";
+import { PresentationSettings } from "./showcase";
 
 export function IssuePlanning({
   endpoint,
@@ -455,40 +456,13 @@ export function OwnerDelivery({
   const invitations = useData<Invitation[]>(`${endpoint}/invitations`, version);
   return (
     <section className="panel settings-form">
-      <h2>Project presentation</h2>
+      <PresentationSettings
+        endpoint={endpoint}
+        homepage={homepage}
+        stack={stack}
+      />
       <ErrorMessage error={error || invitations.error} />
       {notice && <p className="green-text">{notice}</p>}
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const data = new FormData(event.currentTarget);
-          setError("");
-          setNotice("");
-          try {
-            await put(`${endpoint}/presentation`, {
-              homepage: data.get("homepage"),
-              stack: data.get("stack"),
-            });
-            setNotice("Presentation saved.");
-          } catch (saveError) {
-            setError((saveError as Error).message);
-          }
-        }}
-      >
-        <label>
-          Homepage
-          <input
-            name="homepage"
-            defaultValue={homepage || ""}
-            placeholder="https://example.com"
-          />
-        </label>
-        <label>
-          Tech stack
-          <input name="stack" defaultValue={stack || ""} maxLength={200} />
-        </label>
-        <button className="button small-button">Save presentation</button>
-      </form>
       <h3>Invitations</h3>
       <p className="muted small-text">
         Invite an existing username or an email address. Pending invitations

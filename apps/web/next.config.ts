@@ -1,6 +1,33 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { NextConfig } from "next";
 
+// The root package.json is the single release version for the web app,
+// API, and CLI; builds inject the same value into the Go binaries. Next may
+// run from the repository root or from apps/web, so search upward.
+function releaseVersion() {
+  let directory = process.cwd();
+  for (let depth = 0; depth < 4; depth += 1) {
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(directory, "package.json"), "utf8"),
+      ) as { name?: string; version?: string };
+      if (manifest.name === "gitown" && manifest.version)
+        return manifest.version;
+    } catch {
+      // Keep looking in the parent directory.
+    }
+    directory = dirname(directory);
+  }
+  return "dev";
+}
+
 const config: NextConfig = {
+  env: {
+    NEXT_PUBLIC_GITOWN_VERSION: releaseVersion(),
+    NEXT_PUBLIC_GITOWN_CHANNEL:
+      process.env.NEXT_PUBLIC_GITOWN_CHANNEL || "alpha",
+  },
   agentRules: false,
   devIndicators: false,
   distDir: process.env.GITOWN_NEXT_DIST_DIR || ".next",
@@ -25,7 +52,7 @@ const config: NextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+              "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
           },
         ],
       },

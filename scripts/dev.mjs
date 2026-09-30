@@ -152,7 +152,14 @@ try {
     readFileSync(join(root, "package.json"), "utf8"),
   );
   const ldflags = `-X github.com/Aaravkhanal/GITOWN/internal/version.Version=${version}`;
-  run(go, ["build", "-ldflags", ldflags, "-o", ".tools/gitown", "./apps/server"]);
+  run(go, [
+    "build",
+    "-ldflags",
+    ldflags,
+    "-o",
+    ".tools/gitown",
+    "./apps/server",
+  ]);
   start(join(root, ".tools/gitown"), []);
   await waitFor(async () => {
     try {

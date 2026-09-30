@@ -1,8 +1,15 @@
 openapi: 3.1.0
 info:
   title: GITOWN API
+  # Keep in sync with the root package.json version, which builds inject
+  # into the API (/healthz) and CLI (gitown version).
   version: 0.1.0
   description: |
+    Email is written to a durable outbox and sent by a background worker when
+    GITOWN_SMTP_ADDR and GITOWN_SMTP_FROM are configured; otherwise messages
+    are recorded as suppressed. POST /email/unsubscribe also accepts RFC 8058
+    one-click requests from mail clients (token in the query, form body, no
+    Origin header).
     Local development alpha. Browser API authentication uses an HttpOnly session
     cookie. Every mutation requires an Origin header equal to GITOWN_ORIGIN;
     mutations other than DELETE require application/json. Git personal access
@@ -28,9 +35,21 @@ paths:
   /search/builders:
     get:
       security: []
-      summary: Search public builder profiles by username, name, or bio
+      summary: Search public builder profiles by name, bio, skills, location, or availability
       parameters:
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - {
+            name: skill,
+            in: query,
+            description: Exact skill tag match (case-insensitive),
+            schema: { type: string, maxLength: 60 },
+          }
+        - {
+            name: location,
+            in: query,
+            description: Location substring match,
+            schema: { type: string, maxLength: 100 },
+          }
         - {
             name: offset,
             in: query,
@@ -67,7 +86,11 @@ paths:
       security: []
       summary: Ranked search of capped public text, with a git-grep fallback
       parameters:
-        - { name: q, in: query, schema: { type: string, minLength: 2, maxLength: 80 } }
+        - {
+            name: q,
+            in: query,
+            schema: { type: string, minLength: 2, maxLength: 80 },
+          }
       responses:
         "200": { description: Up to 40 matching lines }
         "422": { $ref: "#/components/responses/Error" }
@@ -76,7 +99,11 @@ paths:
       security: []
       summary: Public open issues labeled help wanted or good first task
       parameters:
-        - { name: kind, in: query, schema: { type: string, enum: ["help", "first"] } }
+        - {
+            name: kind,
+            in: query,
+            schema: { type: string, enum: ["help", "first"] },
+          }
       responses:
         "200": { description: Matching tasks }
   /search/recommendations:
@@ -136,7 +163,13 @@ paths:
       parameters:
         - { name: username, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Daily counts of public issues, comments, Sparks, and merged Unite requests }
+        "200":
+          {
+            description: Daily counts of public issues,
+            comments,
+            Sparks,
+            and merged Unite requests,
+          }
         "404": { $ref: "#/components/responses/Error" }
   /collections/{owner}/{slug}:
     patch:
@@ -155,7 +188,14 @@ paths:
       parameters:
         - { name: slug, in: path, required: true, schema: { type: string } }
       responses:
-        "200": { description: Repository, storage, member, secret, and open-invoice counts }
+        "200":
+          {
+            description: Repository,
+            storage,
+            member,
+            secret,
+            and open-invoice counts,
+          }
   /districts/{slug}/invoices:
     get:
       summary: Invoice ledger for a district owner or admin. Does not charge a card.
@@ -226,12 +266,158 @@ paths:
   /email/unsubscribe:
     get:
       security: []
-      summary: Turn email off with a one-time unsubscribe token
+      summary: Preview which address an unsubscribe link controls (no changes)
       parameters:
         - { name: token, in: query, required: true, schema: { type: string } }
       responses:
+        "200": { description: Masked address and current email preference }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      security: []
+      summary: Turn email off with an unsubscribe token (web or RFC 8058 one-click)
+      parameters:
+        - {
+            name: token,
+            in: query,
+            description: Required for one-click requests from mail clients,
+            schema: { type: string },
+          }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                List-Unsubscribe: { type: string, enum: [One-Click] }
+      responses:
         "200": { description: Email turned off }
         "404": { $ref: "#/components/responses/Error" }
+  /user/notifications/unread-count:
+    get:
+      summary: Count unread visible notifications
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread: { type: integer, minimum: 0 }
+        "401": { $ref: "#/components/responses/Error" }
+  /users/{username}/followers:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+      - {
+          name: offset,
+          in: query,
+          schema: { type: integer, minimum: 0, maximum: 10000 },
+        }
+    get:
+      security: []
+      summary: List people who follow a builder, 30 per page
+      responses:
+        "200":
+          description: Followers, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FollowList" }
+        "404": { $ref: "#/components/responses/Error" }
+  /users/{username}/following:
+    parameters:
+      - { name: username, in: path, required: true, schema: { type: string } }
+      - {
+          name: offset,
+          in: query,
+          schema: { type: integer, minimum: 0, maximum: 10000 },
+        }
+    get:
+      security: []
+      summary: List people a builder follows, 30 per page
+      responses:
+        "200":
+          description: Followed builders, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FollowList" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/subscription:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { name: repo, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read how a repository notifies you (owners and maintainers watch by default)
+      responses:
+        "200":
+          description: Repository notification mode
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryWatch" }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Watch, participate in, or ignore a repository
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode:
+                  { type: string, enum: [watching, participating, ignoring] }
+      responses:
+        "200":
+          description: Saved mode
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepositoryWatch" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/showcase:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { name: repo, in: path, required: true, schema: { type: string } }
+    get:
+      security: []
+      summary: Generated project showcase built from README, presentation, people, Drops, milestones, and open tasks
+      responses:
+        "200":
+          description: Showcase
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Showcase" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/presentation:
+    parameters:
+      - { name: owner, in: path, required: true, schema: { type: string } }
+      - { name: repo, in: path, required: true, schema: { type: string } }
+    put:
+      summary: Set the demo link, tech stack, and optional screenshots
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                homepage: { type: string, maxLength: 300 }
+                stack: { type: string, maxLength: 200 }
+                screenshots:
+                  type: array
+                  maxItems: 6
+                  description: Replaces all screenshots when present
+                  items: { $ref: "#/components/schemas/Screenshot" }
+      responses:
+        "200": { description: Saved presentation }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/pulls/{number}/threads:
     get:
       summary: List inline review conversations
@@ -331,6 +517,19 @@ paths:
                     description: Optional HTTPS URL,
                   }
                 location: { type: string, maxLength: 100 }
+                skills:
+                  {
+                    type: string,
+                    maxLength: 200,
+                    description: Comma-separated skills,
+                  }
+                availability: { type: string, maxLength: 200 }
+                open_to_collaborators: { type: boolean }
+                links:
+                  type: array
+                  maxItems: 5
+                  description: Replaces all links when present
+                  items: { $ref: "#/components/schemas/ProfileLink" }
       responses:
         "200":
           description: Updated public profile
@@ -378,7 +577,25 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
   /user/notifications:
     get:
-      summary: List up to 100 visible issue notifications, newest first
+      summary: List visible notifications newest first, paged with a cursor
+      parameters:
+        - {
+            name: before,
+            in: query,
+            description: Return notifications older than this id,
+            schema: { type: integer, format: int64 },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
+          }
+        - {
+            name: filter,
+            in: query,
+            schema: { type: string, enum: [all, unread] },
+          }
+        - { name: kind, in: query, schema: { type: string } }
       responses:
         "200":
           description: In-app inbox
@@ -1940,9 +2157,84 @@ components:
         display_name: { type: string }
         bio: { type: string }
         location: { type: string }
+        skills: { type: string }
+        availability: { type: string }
         followers: { type: integer, minimum: 0 }
         repositories: { type: integer, minimum: 0 }
         open_to_collaborators: { type: boolean }
+    FollowList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              username: { type: string }
+              display_name: { type: string }
+              bio: { type: string }
+        has_more: { type: boolean }
+    ProfileLink:
+      type: object
+      required: [label, url]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 40 }
+        url: { type: string, maxLength: 300, description: HTTPS URL }
+    Screenshot:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, maxLength: 300, description: HTTPS image URL }
+        caption: { type: string, maxLength: 140 }
+    RepositoryWatch:
+      type: object
+      properties:
+        mode: { type: string, enum: [watching, participating, ignoring, ""] }
+        implicit: { type: boolean }
+    Showcase:
+      type: object
+      properties:
+        repository: { type: object }
+        readme: { type: string }
+        setup: { type: string }
+        screenshots:
+          type: array
+          items: { $ref: "#/components/schemas/Screenshot" }
+        stack: { type: array, items: { type: string } }
+        sparks: { type: integer }
+        contributors:
+          type: array
+          items:
+            type: object
+            properties:
+              username: { type: string }
+              display_name: { type: string }
+              merged: { type: integer }
+              role: { type: string, enum: [owner, contributor] }
+        latest_drop:
+          type: [object, "null"]
+          properties:
+            tag: { type: string }
+            title: { type: string }
+            downloads: { type: integer }
+            created_at: { type: string, format: date-time }
+        roadmap:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              due_date: { type: [string, "null"], format: date }
+              open_issues: { type: integer }
+              closed_issues: { type: integer }
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              number: { type: integer }
+              title: { type: string }
+              labels: { type: array, items: { type: string } }
     WorkSearch:
       type: object
       required: [items, has_more]
@@ -2060,6 +2352,11 @@ components:
         description: { type: string }
         archived: { type: boolean }
         created_at: { type: string, format: date-time }
+        homepage: { type: string }
+        stack: { type: string }
+        sparks: { type: integer, minimum: 0 }
+        latest_drop: { type: string }
+        downloads: { type: integer, minimum: 0 }
     Profile:
       type: object
       properties:
@@ -2069,18 +2366,39 @@ components:
         website: { type: string }
         location: { type: string }
         skills: { type: string, maxLength: 200 }
+        skill_tags: { type: array, items: { type: string } }
         availability: { type: string, maxLength: 200 }
         open_to_collaborators: { type: boolean }
+        links:
+          type: array
+          items: { $ref: "#/components/schemas/ProfileLink" }
         contributions:
           type: object
+          description: Public work that helped something ship; Sparks are not counted
           properties:
             merged_unites: { type: integer, minimum: 0 }
             approvals: { type: integer, minimum: 0 }
+            reviews: { type: integer, minimum: 0 }
+            helped_ship: { type: integer, minimum: 0 }
             closed_issues: { type: integer, minimum: 0 }
+            resolved_issues: { type: integer, minimum: 0 }
+            pushes: { type: integer, minimum: 0 }
+            docs_unites: { type: integer, minimum: 0 }
+            external_merges: { type: integer, minimum: 0 }
             public_repositories: { type: integer, minimum: 0 }
         badges:
           type: array
-          items: { type: string }
+          items:
+            type: object
+            properties:
+              id:
+                {
+                  type: string,
+                  enum: [merged, reviewer, resolver, documentarian, maintainer],
+                }
+              label: { type: string }
+              tier: { type: string, enum: [bronze, silver, gold] }
+              reason: { type: string }
         created_at: { type: string, format: date-time }
         followers: { type: integer, minimum: 0 }
         following: { type: integer, minimum: 0 }
@@ -2178,14 +2496,24 @@ components:
             type: string,
             enum:
               [
+                issue_opened,
                 issue_comment,
                 issue_closed,
                 issue_reopened,
+                pull_opened,
                 pull_comment,
                 pull_review,
                 pull_closed,
                 pull_reopened,
                 pull_merged,
+                mention,
+                assignment,
+                review_request,
+                invitation,
+                ownership_transfer,
+                check_success,
+                check_failure,
+                follow,
               ],
           }
         actor: { type: string }
@@ -2194,6 +2522,7 @@ components:
         issue: { type: [integer, "null"] }
         pull: { type: [integer, "null"] }
         title: { type: string }
+        excerpt: { type: string, maxLength: 280 }
         created_at: { type: string, format: date-time }
         read_at: { type: [string, "null"], format: date-time }
     Milestone:
