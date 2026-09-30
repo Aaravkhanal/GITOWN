@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Aaravkhanal/GITOWN/internal/gitstore"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -192,6 +193,37 @@ func (a *App) verifiedSignatures(ctx context.Context, repoID, revisionRange stri
 		}
 	}
 	return true, nil
+}
+
+// verifiedTagSignature reports whether the given tag carries a good signature
+// from a registered signing key, using the same allowed-signers trust store
+// as verifiedSignatures. Unlike a substring search for a signature block
+// (which a forged or copy-pasted block would pass), this asks Git itself to
+// cryptographically verify the signature against a specific tag reference,
+// and only a clean exit from `git tag -v` counts as verified: an unsigned
+// tag, a lightweight tag, a garbage signature block, or a signature from a
+// key that isn't registered all fail with a non-zero exit.
+func (a *App) verifiedTagSignature(ctx context.Context, repoID, tag string) (bool, error) {
+	signers, err := a.allowedSignersFile(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(signers)
+	return verifyTagAgainstSigners(ctx, a.git, repoID, tag, signers)
+}
+
+// verifyTagAgainstSigners is the shared entry point for verifying one or many
+// tags against an already-written allowed-signers file, so a caller listing a
+// whole repository's tags doesn't rebuild the file per tag.
+func verifyTagAgainstSigners(ctx context.Context, git *gitstore.Store, repoID, tag, signersPath string) (bool, error) {
+	if !dropTagPattern.MatchString(tag) {
+		return false, nil
+	}
+	_, code, err := git.Command(ctx, 20*time.Second, repoID, "-c", "gpg.ssh.allowedSignersFile="+signersPath, "tag", "-v", "--", tag)
+	if err != nil {
+		return false, err
+	}
+	return code == 0, nil
 }
 
 func (a *App) allowBrowserBranchEdit(w http.ResponseWriter, r *http.Request, repoID, branch, role string) bool {

@@ -43,6 +43,16 @@ func (a *App) repositoryTags(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]any{"items": items})
 		return
 	}
+	// Built once and reused for every tag in this listing: signed is a real,
+	// cryptographic result from `git tag -v` against the repository's
+	// registered signing keys, not a search for a signature-looking block of
+	// text (which a forged or copy-pasted block would satisfy).
+	signers, signersErr := a.allowedSignersFile(r.Context())
+	if signersErr != nil {
+		serverError(w, signersErr)
+		return
+	}
+	defer os.Remove(signers)
 	for _, line := range strings.Split(text, "\n") {
 		if len(items) == 40 {
 			break
@@ -55,11 +65,10 @@ func (a *App) repositoryTags(w http.ResponseWriter, r *http.Request) {
 		if len(parts) > 2 {
 			subject = parts[2]
 		}
-		signed := false
-		body, catErr := a.git.Run(r.Context(), repo.ID, nil, "cat-file", "-p", "refs/tags/"+parts[0])
-		if catErr == nil {
-			content := string(body)
-			signed = strings.Contains(content, "-----BEGIN PGP SIGNATURE-----") || strings.Contains(content, "-----BEGIN SSH SIGNATURE-----")
+		signed, verifyErr := verifyTagAgainstSigners(r.Context(), a.git, repo.ID, parts[0], signers)
+		if verifyErr != nil {
+			serverError(w, verifyErr)
+			return
 		}
 		items = append(items, map[string]any{"name": parts[0], "sha": parts[1], "subject": subject, "signed": signed})
 	}
