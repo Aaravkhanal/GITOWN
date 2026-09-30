@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -41,24 +42,26 @@ func pageLines(r *http.Request, text string) (string, bool) {
 
 var closingReference = regexp.MustCompile(`(?i)(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#([0-9]+)`)
 
-func (a *App) closeReferencedIssues(ctx context.Context, tx pgx.Tx, repo *Repository, p *Pull, actor *User) error {
+// closeReferencedIssues closes issues named by closing keywords in the unite
+// request body, in the merged commits' messages, or by closing links. Callers
+// pass the commit messages collected before refs move, because afterwards the
+// head branch may be gone or already contained in the base.
+func (a *App) closeReferencedIssues(ctx context.Context, tx pgx.Tx, repo *Repository, p *Pull, actor *User, messages string) error {
 	numbers := map[int]bool{}
-	for _, match := range closingReference.FindAllStringSubmatch(p.Body, 50) {
-		n, _ := strconv.Atoi(match[1])
-		if n > 0 {
-			numbers[n] = true
+	addReferences := func(text string) {
+		for _, match := range closingReference.FindAllStringSubmatch(text, 50) {
+			n, _ := strconv.Atoi(match[1])
+			if n > 0 {
+				numbers[n] = true
+			}
 		}
 	}
-	if base, err1 := a.git.Resolve(ctx, repo.ID, p.Base); err1 == nil {
-		if head, err2 := a.git.Resolve(ctx, repo.ID, p.Head); err2 == nil && base != head {
-			if out, logErr := a.git.Run(ctx, repo.ID, nil, "log", "--format=%s%n%b%n", base+".."+head); logErr == nil {
-				for _, match := range closingReference.FindAllStringSubmatch(string(out), 50) {
-					n, _ := strconv.Atoi(match[1])
-					if n > 0 {
-						numbers[n] = true
-					}
-				}
-			}
+	addReferences(p.Body)
+	addReferences(messages)
+	if p.ExpectedBase != nil && p.MergeSHA != nil {
+		// Recovery after an interrupted merge: the merge result still names the commits.
+		if out, logErr := a.git.Run(ctx, repo.ID, nil, "log", "--format=%s%n%b%n", *p.ExpectedBase+".."+*p.MergeSHA); logErr == nil {
+			addReferences(string(out))
 		}
 	}
 	rows, err := tx.Query(ctx, `SELECT i.number FROM pull_issue_links l JOIN issues i ON i.id=l.issue_id WHERE l.pull_request_id=$1 AND l.closes`, p.ID)
@@ -80,11 +83,14 @@ func (a *App) closeReferencedIssues(ctx context.Context, tx pgx.Tx, repo *Reposi
 	for number := range numbers {
 		var issueID, state string
 		err = tx.QueryRow(ctx, `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&issueID, &state)
-		if errors.Is(err, pgx.ErrNoRows) || state != "open" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
 		if err != nil {
 			return err
+		}
+		if state != "open" {
+			continue
 		}
 		blocked, err := hasOpenBlockers(ctx, tx, issueID)
 		if err != nil || blocked {
@@ -190,6 +196,21 @@ func (a *App) createPullThread(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Comment on a path and line in the latest commit, with a body up to 10,000 characters.")
 		return
 	}
+	base, err := a.git.Resolve(r.Context(), repo.ID, p.Base)
+	if err != nil {
+		fail(w, 409, "stale_branches", "The base branch no longer exists.")
+		return
+	}
+	patch, err := a.git.Run(r.Context(), repo.ID, nil, "diff", "--no-ext-diff", "--no-textconv", "--unified=3", base+"..."+head, "--", in.Path)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	left, right := diffLineNumbers(string(patch))
+	if (in.Side == "right" && !right[in.Line]) || (in.Side == "left" && !left[in.Line]) {
+		fail(w, 422, "line_not_in_diff", "That line is not part of this unite request's changes. Comment on a changed or nearby line.")
+		return
+	}
 	thread := ReviewThread{ID: auth.ID(), Path: in.Path, Side: in.Side, Line: in.Line, CommitSHA: head, Body: in.Body, Author: u.Username}
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
@@ -229,6 +250,49 @@ func (a *App) createPullThread(w http.ResponseWriter, r *http.Request) {
 	respond(w, 201, thread)
 }
 
+// diffLineNumbers lists the old-file (left) and new-file (right) line numbers
+// shown in a unified diff, including context lines.
+func diffLineNumbers(patch string) (map[int]bool, map[int]bool) {
+	left, right := map[int]bool{}, map[int]bool{}
+	oldLine, newLine := 0, 0
+	inHunk := false
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "@@") {
+			match := hunkHeader.FindStringSubmatch(line)
+			if match == nil {
+				inHunk = false
+				continue
+			}
+			oldLine, _ = strconv.Atoi(match[1])
+			newLine, _ = strconv.Atoi(match[2])
+			inHunk = true
+			continue
+		}
+		if !inHunk || line == "" {
+			continue
+		}
+		switch line[0] {
+		case '+':
+			right[newLine] = true
+			newLine++
+		case '-':
+			left[oldLine] = true
+			oldLine++
+		case ' ':
+			left[oldLine] = true
+			right[newLine] = true
+			oldLine++
+			newLine++
+		case '\\':
+		default:
+			inHunk = false
+		}
+	}
+	return left, right
+}
+
+var hunkHeader = regexp.MustCompile(`^@@ -([0-9]+)(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@`)
+
 func safeDiffPath(path string) bool {
 	if path == "" || len(path) > 4096 || strings.HasPrefix(path, "/") || strings.Contains(path, "..") || strings.ContainsAny(path, "\x00\r\n\\") {
 		return false
@@ -255,8 +319,18 @@ func (a *App) resolvePullThread(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	if !repo.CanTriage {
-		fail(w, 403, "forbidden", "Repository triage permission is required to resolve a conversation.")
+	var authorID string
+	err := a.db.QueryRow(r.Context(), `SELECT author_id FROM pull_review_threads WHERE id=$1 AND pull_request_id=$2`, r.PathValue("id"), p.ID).Scan(&authorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 404, "not_found", "Conversation not found.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if !repo.CanTriage && authorID != u.ID {
+		fail(w, 403, "forbidden", "Only the conversation author or a triager can resolve a conversation.")
 		return
 	}
 	var resolved any
@@ -265,17 +339,32 @@ func (a *App) resolvePullThread(w http.ResponseWriter, r *http.Request) {
 		resolved = time.Now()
 		resolver = u.ID
 	}
-	result, err := a.db.Exec(r.Context(), `UPDATE pull_review_threads SET resolved_at=$1,resolved_by=$2 WHERE id=$3 AND pull_request_id=$4`, resolved, resolver, r.PathValue("id"), p.ID)
+	kind := "resolved"
+	if !in.Resolved {
+		kind = "unresolved"
+	}
+	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	if result.RowsAffected() == 0 {
-		fail(w, 404, "not_found", "Conversation not found.")
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `UPDATE pull_review_threads SET resolved_at=$1,resolved_by=$2 WHERE id=$3 AND pull_request_id=$4`, resolved, resolver, r.PathValue("id"), p.ID); err != nil {
+		serverError(w, err)
 		return
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'resolved',$3)`, p.ID, u.ID, r.PathValue("id"))
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.thread_resolved',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%t", repo.Owner, repo.Name, p.Number, in.Resolved))
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,$3,$4)`, p.ID, u.ID, kind, r.PathValue("id")); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.thread_resolved',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%t", repo.Owner, repo.Name, p.Number, in.Resolved)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
 	respond(w, 200, map[string]bool{"resolved": in.Resolved})
 }
 
@@ -313,11 +402,17 @@ func (a *App) dismissPullReview(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if repo.Role != "owner" && repo.Role != "maintain" && reviewer != u.Username {
+	if !repo.CanMaintain && reviewer != u.Username {
 		fail(w, 403, "forbidden", "Only the reviewer, a maintainer, or the owner can dismiss a review.")
 		return
 	}
-	result, err := a.db.Exec(r.Context(), `UPDATE pull_reviews SET dismissed_at=now(),dismissed_by=$1,dismissal_reason=$2 WHERE id=$3 AND dismissed_at IS NULL`, u.ID, in.Reason, r.PathValue("id"))
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	result, err := tx.Exec(r.Context(), `UPDATE pull_reviews SET dismissed_at=now(),dismissed_by=$1,dismissal_reason=$2 WHERE id=$3 AND dismissed_at IS NULL`, u.ID, in.Reason, r.PathValue("id"))
 	if err != nil {
 		serverError(w, err)
 		return
@@ -326,8 +421,18 @@ func (a *App) dismissPullReview(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "already_dismissed", "This review is already dismissed.")
 		return
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'review_dismissed',$3)`, p.ID, u.ID, in.Reason)
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.review_dismissed',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%s", repo.Owner, repo.Name, p.Number, r.PathValue("id")))
+	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'review_dismissed',$3)`, p.ID, u.ID, "@"+reviewer+": "+in.Reason); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.review_dismissed',$2)`, u.ID, fmt.Sprintf("%s/%s#%d:%s:%s", repo.Owner, repo.Name, p.Number, r.PathValue("id"), reviewer)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
 	respond(w, 200, map[string]bool{"dismissed": true})
 }
 
@@ -430,8 +535,49 @@ func (a *App) updatePullReviewers(w http.ResponseWriter, r *http.Request) {
 	a.pullReviewers(w, r)
 }
 
+// statusActor accepts a browser session or, for CI systems, a personal access
+// token with repo:write scope sent as a bearer token. When a bearer token is
+// present the session cookie is ignored.
+func (a *App) statusActor(w http.ResponseWriter, r *http.Request) *User {
+	raw, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !bearer {
+		return a.requireUser(w, r)
+	}
+	var u User
+	var scope string
+	if !strings.HasPrefix(raw, "gtn_") || len(raw) > 200 {
+		fail(w, 401, "authentication_required", "Use a personal access token with repo:write scope.")
+		return nil
+	}
+	err := a.db.QueryRow(r.Context(), `SELECT u.id::text,u.username,u.display_name,t.scope FROM access_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at>now()`, auth.Digest(raw)).Scan(&u.ID, &u.Username, &u.DisplayName, &scope)
+	if err != nil {
+		fail(w, 401, "authentication_required", "Use a personal access token with repo:write scope.")
+		return nil
+	}
+	if scope != "repo:write" {
+		fail(w, 403, "forbidden", "The token needs repo:write scope to report checks.")
+		return nil
+	}
+	return &u
+}
+
+// isTokenStatusRequest identifies CI status reports, which carry a bearer token
+// instead of browser credentials and are therefore not subject to CSRF.
+func isTokenStatusRequest(r *http.Request) bool {
+	if r.Method != "POST" || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		return false
+	}
+	return tokenStatusPath.MatchString(r.URL.Path)
+}
+
+var tokenStatusPath = regexp.MustCompile(`^/api/v1/repos/[^/]+/[^/]+/commits/[0-9a-fA-F]{40}/status$`)
+
 func (a *App) updateCommitStatus(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, true)
+	u := a.statusActor(w, r)
+	if u == nil {
+		return
+	}
+	repo := a.accessAs(w, r, u, true)
 	if repo == nil {
 		return
 	}
@@ -448,55 +594,84 @@ func (a *App) updateCommitStatus(w http.ResponseWriter, r *http.Request) {
 		Context     string `json:"context"`
 		State       string `json:"state"`
 		Description string `json:"description"`
+		TargetURL   string `json:"target_url"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	in.Description = strings.TrimSpace(in.Description)
+	in.TargetURL = strings.TrimSpace(in.TargetURL)
 	if !checkContext.MatchString(in.Context) || (in.State != "pending" && in.State != "success" && in.State != "failure" && in.State != "error") || len(in.Description) > 300 {
 		fail(w, 422, "validation_failed", "Provide a check context and a state of pending, success, failure, or error.")
 		return
 	}
-	u := a.user(r)
-	if _, err := a.db.Exec(r.Context(), `INSERT INTO commit_statuses(repository_id,sha,context,state,description,updated_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(repository_id,sha,context) DO UPDATE SET state=excluded.state,description=excluded.description,updated_by=excluded.updated_by,updated_at=now()`, repo.ID, sha, in.Context, in.State, in.Description, u.ID); err != nil {
+	if in.TargetURL != "" && (len(in.TargetURL) > 500 || !safeLink(in.TargetURL)) {
+		fail(w, 422, "validation_failed", "The target URL must be an http or https link up to 500 characters.")
+		return
+	}
+	var matches []string
+	if in.State != "pending" {
+		rows, err := a.db.Query(r.Context(), `SELECT id,head_branch FROM pull_requests WHERE repository_id=$1 AND state='open'`, repo.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		type candidate struct{ id, branch string }
+		var candidates []candidate
+		for rows.Next() {
+			var item candidate
+			if err = rows.Scan(&item.id, &item.branch); err != nil {
+				rows.Close()
+				serverError(w, err)
+				return
+			}
+			candidates = append(candidates, item)
+		}
+		rows.Close()
+		if err = rows.Err(); err != nil {
+			serverError(w, err)
+			return
+		}
+		for _, item := range candidates {
+			if head, resolveErr := a.git.Resolve(r.Context(), repo.ID, item.branch); resolveErr == nil && head == sha {
+				matches = append(matches, item.id)
+			}
+		}
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
 		serverError(w, err)
 		return
 	}
-	if in.State == "success" || in.State == "failure" || in.State == "error" {
-		kind := "check_success"
-		if in.State != "success" {
-			kind = "check_failure"
-		}
-		rows, err := a.db.Query(r.Context(), `SELECT id,head_branch FROM pull_requests WHERE repository_id=$1 AND state='open'`, repo.ID)
-		var matches []string
-		if err == nil {
-			for rows.Next() {
-				var pullID, branch string
-				if rows.Scan(&pullID, &branch) != nil {
-					continue
-				}
-				head, resolveErr := a.git.Resolve(r.Context(), repo.ID, branch)
-				if resolveErr == nil && head == sha {
-					matches = append(matches, pullID)
-				}
-			}
-			rows.Close()
-			if tx, txErr := a.db.Begin(r.Context()); txErr == nil {
-				for _, pullID := range matches {
-					if notifyErr := notifyPullKey(r.Context(), tx, pullID, u.ID, kind, sha+":"+in.Context+":"+in.State); notifyErr != nil {
-						_ = tx.Rollback(r.Context())
-						tx = nil
-						break
-					}
-				}
-				if tx != nil {
-					_ = tx.Commit(r.Context())
-				}
-			}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `INSERT INTO commit_statuses(repository_id,sha,context,state,description,target_url,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(repository_id,sha,context) DO UPDATE SET state=excluded.state,description=excluded.description,target_url=excluded.target_url,updated_by=excluded.updated_by,updated_at=now()`, repo.ID, sha, in.Context, in.State, in.Description, in.TargetURL, u.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	kind := "check_success"
+	if in.State != "success" {
+		kind = "check_failure"
+	}
+	for _, pullID := range matches {
+		if err = notifyPullKey(r.Context(), tx, pullID, u.ID, kind, sha+":"+in.Context+":"+in.State); err != nil {
+			serverError(w, err)
+			return
 		}
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'commit.status',$2)`, u.ID, fmt.Sprintf("%s/%s@%s:%s=%s", repo.Owner, repo.Name, sha, in.Context, in.State))
-	respond(w, 200, map[string]string{"sha": sha, "context": in.Context, "state": in.State, "description": in.Description})
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'commit.status',$2)`, u.ID, fmt.Sprintf("%s/%s@%s:%s=%s", repo.Owner, repo.Name, sha, in.Context, in.State)); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]string{"sha": sha, "context": in.Context, "state": in.State, "description": in.Description, "target_url": in.TargetURL})
+}
+
+func safeLink(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && (parsed.Scheme == "https" || parsed.Scheme == "http") && parsed.Host != "" && parsed.User == nil
 }
 
 func (a *App) commitStatuses(w http.ResponseWriter, r *http.Request) {
@@ -505,7 +680,7 @@ func (a *App) commitStatuses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sha := strings.ToLower(r.PathValue("sha"))
-	rows, err := a.db.Query(r.Context(), `SELECT context,state,description,updated_at FROM commit_statuses WHERE repository_id=$1 AND sha=$2 ORDER BY context`, repo.ID, sha)
+	rows, err := a.db.Query(r.Context(), `SELECT cs.context,cs.state,cs.description,cs.target_url,COALESCE(u.username,''),cs.updated_at FROM commit_statuses cs LEFT JOIN users u ON u.id=cs.updated_by WHERE cs.repository_id=$1 AND cs.sha=$2 ORDER BY cs.context`, repo.ID, sha)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -513,13 +688,60 @@ func (a *App) commitStatuses(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var contextName, state, description string
+		var contextName, state, description, target, reporter string
 		var updated time.Time
-		if err = rows.Scan(&contextName, &state, &description, &updated); err != nil {
+		if err = rows.Scan(&contextName, &state, &description, &target, &reporter, &updated); err != nil {
 			serverError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"context": contextName, "state": state, "description": description, "updated_at": updated})
+		items = append(items, map[string]any{"context": contextName, "state": state, "description": description, "target_url": target, "reporter": reporter, "updated_at": updated})
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, items)
+}
+
+type ThreadReply struct {
+	ID        string    `json:"id"`
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (a *App) threadReplies(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	var found bool
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM pull_review_threads WHERE id::text=$1 AND pull_request_id=$2)`, r.PathValue("id"), p.ID).Scan(&found); err != nil {
+		serverError(w, err)
+		return
+	}
+	if !found {
+		fail(w, 404, "not_found", "Conversation not found.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT rp.id,u.username,rp.body,rp.created_at FROM pull_thread_replies rp JOIN users u ON u.id=rp.author_id WHERE rp.thread_id::text=$1 ORDER BY rp.created_at,rp.id LIMIT 200`, r.PathValue("id"))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	items := []ThreadReply{}
+	for rows.Next() {
+		var item ThreadReply
+		if err = rows.Scan(&item.ID, &item.Author, &item.Body, &item.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		items = append(items, item)
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
@@ -553,15 +775,23 @@ func (a *App) pullTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 		offset = n
 	}
+	head, _ := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	// Comments, reviews, and inline threads come from their own tables, which
+	// predate pull_events; the event log contributes every other kind.
 	rows, err := a.db.Query(r.Context(), `SELECT kind,actor,body,created_at FROM (
 		SELECT 'comment' AS kind,u.username AS actor,c.body,c.created_at,c.id::text AS id FROM pull_comments c JOIN users u ON u.id=c.author_id WHERE c.pull_request_id=$1
 		UNION ALL
 		SELECT 'review.'||rv.state,u.username,rv.body,rv.created_at,rv.id::text FROM pull_reviews rv JOIN users u ON u.id=rv.reviewer_id WHERE rv.pull_request_id=$1
 		UNION ALL
-		SELECT 'inline',u.username,t.path||': '||t.body,t.created_at,t.id::text FROM pull_review_threads t JOIN users u ON u.id=t.author_id WHERE t.pull_request_id=$1
+		SELECT 'inline',u.username,t.path||':'||t.line||' '||t.body,t.created_at,t.id::text FROM pull_review_threads t JOIN users u ON u.id=t.author_id WHERE t.pull_request_id=$1
 		UNION ALL
-		SELECT e.kind,COALESCE(u.username,''),e.body,e.created_at,e.id::text FROM pull_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.pull_request_id=$1
-	) timeline ORDER BY created_at,id LIMIT 51 OFFSET $2`, p.ID, offset)
+		SELECT 'reply',u.username,t.path||':'||t.line||' '||rp.body,rp.created_at,rp.id::text FROM pull_thread_replies rp JOIN pull_review_threads t ON t.id=rp.thread_id JOIN users u ON u.id=rp.author_id WHERE t.pull_request_id=$1
+		UNION ALL
+		SELECT e.kind,COALESCE(u.username,''),e.body,e.created_at,lpad(e.id::text,20,'0') FROM pull_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.pull_request_id=$1 AND e.kind NOT IN ('comment','inline') AND e.kind NOT LIKE 'review.%'
+		UNION ALL
+		SELECT 'check.'||cs.state,COALESCE(u.username,''),cs.context||CASE WHEN cs.description<>'' THEN ': '||cs.description ELSE '' END,cs.updated_at,cs.sha||cs.context FROM commit_statuses cs LEFT JOIN users u ON u.id=cs.updated_by
+			WHERE cs.repository_id=$3 AND (cs.sha=$4 OR cs.sha IN (SELECT split_part(pe.body,'..',2) FROM pull_events pe WHERE pe.pull_request_id=$1 AND pe.kind='push'))
+	) timeline ORDER BY created_at,id LIMIT 51 OFFSET $2`, p.ID, offset, repo.ID, head)
 	if err != nil {
 		serverError(w, err)
 		return

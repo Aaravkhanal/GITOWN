@@ -60,6 +60,9 @@ type Pull struct {
 	CreatedAt    time.Time `json:"created_at"`
 	Draft        bool      `json:"draft"`
 	MergeMethod  *string   `json:"merge_method"`
+	// Set only in a merge response when deleting the source branch was requested.
+	BranchDeleted     *bool  `json:"branch_deleted,omitempty"`
+	BranchDeleteError string `json:"branch_delete_error,omitempty"`
 }
 
 type PullComment struct {
@@ -1167,7 +1170,7 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := a.finishMerge(r.Context(), conn, *p, *repo, *u, ""); err != nil {
+		if err := a.finishMerge(r.Context(), conn, *p, *repo, *u, "", ""); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -1198,6 +1201,13 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !a.enforceReviewRule(w, r, repo, p, base, head) {
+		return
+	}
+	// Collect commit messages now: after the base moves, base..head is empty
+	// for merge commits, and the head branch may be deleted.
+	messages, err := a.git.Run(r.Context(), repo.ID, nil, "log", "--max-count=1000", "--format=%s%n%b%n", base+".."+head)
+	if err != nil {
+		serverError(w, err)
 		return
 	}
 	var sha string
@@ -1242,22 +1252,49 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "merge_recovery", "The branch moved or the merge was interrupted. Refresh before retrying.")
 		return
 	}
-	if in.DeleteBranch && p.Head != p.Base && p.Head != repo.DefaultBranch {
-		_, _ = a.git.Run(r.Context(), repo.ID, nil, "update-ref", "-d", "refs/heads/"+p.Head, head)
+	deleted, deleteProblem := false, ""
+	if in.DeleteBranch {
+		deleted, deleteProblem = a.deleteMergedBranch(r.Context(), repo, p, head)
 	}
-	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u, method); err != nil {
+	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u, method, string(messages)); err != nil {
 		serverError(w, err)
 		return
 	}
+	if deleted {
+		a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: head, New: strings.Repeat("0", 40), Ref: "refs/heads/" + p.Head}}, "api")
+	}
 	p.State = "merged"
+	if in.DeleteBranch {
+		p.BranchDeleted = &deleted
+		p.BranchDeleteError = deleteProblem
+	}
 	respond(w, 200, p)
+}
+
+// deleteMergedBranch removes the source branch after a merge unless it is the
+// default branch, the base, or protected by a rule that forbids deletion.
+func (a *App) deleteMergedBranch(ctx context.Context, repo *Repository, p *Pull, head string) (bool, string) {
+	if p.Head == p.Base || p.Head == repo.DefaultBranch {
+		return false, "The default branch and the base branch are never deleted."
+	}
+	policies, err := a.branchPolicies(ctx, repo.ID)
+	if err != nil {
+		return false, "Branch rules could not be checked, so the branch was kept."
+	}
+	if policy, ok := policies[p.Head]; ok && !policy.AllowDeletion {
+		return false, "The branch is protected and its rule does not allow deletion."
+	}
+	if _, err = a.git.Run(ctx, repo.ID, nil, "update-ref", "-d", "refs/heads/"+p.Head, head); err != nil {
+		return false, "The branch changed after the merge, so it was kept."
+	}
+	return true, ""
 }
 
 type beginner interface {
 	Begin(context.Context) (pgx.Tx, error)
 }
 
-func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Repository, u User, method string) error {
+func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Repository, u User, method, messages string) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return err
@@ -1269,7 +1306,7 @@ func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Reposit
 	if _, err = tx.Exec(ctx, `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'merged',$3)`, p.ID, u.ID, method); err != nil {
 		return err
 	}
-	if err = a.closeReferencedIssues(ctx, tx, &repo, &p, &u); err != nil {
+	if err = a.closeReferencedIssues(ctx, tx, &repo, &p, &u, messages); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.merged',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {

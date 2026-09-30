@@ -80,6 +80,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/user/invitations", a.userInvitations)
 	mux.HandleFunc("POST /api/v1/user/invitations/{id}/accept", a.respondInvitation)
 	mux.HandleFunc("POST /api/v1/user/invitations/{id}/decline", a.respondInvitation)
+	mux.HandleFunc("POST /api/v1/invitations/accept", a.acceptInvitationToken)
 	mux.HandleFunc("GET /api/v1/user/transfers", a.userTransfers)
 	mux.HandleFunc("POST /api/v1/user/transfers/{id}/accept", a.respondTransfer)
 	mux.HandleFunc("POST /api/v1/user/transfers/{id}/decline", a.respondTransfer)
@@ -156,7 +157,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/rename", a.renameRepository)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/{action}", a.setRepositoryArchived)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/members", a.members)
-	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/members", a.addMember)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/permissions", a.repositoryPermissions)
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/members/{username}", a.updateMember)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/members/{username}", a.removeMember)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/tree", a.tree)
@@ -168,7 +169,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/commits/{sha}/status", a.updateCommitStatus)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/invitations", a.repositoryInvitations)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/invitations", a.createInvitation)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/invitations/{id}", a.revokeInvitation)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/transfer", a.repositoryTransfer)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/transfer", a.createTransfer)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/transfer", a.cancelTransfer)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/presentation", a.updatePresentation)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/branch-rules", a.branchRule)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/branch-rules", a.updateBranchRule)
@@ -217,6 +221,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/threads", a.pullThreads)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/threads", a.createPullThread)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/threads/{id}/resolve", a.resolvePullThread)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/threads/{id}/replies", a.threadReplies)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/threads/{id}/replies", a.createThreadReply)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/reviewers", a.pullReviewers)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/reviewers", a.updatePullReviewers)
@@ -230,6 +235,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/pulls/{number}/comments/{id}", a.editPullComment)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/comments/{id}/history", a.pullCommentHistory)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/pulls/{number}/merge", a.mergePull)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/pulls/{number}/crews", a.pullCrews)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/pulls/{number}/crews", a.updatePullCrews)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/deploy-keys", a.deployKeys)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/deploy-keys", a.createDeployKey)
@@ -269,7 +275,7 @@ func (a *App) Handler() http.Handler {
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
-				if r.Header.Get("Origin") != a.cfg.Origin {
+				if r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
 					return
 				}

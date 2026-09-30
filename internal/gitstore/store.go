@@ -70,7 +70,11 @@ func New(root string) (*Store, error) {
 	if _, err := os.Stat(backend); err != nil {
 		return nil, err
 	}
-	return &Store{Root: root, Binary: binary, Backend: backend, slots: make(chan struct{}, 8)}, nil
+	store := &Store{Root: root, Binary: binary, Backend: backend, slots: make(chan struct{}, 8)}
+	if err := store.installHooks(); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
 func (s *Store) Path(id string) string {

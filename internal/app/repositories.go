@@ -28,6 +28,7 @@ type Repository struct {
 	CanWrite      bool      `json:"can_write"`
 	CanTriage     bool      `json:"can_triage"`
 	CanManage     bool      `json:"can_manage"`
+	CanMaintain   bool      `json:"can_maintain"`
 	CanComment    bool      `json:"can_comment"`
 	Role          string    `json:"role,omitempty"`
 	Archived      bool      `json:"archived"`
@@ -101,6 +102,7 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 	repo.CanWrite = repo.Role == "owner" || repo.Role == "maintain" || repo.Role == "write"
 	repo.CanTriage = repo.CanWrite || repo.Role == "triage"
 	repo.CanManage = manage || repo.Role == "owner"
+	repo.CanMaintain = repo.CanManage || repo.Role == "maintain"
 	repo.CanComment = u != nil && !repo.Archived
 	repo.CloneURL = a.cfg.GitURL + "/" + repo.Owner + "/" + repo.Name + ".git"
 	if host := strings.TrimSpace(os.Getenv("GITOWN_SSH_HOST")); host != "" && !strings.ContainsAny(host, " \t\r\n") {
@@ -110,7 +112,10 @@ func (a *App) decorate(ctx context.Context, repo *Repository, u *User) error {
 }
 
 func (a *App) access(w http.ResponseWriter, r *http.Request, write bool) *Repository {
-	u := a.user(r)
+	return a.accessAs(w, r, a.user(r), write)
+}
+
+func (a *App) accessAs(w http.ResponseWriter, r *http.Request, u *User, write bool) *Repository {
 	repo, err := scanRepo(a.db.QueryRow(r.Context(), `SELECT `+repoColumns+` FROM repositories r JOIN users u ON u.id=r.owner_id WHERE u.username=$1 AND r.name=$2 AND r.deleted_at IS NULL`, r.PathValue("owner"), r.PathValue("repo")))
 	if err != nil {
 		fail(w, 404, "not_found", "Repository not found.")
@@ -578,8 +583,7 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_commit',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
-	_ = a.noteRepositoryFacts(r.Context(), repo)
-	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
+	a.finishReceive(r.Context(), repo, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 
@@ -622,8 +626,7 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_delete',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
-	_ = a.noteRepositoryFacts(r.Context(), repo)
-	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
+	a.finishReceive(r.Context(), repo, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 200, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 func (a *App) commits(w http.ResponseWriter, r *http.Request) {

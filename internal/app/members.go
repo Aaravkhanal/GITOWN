@@ -20,6 +20,40 @@ func validMemberRole(role string) bool {
 	return role == "read" || role == "triage" || role == "write" || role == "maintain"
 }
 
+// Repository capabilities by role:
+//
+//	read      clone, view, comment
+//	triage    + manage issues, labels, assignees, reviewers, resolve conversations
+//	write     + push, open and merge unite requests
+//	maintain  + branch rules, issue templates, milestones, dismiss reviews, protected pushes
+//	manage    owner or district admin: access, visibility, transfer, deletion
+type RepositoryPermissions struct {
+	Role     string `json:"role"`
+	Read     bool   `json:"read"`
+	Triage   bool   `json:"triage"`
+	Write    bool   `json:"write"`
+	Maintain bool   `json:"maintain"`
+	Manage   bool   `json:"manage"`
+}
+
+func (a *App) repositoryPermissions(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	respond(w, 200, RepositoryPermissions{Role: repo.Role, Read: true, Triage: repo.CanTriage, Write: repo.CanWrite, Maintain: repo.CanMaintain, Manage: repo.CanManage})
+}
+
+// maintainedRepository admits owners, maintainers, and district admins.
+func (a *App) maintainedRepository(w http.ResponseWriter, r *http.Request) *Repository {
+	repo := a.access(w, r, false)
+	if repo != nil && !repo.CanMaintain {
+		fail(w, 403, "forbidden", "Repository maintain permission is required.")
+		return nil
+	}
+	return repo
+}
+
 func (a *App) managedRepository(w http.ResponseWriter, r *http.Request) *Repository {
 	repo := a.access(w, r, false)
 	if repo != nil && !repo.CanManage {
@@ -56,50 +90,6 @@ func (a *App) members(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, members)
 }
 
-func (a *App) addMember(w http.ResponseWriter, r *http.Request) {
-	repo := a.managedRepository(w, r)
-	if repo == nil {
-		return
-	}
-	var in struct {
-		Username string `json:"username"`
-		Role     string `json:"role"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	in.Username = strings.ToLower(strings.TrimSpace(in.Username))
-	if !slug.MatchString(in.Username) || !validMemberRole(in.Role) || in.Username == repo.Owner {
-		fail(w, 422, "validation_failed", "Choose another GITOWN user and a valid collaborator role.")
-		return
-	}
-	allowed, err := a.outsideCollaboratorAllowed(r.Context(), repo.DistrictID, in.Username)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if !allowed {
-		fail(w, 403, "forbidden", "This district does not allow collaborators from outside the district.")
-		return
-	}
-	var member RepositoryMember
-	err = a.db.QueryRow(r.Context(), `WITH selected_user AS (SELECT id,username,display_name FROM users WHERE username=$2), inserted AS (INSERT INTO repository_members(repository_id,user_id,role) SELECT $1,id,$3 FROM selected_user RETURNING user_id,role,created_at) SELECT u.username,u.display_name,i.role,i.created_at FROM inserted i JOIN selected_user u ON u.id=i.user_id`, repo.ID, in.Username, in.Role).Scan(&member.Username, &member.DisplayName, &member.Role, &member.CreatedAt)
-	if conflict(err) {
-		fail(w, 409, "collaborator_exists", "That user is already a collaborator.")
-		return
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		fail(w, 404, "user_not_found", "No GITOWN user has that username.")
-		return
-	}
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.member_added',$2)`, repo.OwnerID, repo.Owner+"/"+repo.Name+":"+member.Username+":"+member.Role)
-	respond(w, 201, member)
-}
-
 func (a *App) updateMember(w http.ResponseWriter, r *http.Request) {
 	repo := a.managedRepository(w, r)
 	if repo == nil {
@@ -126,7 +116,7 @@ func (a *App) updateMember(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.member_updated',$2)`, repo.OwnerID, repo.Owner+"/"+repo.Name+":"+member.Username+":"+member.Role)
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.member_updated',$2)`, a.user(r).ID, repo.Owner+"/"+repo.Name+":"+member.Username+":"+member.Role)
 	respond(w, 200, member)
 }
 
@@ -145,6 +135,6 @@ func (a *App) removeMember(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "collaborator_not_found", "Collaborator not found.")
 		return
 	}
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.member_removed',$2)`, repo.OwnerID, repo.Owner+"/"+repo.Name+":"+username)
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.member_removed',$2)`, a.user(r).ID, repo.Owner+"/"+repo.Name+":"+username)
 	respond(w, 200, map[string]bool{"removed": true})
 }
