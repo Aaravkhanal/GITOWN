@@ -311,6 +311,12 @@ paths:
                 events:
                   type: array
                   items: { $ref: "#/components/schemas/WebhookEvent" }
+                kind:
+                  type: string
+                  enum: ["generic", "slack", "discord"]
+                  description: >-
+                    Reshapes the delivery body into what Slack or Discord
+                    expects; defaults to generic.
       responses:
         "201":
           description: Webhook created; secret is shown once
@@ -1927,6 +1933,12 @@ paths:
                 events:
                   type: array
                   items: { $ref: "#/components/schemas/WebhookEvent" }
+                kind:
+                  type: string
+                  enum: ["generic", "slack", "discord"]
+                  description: >-
+                    Reshapes the delivery body into what Slack or Discord
+                    expects; defaults to generic.
       responses:
         "201":
           description: Webhook created; secret is shown once
@@ -3486,6 +3498,208 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /user/oauth-apps:
+    get:
+      summary: List OAuth applications this account has registered
+      responses:
+        "200": { description: OAuth applications }
+    post:
+      summary: Register a new OAuth application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, redirect_uri]
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                homepage_url: { type: string, maxLength: 300 }
+                redirect_uri: { type: string, maxLength: 500 }
+      responses:
+        "201":
+          description: OAuth application registered, with client_secret shown once
+        "422": { $ref: "#/components/responses/Error" }
+  /user/oauth-apps/{id}/secret:
+    parameters:
+      [{ name: id, in: path, required: true, schema: { type: string } }]
+    post:
+      summary: Regenerate an OAuth application's client secret
+      responses:
+        "200": { description: New client_secret, shown once }
+        "404": { $ref: "#/components/responses/Error" }
+  /user/oauth-apps/{id}:
+    parameters:
+      [{ name: id, in: path, required: true, schema: { type: string } }]
+    delete:
+      summary: Delete an OAuth application
+      responses:
+        "200": { description: OAuth application deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /oauth/authorize:
+    get:
+      summary: Fetch the consent-screen details for a pending authorization
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: redirect_uri
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          { description: Application name, description, and requested scope }
+        "422": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Approve or deny an authorization request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id, redirect_uri, scope, approve]
+              properties:
+                client_id: { type: string }
+                redirect_uri: { type: string }
+                scope: { type: string }
+                state: { type: string }
+                approve: { type: boolean }
+      responses:
+        "200":
+          description: The exact redirect_to URL the browser should navigate to next
+        "422": { $ref: "#/components/responses/Error" }
+  /oauth/token:
+    post:
+      summary: >-
+        Exchange an authorization code, or a refresh token, for an access
+        token. Called directly by a third-party client — form-encoded, no
+        Origin header, unlike every other mutating endpoint in this API.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, client_id, client_secret]
+              properties:
+                grant_type:
+                  { type: string, enum: [authorization_code, refresh_token] }
+                client_id: { type: string }
+                client_secret: { type: string }
+                code: { type: string }
+                redirect_uri: { type: string }
+                refresh_token: { type: string }
+      responses:
+        "200": { description: access_token, refresh_token, scope, expires_in }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/authorized-apps:
+    get:
+      summary: List OAuth applications this account has authorized
+      responses:
+        "200": { description: Authorized applications and their granted scope }
+  /user/authorized-apps/{id}:
+    parameters:
+      [{ name: id, in: path, required: true, schema: { type: string } }]
+    delete:
+      summary: >-
+        Revoke an OAuth application's access. Deletes every token issued
+        under the grant immediately, not just at its next expiry.
+      responses:
+        "200": { description: Authorization revoked }
+        "404": { $ref: "#/components/responses/Error" }
+  /user/gitown-apps:
+    get:
+      summary: List GITOWN Apps this account has registered
+      responses:
+        "200": { description: GITOWN Apps }
+    post:
+      summary: >-
+        Register a GITOWN App. Creates a synthetic bot-user identity for the
+        app; installing it on a repository grants that bot user a role
+        scoped to exactly that repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, requested_scope]
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 500 }
+                homepage_url: { type: string, maxLength: 300 }
+                webhook_url: { type: string, maxLength: 2000 }
+                requested_scope:
+                  { type: string, enum: ["repo:read", "repo:write"] }
+      responses:
+        "201": { description: GITOWN App registered }
+        "422": { $ref: "#/components/responses/Error" }
+  /user/gitown-apps/{id}:
+    parameters:
+      [{ name: id, in: path, required: true, schema: { type: string } }]
+    delete:
+      summary: >-
+        Delete a GITOWN App. Deletes its bot user, every installation, and
+        every token it holds.
+      responses:
+        "200": { description: GITOWN App deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/gitown-apps:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List GITOWN Apps installed on this repository
+      responses:
+        "200": { description: Installations }
+    post:
+      summary: >-
+        Install a GITOWN App on this repository, granting its bot user a
+        role scoped to only this repository. The granted scope may not
+        exceed what the app itself requested.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id]
+              properties:
+                client_id: { type: string, description: "The GITOWN App's id." }
+                scope: { type: string, enum: ["repo:read", "repo:write"] }
+      responses:
+        "201":
+          description: >-
+            Installed, with installation_token shown once — a long-lived
+            token scoped only to this repository and the granted role.
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/gitown-apps/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string } },
+      ]
+    delete:
+      summary: >-
+        Uninstall a GITOWN App, revoking its installation token immediately
+        and removing its bot user's access to this repository.
+      responses:
+        "200": { description: Uninstalled }
+        "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }
@@ -3764,6 +3978,8 @@ components:
           pull.reviewed,
           pull.commented,
           drop.published,
+          app.installed,
+          app.uninstalled,
         ]
     Webhook:
       type: object
@@ -3774,6 +3990,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/WebhookEvent" }
         active: { type: boolean }
+        kind: { type: string, enum: ["generic", "slack", "discord"] }
         created_at: { type: string, format: date-time }
         secret:
           type: string
