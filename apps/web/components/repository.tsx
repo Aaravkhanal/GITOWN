@@ -23,6 +23,7 @@ import {
   History,
   LayoutGrid,
   LockKeyhole,
+  MessageSquarePlus,
   Package,
   Plus,
   Save,
@@ -30,7 +31,6 @@ import {
   Sparkles,
   Terminal,
   Trash2,
-  UserPlus,
   Users,
 } from "lucide-react";
 import { DropsPanel } from "@/components/ecosystem";
@@ -75,8 +75,13 @@ import {
   CommentEdit,
   IssuePlanning,
   OwnerDelivery,
+  PullChecks,
+  PullTimeline,
+  RepositoryAccess,
+  RepositoryPermissionSummary,
   SubscriptionMode,
   UnitePanel,
+  type LineDraft,
 } from "./collaboration";
 
 export function RepositoryPage({
@@ -227,7 +232,7 @@ export function RepositoryPage({
             label: "Drops",
             href: `${basePath}/drops`,
           },
-          ...(r.can_manage
+          ...(r.can_manage || r.can_maintain
             ? [
                 {
                   key: "settings",
@@ -312,7 +317,7 @@ export function RepositoryPage({
           repo={r}
           branches={repo.data.branches}
         />
-      ) : tab === "settings" && r.can_manage ? (
+      ) : tab === "settings" && (r.can_manage || r.can_maintain) ? (
         <RepositorySettings
           endpoint={endpoint}
           repo={r}
@@ -1022,6 +1027,8 @@ function RepositorySettings({
           <p>Control how this repository appears to you and other users.</p>
         </div>
       </div>
+      <RepositoryPermissionSummary endpoint={endpoint} />
+      {repo.can_manage && (
       <form
         className="panel settings-form"
         onSubmit={async (event) => {
@@ -1089,6 +1096,7 @@ function RepositorySettings({
           {busy ? "Saving..." : "Save settings"}
         </button>
       </form>
+      )}
       {branches.length > 0 && (
         <BranchRuleSettings
           endpoint={endpoint}
@@ -1096,7 +1104,9 @@ function RepositorySettings({
           defaultBranch={repo.default_branch}
         />
       )}
-      <IssueTemplateSettings endpoint={endpoint} archived={repo.archived} />
+      {repo.can_manage && (
+        <IssueTemplateSettings endpoint={endpoint} archived={repo.archived} />
+      )}
       {repo.can_manage && (
         <OwnerDelivery
           endpoint={endpoint}
@@ -1104,7 +1114,11 @@ function RepositorySettings({
           stack={repo.stack}
         />
       )}
-      <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
+      {repo.can_manage && <RepositoryAccess endpoint={endpoint} repo={repo} />}
+      {repo.can_manage && (
+        <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
+      )}
+      {repo.can_manage && (
       <div className="panel lifecycle-settings">
         <div className="section-heading">
           <div>
@@ -1204,6 +1218,7 @@ function RepositorySettings({
           </button>
         </div>
       </div>
+      )}
     </section>
   );
 }
@@ -1256,6 +1271,12 @@ function BranchRuleSettings({
                 .split(",")
                 .map((item) => item.trim())
                 .filter(Boolean),
+              required_reviewers: String(data.get("required_reviewers") || "")
+                .split(",")
+                .map((item) => item.trim())
+                .filter(Boolean),
+              allow_force_push: data.get("allow_force_push") === "on",
+              allow_deletion: data.get("allow_deletion") === "on",
             },
           );
           setMessage("Branch rule saved.");
@@ -1336,7 +1357,7 @@ function BranchRuleSettings({
               type="checkbox"
               defaultChecked={rule.data?.require_resolved ?? false}
             />
-            Require conversations on the current head to be resolved
+            Require every review conversation to be resolved
           </label>
           <label className="checkbox-row">
             <input
@@ -1363,7 +1384,8 @@ function BranchRuleSettings({
               type="checkbox"
               defaultChecked={rule.data?.require_signed ?? false}
             />
-            Require signed commits on the Unite request
+            Require commits signed with a registered signing key (applies to
+            pushes and merges; browser edits are refused)
           </label>
           <label className="checkbox-row">
             <input
@@ -1382,6 +1404,37 @@ function BranchRuleSettings({
               defaultValue={(rule.data?.required_checks || []).join(", ")}
               placeholder="ci, lint"
             />
+          </label>
+          <label>
+            Required reviewers
+            <input
+              key={`reviewers-${branch}-${version}`}
+              name="required_reviewers"
+              defaultValue={(rule.data?.required_reviewers || []).join(", ")}
+              placeholder="username, crew:reviewers"
+            />
+          </label>
+          <p className="muted small-text">
+            Each listed person, or someone in each listed crew, must approve the
+            latest commit.
+          </p>
+          <label className="checkbox-row">
+            <input
+              key={`force-${branch}-${version}`}
+              name="allow_force_push"
+              type="checkbox"
+              defaultChecked={rule.data?.allow_force_push ?? false}
+            />
+            Allow force pushes to this branch
+          </label>
+          <label className="checkbox-row">
+            <input
+              key={`deletion-${branch}-${version}`}
+              name="allow_deletion"
+              type="checkbox"
+              defaultChecked={rule.data?.allow_deletion ?? false}
+            />
+            Allow this branch to be deleted
           </label>
           {error && <div className="form-error">{error}</div>}
           {message && <div className="success-box">{message}</div>}
@@ -1407,7 +1460,6 @@ function CollaboratorSettings({
   const members = useData<RepositoryMember[]>(`${endpoint}/members`, version);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
   const refresh = () => setVersion((value) => value + 1);
   return (
     <div className="panel collaborator-settings">
@@ -1417,53 +1469,11 @@ function CollaboratorSettings({
             <Users size={18} /> Collaborators
           </h2>
           <p>
-            Grant repository access to existing GITOWN users. You remain the
-            owner.
+            People who accepted an invitation. Change a role or remove access
+            at any time; add people with an invitation above.
           </p>
         </div>
       </div>
-      <form
-        className="collaborator-form"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setError("");
-          setMessage("");
-          const form = event.currentTarget;
-          const data = new FormData(form);
-          try {
-            await post<RepositoryMember>(`${endpoint}/members`, {
-              username: data.get("username"),
-              role: data.get("role"),
-            });
-            form.reset();
-            setMessage("Collaborator added.");
-            refresh();
-          } catch (memberError) {
-            setError((memberError as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Username
-          <input name="username" placeholder="gitown-user" required />
-        </label>
-        <label>
-          Role
-          <select name="role" defaultValue="read">
-            {collaboratorRoles.map((role) => (
-              <option key={role} value={role}>
-                {role[0].toUpperCase() + role.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="button primary" disabled={busy} type="submit">
-          <UserPlus size={16} /> {busy ? "Adding..." : "Add collaborator"}
-        </button>
-      </form>
       <p className="muted small-text role-help">
         Read can clone. Triage can manage issues. Write and Maintain can also
         push and merge. Only {owner} can manage access and visibility.
@@ -2699,13 +2709,27 @@ function PullRequestDetail({
 }) {
   const [version, setVersion] = useState(0);
   const detail = useData<PullDetail>(`${endpoint}/pulls/${number}`, version);
+  const session = useData<{ user: { username: string } | null }>("/auth/me");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [mergeMethod, setMergeMethod] = useState("merge");
   const [deleteBranch, setDeleteBranch] = useState(false);
+  const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
+  const [morePages, setMorePages] = useState<{ diff: string; truncated: boolean }[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  useEffect(() => setMorePages([]), [detail.data]);
   if (detail.loading) return <Loading />;
   if (!detail.data) return <ErrorMessage error={detail.error} />;
   const { pull, mergeable, diff, diff_error } = detail.data;
+  const viewer = session.data?.user?.username;
+  const diffPages = [diff, ...morePages.map((page) => page.diff)];
+  const diffLines = diffPages.join("\n").split("\n");
+  const lineInfo = annotateDiff(diffLines);
+  const moreAvailable = morePages.length
+    ? morePages[morePages.length - 1].truncated
+    : !!detail.data.diff_truncated;
+  const canLineComment = repo.can_comment && pull.state === "open";
   return (
     <>
       <Link className="back-link" href={`${repoPath(repo)}/pulls`}>
@@ -2735,12 +2759,16 @@ function PullRequestDetail({
         number={number}
         canSubscribe={repo.can_comment}
       />
+      {notice && <div className="success-box">{notice}</div>}
       <UnitePanel
         endpoint={endpoint}
         number={number}
         canTriage={repo.can_triage}
         canComment={repo.can_comment}
         headSHA={detail.data.head_sha}
+        viewer={viewer}
+        district={repo.district}
+        lineDraft={lineDraft}
       />
       <PullDiscussion
         endpoint={endpoint}
@@ -2752,7 +2780,11 @@ function PullRequestDetail({
         number={number}
         headSHA={detail.data.head_sha}
         canReview={detail.data.can_review}
+        canMaintain={!!repo.can_maintain}
+        viewer={viewer}
       />
+      <PullChecks endpoint={endpoint} headSHA={detail.data.head_sha} />
+      <PullTimeline base={`${endpoint}/pulls/${number}`} />
       {repo.can_triage &&
         pull.state !== "merged" &&
         pull.state !== "merging" && (
@@ -2871,13 +2903,24 @@ function PullRequestDetail({
                   return;
                 setBusy(true);
                 setError("");
+                setNotice("");
                 try {
-                  await post(`${endpoint}/pulls/${number}/merge`, {
-                    head_sha: detail.data!.head_sha,
-                    base_sha: detail.data!.base_sha,
-                    method: mergeMethod,
-                    delete_branch: deleteBranch,
-                  });
+                  const merged = await post<Pull>(
+                    `${endpoint}/pulls/${number}/merge`,
+                    {
+                      head_sha: detail.data!.head_sha,
+                      base_sha: detail.data!.base_sha,
+                      method: mergeMethod,
+                      delete_branch: deleteBranch,
+                    },
+                  );
+                  if (merged.branch_deleted) {
+                    setNotice(`Deleted ${pull.head_branch}.`);
+                  } else if (merged.branch_delete_error) {
+                    setNotice(
+                      `${pull.head_branch} was kept: ${merged.branch_delete_error}`,
+                    );
+                  }
                   setVersion((v) => v + 1);
                 } catch (error) {
                   setError((error as Error).message);
@@ -2913,20 +2956,115 @@ function PullRequestDetail({
         <div className="panel diff-panel">
           <pre>
             {diff
-              ? diff.split("\n").map((line, i) => (
-                  <span
-                    className={`diff-line ${line.startsWith("+") && !line.startsWith("+++") ? "addition" : line.startsWith("-") && !line.startsWith("---") ? "deletion" : line.startsWith("@@") ? "diff-hunk" : ""}`}
-                    key={i}
-                  >
-                    {line || " "}
-                  </span>
-                ))
+              ? diffLines.map((line, i) => {
+                  const info = lineInfo[i];
+                  const target = info?.right ?? info?.left;
+                  return (
+                    <span
+                      className={`diff-line ${line.startsWith("+") && !line.startsWith("+++") ? "addition" : line.startsWith("-") && !line.startsWith("---") ? "deletion" : line.startsWith("@@") ? "diff-hunk" : ""}`}
+                      key={i}
+                    >
+                      {canLineComment && info && target ? (
+                        <button
+                          className="diff-comment"
+                          type="button"
+                          aria-label={`Comment on ${info.path} line ${target}`}
+                          onClick={() => {
+                            setLineDraft({
+                              path: info.path,
+                              side: info.right ? "right" : "left",
+                              line: target,
+                            });
+                            document
+                              .getElementById("line-comment-form")
+                              ?.scrollIntoView({ block: "center" });
+                          }}
+                        >
+                          <MessageSquarePlus size={12} />
+                        </button>
+                      ) : null}
+                      {line || " "}
+                    </span>
+                  );
+                })
               : "No file changes."}
           </pre>
+          {moreAvailable && (
+            <button
+              className="button small-button"
+              type="button"
+              disabled={loadingMore}
+              onClick={async () => {
+                setLoadingMore(true);
+                setError("");
+                try {
+                  const page = await api<PullDetail>(
+                    `${endpoint}/pulls/${number}?diff_offset=${diffLines.length}&diff_limit=400`,
+                  );
+                  setMorePages([
+                    ...morePages,
+                    { diff: page.diff, truncated: !!page.diff_truncated },
+                  ]);
+                } catch (loadError) {
+                  setError((loadError as Error).message);
+                } finally {
+                  setLoadingMore(false);
+                }
+              }}
+            >
+              {loadingMore ? "Loading…" : "Load more changes"}
+            </button>
+          )}
         </div>
       )}
     </>
   );
+}
+
+type DiffLineInfo = { path: string; left?: number; right?: number };
+
+// annotateDiff maps each rendered diff line to the file and the old (left) or
+// new (right) line number it shows, using hunk lengths to find hunk ends.
+function annotateDiff(lines: string[]): (DiffLineInfo | null)[] {
+  let path = "";
+  let oldLine = 0;
+  let newLine = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
+  return lines.map((line) => {
+    if (oldLeft > 0 || newLeft > 0) {
+      if (line.startsWith("+")) {
+        newLeft--;
+        return { path, right: newLine++ };
+      }
+      if (line.startsWith("-")) {
+        oldLeft--;
+        return { path, left: oldLine++ };
+      }
+      if (line.startsWith(" ")) {
+        oldLeft--;
+        newLeft--;
+        return { path, left: oldLine++, right: newLine++ };
+      }
+      if (line.startsWith("\\")) return null;
+      oldLeft = 0;
+      newLeft = 0;
+    }
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newLine = Number(hunk[3]);
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      return null;
+    }
+    if (line.startsWith("+++ ") && line !== "+++ /dev/null") {
+      path = line.slice(4).replace(/^b\//, "");
+    } else if (line.startsWith("--- ") && line !== "--- /dev/null") {
+      path = line.slice(4).replace(/^a\//, "");
+    }
+    return null;
+  });
 }
 
 function PullSubscription({
@@ -3043,11 +3181,15 @@ function PullReviews({
   number,
   headSHA,
   canReview,
+  canMaintain,
+  viewer,
 }: {
   endpoint: string;
   number: string;
   headSHA: string;
   canReview: boolean;
+  canMaintain: boolean;
+  viewer?: string;
 }) {
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<PullReview["state"]>("approved");
@@ -3056,7 +3198,17 @@ function PullReviews({
   const [error, setError] = useState("");
   const path = `${endpoint}/pulls/${number}/reviews`;
   const reviews = useData<PullReview[]>(path, version);
-  const current = reviews.data?.filter((review) => !review.stale) || [];
+  // Mirror the merge guard: each reviewer's latest non-dismissed review of
+  // the current head counts once.
+  const latest = new Map<string, PullReview>();
+  for (const review of reviews.data || []) {
+    if (review.stale || review.dismissed) continue;
+    const seen = latest.get(review.reviewer);
+    if (!seen || seen.created_at <= review.created_at) {
+      latest.set(review.reviewer, review);
+    }
+  }
+  const current = [...latest.values()];
   const approvals = current.filter(
     (review) => review.state === "approved",
   ).length;
@@ -3099,7 +3251,39 @@ function PullReviews({
                 <strong>@{review.reviewer}</strong>{" "}
                 <span>{review.state.replace("_", " ")}</span>
                 {review.stale && <Badge>STALE</Badge>}
+                {review.dismissed && <Badge>DISMISSED</Badge>}
                 {review.body && <p>{review.body}</p>}
+                {review.dismissed && review.dismissal_reason && (
+                  <p className="muted small-text">
+                    Dismissed: {review.dismissal_reason}
+                  </p>
+                )}
+                {!review.dismissed &&
+                  review.state !== "commented" &&
+                  (canMaintain || review.reviewer === viewer) && (
+                    <button
+                      className="text-button"
+                      type="button"
+                      aria-label={`Dismiss review by ${review.reviewer}`}
+                      onClick={async () => {
+                        const reason = window.prompt(
+                          "Why are you dismissing this review? The reason is kept in the timeline.",
+                        );
+                        if (!reason?.trim()) return;
+                        setError("");
+                        try {
+                          await post(`${path}/${review.id}/dismiss`, {
+                            reason: reason.trim(),
+                          });
+                          setVersion((value) => value + 1);
+                        } catch (dismissError) {
+                          setError((dismissError as Error).message);
+                        }
+                      }}
+                    >
+                      Dismiss review
+                    </button>
+                  )}
               </div>
               <span className="muted small-text">
                 {date(review.created_at)}

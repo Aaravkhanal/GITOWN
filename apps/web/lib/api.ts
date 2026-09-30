@@ -40,6 +40,7 @@ export type Repo = {
   can_write: boolean;
   can_triage: boolean;
   can_manage: boolean;
+  can_maintain?: boolean;
   can_comment: boolean;
   role?: "owner" | "maintain" | "write" | "triage" | "read";
   archived: boolean;
@@ -211,6 +212,8 @@ export type Pull = Issue & {
   merge_sha?: string;
   draft?: boolean;
   merge_method?: string;
+  branch_deleted?: boolean;
+  branch_delete_error?: string;
 };
 export type PullDetail = {
   pull: Pull;
@@ -235,6 +238,8 @@ export type PullReview = {
   reviewer: string;
   head_sha: string;
   stale: boolean;
+  dismissed?: boolean;
+  dismissal_reason?: string;
   created_at: string;
 };
 export type BranchRule = {
@@ -248,7 +253,38 @@ export type BranchRule = {
   require_signed: boolean;
   require_maintainer_approval: boolean;
   required_checks: string[];
+  required_reviewers: string[];
+  allow_force_push: boolean;
+  allow_deletion: boolean;
   updated_at: string;
+};
+export type RepositoryPermissions = {
+  role: string;
+  read: boolean;
+  triage: boolean;
+  write: boolean;
+  maintain: boolean;
+  manage: boolean;
+};
+export type CommitStatus = {
+  context: string;
+  state: "pending" | "success" | "failure" | "error";
+  description: string;
+  target_url: string;
+  reporter: string;
+  updated_at: string;
+};
+export type TimelineItem = {
+  kind: string;
+  actor: string;
+  body: string;
+  created_at: string;
+};
+export type ThreadReply = {
+  id: string;
+  author: string;
+  body: string;
+  created_at: string;
 };
 export type Invitation = {
   id: string;
@@ -260,6 +296,7 @@ export type Invitation = {
   status: string;
   expires_at: string;
   created_at: string;
+  accept_url?: string;
 };
 export type WorkSearch = {
   items: {

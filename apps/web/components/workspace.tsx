@@ -51,7 +51,7 @@ import {
   type BuilderSearch,
   type WorkSearch,
 } from "@/lib/api";
-import { InvitationsPage } from "./collaboration";
+import { InvitationAccept, InvitationsPage } from "./collaboration";
 import {
   Avatar,
   Badge,
@@ -326,6 +326,12 @@ export function Workspace({ segments }: { segments: string[] }) {
           ) : section === "inbox" ? (
             user ? (
               <Inbox />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "invitations" && segments[1] === "accept" ? (
+            user ? (
+              <InvitationAccept />
             ) : (
               <SignInPrompt />
             )
