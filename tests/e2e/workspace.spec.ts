@@ -351,9 +351,7 @@ test("account security, project collaboration, Git transport, and responsive nav
   await page.getByLabel("Add a comment").fill("I can discuss this issue.");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("I can discuss this issue.")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Unfollow issue" }),
-  ).toBeVisible();
+  await expect(page.getByLabel("Notification mode")).toHaveValue("participate");
   const commenterUsername = `commenter-${Date.now().toString(36)}`;
   const commenter = await browser.newContext();
   const commenterRegistration = await commenter.request.post(
@@ -489,14 +487,10 @@ test("account security, project collaboration, Git transport, and responsive nav
     page.getByText("These branches can be merged", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("No formal reviews yet.")).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Unfollow Unite" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Unfollow Unite" }).click();
-  await expect(
-    page.getByRole("button", { name: "Follow Unite" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Follow Unite" }).click();
+  await expect(page.getByLabel("Notification mode")).toHaveValue("participate");
+  await page.getByLabel("Notification mode").selectOption("off");
+  await expect(page.getByLabel("Notification mode")).toHaveValue("off");
+  await page.getByLabel("Notification mode").selectOption("participate");
   await expect(
     page.getByRole("button", { name: "Submit review", exact: true }),
   ).toHaveCount(0);
