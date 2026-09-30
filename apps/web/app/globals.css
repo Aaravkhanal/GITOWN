@@ -1672,6 +1672,52 @@ textarea {
 .member-row select {
   padding: 8px 10px;
 }
+.deploy-key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.deploy-key-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+  color: #b9c8bf;
+  font-size: 12px;
+  font-weight: 500;
+}
+.deploy-key-form .checkbox-row {
+  flex-direction: row;
+  align-items: center;
+}
+.deploy-key-form .button {
+  align-self: start;
+}
+.deploy-key-list {
+  border-top: 1px solid var(--border);
+  margin: 20px -24px -24px;
+}
+.deploy-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.deploy-key-row:last-child {
+  border-bottom: 0;
+}
+.deploy-key-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.deploy-key-row > div span {
+  color: var(--muted);
+  font-size: 11px;
+}
 .danger-icon {
   color: var(--red);
 }

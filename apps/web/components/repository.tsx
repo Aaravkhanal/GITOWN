@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  Activity,
   ArrowLeft,
   ArrowRight,
   Archive,
@@ -21,11 +22,13 @@ import {
   GitPullRequest,
   Globe2,
   History,
+  KeyRound,
   LayoutGrid,
   LockKeyhole,
   MessageSquarePlus,
   Package,
   Plus,
+  RefreshCw,
   Save,
   Settings,
   Sparkles,
@@ -61,6 +64,8 @@ import {
   type PullReview,
   type BranchRule,
   type RepositoryMember,
+  type DeployKey,
+  type RefEvent,
 } from "@/lib/api";
 import {
   Avatar,
@@ -246,6 +251,12 @@ export function RepositoryPage({
             href: `${basePath}/commits`,
           },
           {
+            key: "activity",
+            icon: Activity,
+            label: "Activity",
+            href: `${basePath}/activity`,
+          },
+          {
             key: "drops",
             icon: Package,
             label: "Drops",
@@ -318,6 +329,8 @@ export function RepositoryPage({
         )
       ) : tab === "commits" ? (
         <CommitList endpoint={endpoint} branch={branch} />
+      ) : tab === "activity" ? (
+        <RefActivity endpoint={endpoint} />
       ) : tab === "drops" ? (
         <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
       ) : tab === "issues" && number ? (
@@ -1201,6 +1214,13 @@ function RepositorySettings({
       {repo.can_manage && (
         <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       )}
+      {repo.can_manage && <DeployKeySettings endpoint={endpoint} />}
+      {repo.can_manage && (
+        <RepositoryMaintenance
+          endpoint={endpoint}
+          lastMaintainedAt={repo.last_maintained_at}
+        />
+      )}
       {repo.can_manage && (
         <div className="panel lifecycle-settings">
           <div className="section-heading">
@@ -1629,6 +1649,234 @@ function CollaboratorSettings({
         <div className="empty-inline">No collaborators yet.</div>
       )}
     </div>
+  );
+}
+
+function DeployKeySettings({ endpoint }: { endpoint: string }) {
+  const [version, setVersion] = useState(0);
+  const keys = useData<{ items: DeployKey[] }>(
+    `${endpoint}/deploy-keys`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const [line, setLine] = useState("");
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <div className="panel deploy-key-settings">
+      <div className="section-heading">
+        <div>
+          <h2>
+            <KeyRound size={18} /> Deploy keys
+          </h2>
+          <p>
+            A deploy key clones or pushes to only this repository, without using
+            anyone&apos;s personal SSH key.
+          </p>
+        </div>
+      </div>
+      <ErrorMessage error={error || keys.error} />
+      {line && (
+        <pre className="panel">
+          <code>{line}</code>
+        </pre>
+      )}
+      <form
+        className="deploy-key-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setError("");
+          setLine("");
+          const data = new FormData(event.currentTarget);
+          try {
+            const created = await post<{ authorized_keys: string }>(
+              `${endpoint}/deploy-keys`,
+              {
+                title: String(data.get("title") || ""),
+                public_key: String(data.get("public_key") || ""),
+                write: data.get("write") === "on",
+              },
+            );
+            setLine(created.authorized_keys);
+            refresh();
+            event.currentTarget.reset();
+          } catch (createError) {
+            setError((createError as Error).message);
+          }
+        }}
+      >
+        <label>
+          Title
+          <input name="title" required maxLength={80} />
+        </label>
+        <label>
+          SSH key
+          <textarea name="public_key" required rows={3} />
+        </label>
+        <label className="checkbox-row">
+          <input name="write" type="checkbox" />
+          Allow this key to push, not just clone or fetch
+        </label>
+        <button className="button primary" type="submit">
+          <Plus size={16} /> Add deploy key
+        </button>
+      </form>
+      {keys.loading ? (
+        <Loading />
+      ) : keys.data?.items.length ? (
+        <div className="deploy-key-list">
+          {keys.data.items.map((key) => (
+            <div className="deploy-key-row" key={key.id}>
+              <div>
+                <strong>{key.title}</strong>
+                <span>
+                  <code>{key.fingerprint}</code> ·{" "}
+                  {key.write ? "Read and write" : "Read only"}
+                </span>
+              </div>
+              <button
+                aria-label={`Remove ${key.title}`}
+                className="icon-button danger-icon"
+                type="button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove<{ removed: boolean }>(
+                      `${endpoint}/deploy-keys/${key.id}`,
+                    );
+                    refresh();
+                  } catch (removeError) {
+                    setError((removeError as Error).message);
+                  }
+                }}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-inline">No deploy keys yet.</div>
+      )}
+    </div>
+  );
+}
+
+function RepositoryMaintenance({
+  endpoint,
+  lastMaintainedAt,
+}: {
+  endpoint: string;
+  lastMaintainedAt?: string;
+}) {
+  const [lastRun, setLastRun] = useState(lastMaintainedAt);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>
+            <RefreshCw size={18} /> Maintenance
+          </h2>
+          <p>
+            GITOWN garbage-collects every repository on a schedule. Run it now
+            if you just removed a lot of history.
+          </p>
+        </div>
+      </div>
+      <ErrorMessage error={error} />
+      <p className="muted small-text">
+        {lastRun ? `Last maintained ${date(lastRun)}.` : "Not maintained yet."}
+      </p>
+      <button
+        className="button"
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            const result = await put<{ last_maintained_at?: string }>(
+              `${endpoint}/maintenance`,
+              {},
+            );
+            setLastRun(result.last_maintained_at);
+          } catch (maintainError) {
+            setError((maintainError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Running..." : "Run maintenance now"}
+      </button>
+    </div>
+  );
+}
+
+function RefActivity({ endpoint }: { endpoint: string }) {
+  const [offset, setOffset] = useState(0);
+  const refs = useData<{ items: RefEvent[]; has_more: boolean }>(
+    `${endpoint}/refs?offset=${offset}`,
+  );
+  return (
+    <>
+      <div className="section-heading">
+        <h2>Push activity</h2>
+        <span className="muted small-text">
+          Every branch and tag change, however it arrived.
+        </span>
+      </div>
+      <ErrorMessage error={refs.error} />
+      {refs.loading ? (
+        <Loading />
+      ) : refs.data?.items.length ? (
+        <div className="panel">
+          {refs.data.items.map((item, index) => (
+            <div
+              className="commit-row"
+              key={`${item.ref}-${item.new_sha}-${index}`}
+            >
+              <GitCommitHorizontal size={16} className="commit-symbol" />
+              <div>
+                <strong>{item.ref.replace(/^refs\/(heads|tags)\//, "")}</strong>
+                <span className="muted small-text">
+                  <code>{item.old_sha.slice(0, 7)}</code>
+                  {" → "}
+                  <code>{item.new_sha.slice(0, 7)}</code>
+                  {" · "}
+                  {item.actor ? `@${item.actor}` : "unknown"}
+                  {" · via "}
+                  {item.via}
+                  {" · "}
+                  {date(item.created_at)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-inline">No push activity yet.</div>
+      )}
+      {(offset > 0 || refs.data?.has_more) && (
+        <div className="form-actions">
+          <button
+            className="button small-button"
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - 25))}
+          >
+            Previous
+          </button>
+          <button
+            className="button small-button"
+            disabled={!refs.data?.has_more}
+            onClick={() => setOffset(offset + 25)}
+          >
+            Next
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

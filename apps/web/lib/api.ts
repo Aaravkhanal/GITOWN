@@ -72,6 +72,7 @@ export type Repo = {
   size_bytes?: number;
   district?: string;
   ssh_clone_url?: string;
+  last_maintained_at?: string;
 };
 export type SparkState = { count: number; sparked: boolean };
 export type TopicState = { topics: string[] };
@@ -101,6 +102,21 @@ export type RepositoryMember = {
   username: string;
   display_name: string;
   role: "maintain" | "write" | "triage" | "read";
+  created_at: string;
+};
+export type DeployKey = {
+  id: string;
+  title: string;
+  fingerprint: string;
+  write: boolean;
+  created_at: string;
+};
+export type RefEvent = {
+  ref: string;
+  old_sha: string;
+  new_sha: string;
+  via: string;
+  actor: string;
   created_at: string;
 };
 export type Commit = {
