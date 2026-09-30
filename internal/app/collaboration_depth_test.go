@@ -185,7 +185,7 @@ func TestCollaborationDepth(t *testing.T) {
 		argv := []string{"-c", "credential.helper=", "-c", "http.extraHeader=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("owner:"+writeToken))}
 		cmd := exec.Command("git", append(argv, args...)...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 		out, gitErr := cmd.CombinedOutput()
 		if ok && gitErr != nil {
 			t.Fatalf("git %s failed: %s", args[0], out)

@@ -2,7 +2,7 @@
 -- claims due rows, sends them, and records the real outcome.
 ALTER TABLE email_messages ALTER COLUMN unsubscribe_token DROP NOT NULL;
 ALTER TABLE email_messages ADD COLUMN status text NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'sent', 'failed', 'suppressed', 'bundled'));
+    CHECK (status IN ('pending', 'sending', 'sent', 'failed', 'suppressed', 'bundled'));
 ALTER TABLE email_messages ADD COLUMN attempts smallint NOT NULL DEFAULT 0;
 ALTER TABLE email_messages ADD COLUMN next_attempt_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE email_messages ADD COLUMN last_error text NOT NULL DEFAULT '' CHECK (char_length(last_error) <= 300);

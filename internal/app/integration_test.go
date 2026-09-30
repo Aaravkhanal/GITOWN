@@ -240,7 +240,7 @@ func TestPlatformWorkflow(t *testing.T) {
 		}
 		cmd := exec.Command("git", append(argv, args...)...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.CombinedOutput()
 		if success && err != nil {
 			t.Fatalf("git %s failed: %s", args[0], out)

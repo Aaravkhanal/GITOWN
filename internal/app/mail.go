@@ -119,42 +119,63 @@ func (a *App) StartWorkers(ctx context.Context) {
 	}()
 }
 
-// deliverMail claims one batch of due messages and records each outcome.
-// Rows are locked with SKIP LOCKED so several API instances can share the
-// queue without sending a message twice.
-func (a *App) deliverMail(ctx context.Context) (int, error) {
+type queuedMail struct {
+	id, to, subject, body, link string
+	userID                      *string
+	attempts                    int
+}
+
+// claimMail marks one batch of due messages "sending" and commits right
+// away, so the row lock (and the pooled connection) is held only for the
+// claim itself, never across the network calls that follow.
+func (a *App) claimMail(ctx context.Context) ([]queuedMail, error) {
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer tx.Rollback(ctx)
 	rows, err := tx.Query(ctx, `SELECT id,user_id::text,recipient_email,subject,body,link_path,attempts
 		FROM email_messages WHERE status='pending' AND NOT digest AND next_attempt_at<=now()
 		ORDER BY next_attempt_at,created_at LIMIT $1 FOR UPDATE SKIP LOCKED`, mailBatchSize)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	type queued struct {
-		id, to, subject, body, link string
-		userID                      *string
-		attempts                    int
-	}
-	var batch []queued
+	var batch []queuedMail
 	for rows.Next() {
-		var item queued
+		var item queuedMail
 		if err = rows.Scan(&item.id, &item.userID, &item.to, &item.subject, &item.body, &item.link, &item.attempts); err != nil {
 			rows.Close()
-			return 0, err
+			return nil, err
 		}
 		batch = append(batch, item)
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(batch))
+	for i, item := range batch {
+		ids[i] = item.id
+	}
+	if len(ids) > 0 {
+		if _, err = tx.Exec(ctx, `UPDATE email_messages SET status='sending' WHERE id=ANY($1)`, ids); err != nil {
+			return nil, err
+		}
+	}
+	return batch, tx.Commit(ctx)
+}
+
+// deliverMail claims one batch of due messages, then sends each one with
+// its own short-lived connection so a slow or stuck SMTP conversation never
+// holds a pooled connection or blocks other claimants.
+func (a *App) deliverMail(ctx context.Context) (int, error) {
+	batch, err := a.claimMail(ctx)
+	if err != nil {
 		return 0, err
 	}
 	for _, item := range batch {
 		if a.mailer == nil {
-			if _, err = tx.Exec(ctx, `UPDATE email_messages SET status='suppressed',last_error=$2 WHERE id=$1`, item.id, errSMTPDisabled.Error()); err != nil {
+			if _, err = a.db.Exec(ctx, `UPDATE email_messages SET status='suppressed',last_error=$2 WHERE id=$1`, item.id, errSMTPDisabled.Error()); err != nil {
 				return 0, err
 			}
 			continue
@@ -175,7 +196,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 		sendErr := a.mailer(sendCtx, message)
 		cancel()
 		if sendErr == nil {
-			_, err = tx.Exec(ctx, `UPDATE email_messages SET status='sent',sent_at=now(),attempts=attempts+1,last_error='',
+			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status='sent',sent_at=now(),attempts=attempts+1,last_error='',
 				unsubscribe_token=$2,unsubscribe_expires_at=CASE WHEN $2::text IS NULL THEN NULL ELSE now()+make_interval(secs => $3) END WHERE id=$1`,
 				item.id, tokenHash, unsubscribeLifetime.Seconds())
 		} else {
@@ -187,7 +208,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 			// Back off 1, 2, 4 ... minutes, capped at six hours.
 			delay := time.Minute << min(attempts-1, 9)
 			delay = min(delay, 6*time.Hour)
-			_, err = tx.Exec(ctx, `UPDATE email_messages SET status=$2,attempts=$3,last_error=$4,next_attempt_at=now()+make_interval(secs => $5) WHERE id=$1`,
+			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status=$2,attempts=$3,last_error=$4,next_attempt_at=now()+make_interval(secs => $5) WHERE id=$1`,
 				item.id, status, attempts, cleanHeader(sendErr.Error(), 300), delay.Seconds())
 			slog.Warn("email delivery attempt failed", "message_id", item.id, "attempts", attempts, "error", sendErr)
 		}
@@ -195,7 +216,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-	return len(batch), tx.Commit(ctx)
+	return len(batch), nil
 }
 
 // bundleDigests combines each digest reader's queued updates into one
