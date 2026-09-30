@@ -27,6 +27,7 @@ import {
   LockKeyhole,
   LogOut,
   Package,
+  Plug,
   Plus,
   Search,
   ShieldCheck,
@@ -73,6 +74,7 @@ import { RepositoryPage } from "./repository";
 import { ProfileSettings, PublicProfile } from "./profile";
 import { Inbox, useUnreadCount } from "./inbox";
 import { ProjectShowcase, UnsubscribePage } from "./showcase";
+import { DeveloperAppsPage, OAuthAuthorizePage } from "./oauth";
 import { FollowingFeed } from "./feed";
 
 type Session = {
@@ -302,6 +304,18 @@ export function Workspace({ segments }: { segments: string[] }) {
               {user && (
                 <Link
                   className={
+                    section === "settings" && segments[1] === "apps"
+                      ? "selected"
+                      : ""
+                  }
+                  href="/settings/apps"
+                >
+                  <Plug size={17} /> Apps and integrations
+                </Link>
+              )}
+              {user && (
+                <Link
+                  className={
                     section === "settings" && segments[1] === "keys"
                       ? "selected"
                       : ""
@@ -457,6 +471,18 @@ export function Workspace({ segments }: { segments: string[] }) {
           ) : section === "settings" && segments[1] === "keys" ? (
             user ? (
               <SSHKeysPage />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "settings" && segments[1] === "apps" ? (
+            user ? (
+              <DeveloperAppsPage />
+            ) : (
+              <SignInPrompt />
+            )
+          ) : section === "oauth" && segments[1] === "authorize" ? (
+            user ? (
+              <OAuthAuthorizePage />
             ) : (
               <SignInPrompt />
             )

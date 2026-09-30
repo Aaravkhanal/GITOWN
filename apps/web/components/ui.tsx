@@ -206,6 +206,7 @@ export function WebhookSettings({
             const created = await post<Webhook>(`${endpoint}/webhooks`, {
               url: String(data.get("url") || ""),
               events,
+              kind: String(data.get("kind") || "generic"),
             });
             if (created.secret) {
               setNewSecret({ id: created.id, secret: created.secret });
@@ -225,6 +226,16 @@ export function WebhookSettings({
             required
             placeholder="https://example.com/hook"
           />
+        </label>
+        <label>
+          Target
+          <select name="kind" defaultValue="generic">
+            <option value="generic">
+              Generic (signed JSON POST for your own receiver)
+            </option>
+            <option value="slack">Slack incoming webhook</option>
+            <option value="discord">Discord webhook</option>
+          </select>
         </label>
         <fieldset className="webhook-events">
           <legend>Events</legend>
@@ -290,6 +301,9 @@ function WebhookRow({
         <div>
           <strong>{hook.url}</strong>
           <span>
+            {hook.kind !== "generic" && (
+              <>{hook.kind === "slack" ? "Slack" : "Discord"} · </>
+            )}
             {hook.events.join(", ")} · {hook.active ? "Active" : "Paused"}
           </span>
         </div>

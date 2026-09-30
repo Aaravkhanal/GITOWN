@@ -137,6 +137,7 @@ export type Webhook = {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  kind: "generic" | "slack" | "discord";
   created_at: string;
   secret?: string;
 };
@@ -508,6 +509,43 @@ export type BrowserSession = {
   created_at: string;
   last_seen_at: string;
   expires_at: string;
+};
+export type OAuthApp = {
+  id: string;
+  name: string;
+  description: string;
+  homepage_url: string;
+  redirect_uri: string;
+  client_id: string;
+  client_secret?: string;
+  created_at: string;
+  authorized_users: number;
+};
+export type AuthorizedApp = {
+  oauth_app_id: string;
+  name: string;
+  homepage_url: string;
+  scope: string;
+  created_at: string;
+};
+export type GitownApp = {
+  id: string;
+  name: string;
+  description: string;
+  homepage_url: string;
+  webhook_url: string;
+  requested_scope: string;
+  bot_username: string;
+  created_at: string;
+  installations: number;
+};
+export type GitownAppInstallation = {
+  id: string;
+  gitown_app_id: string;
+  name: string;
+  description: string;
+  granted_scope: string;
+  created_at: string;
 };
 
 export async function api<T>(

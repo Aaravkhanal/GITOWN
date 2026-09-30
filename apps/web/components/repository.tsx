@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Archive,
+  Bot,
   BookOpen,
   Check,
   ChevronRight,
@@ -65,6 +66,7 @@ import {
   type BranchRule,
   type RepositoryMember,
   type DeployKey,
+  type GitownAppInstallation,
   type RefEvent,
 } from "@/lib/api";
 import {
@@ -1216,6 +1218,7 @@ function RepositorySettings({
         <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       )}
       {repo.can_manage && <DeployKeySettings endpoint={endpoint} />}
+      {repo.can_manage && <GitownAppInstallSettings endpoint={endpoint} />}
       {repo.can_manage && (
         <WebhookSettings
           endpoint={endpoint}
@@ -1654,6 +1657,110 @@ function CollaboratorSettings({
         </div>
       ) : (
         <div className="empty-inline">No collaborators yet.</div>
+      )}
+    </div>
+  );
+}
+
+function GitownAppInstallSettings({ endpoint }: { endpoint: string }) {
+  const [version, setVersion] = useState(0);
+  const installs = useData<{ items: GitownAppInstallation[] }>(
+    `${endpoint}/gitown-apps`,
+    version,
+  );
+  const [error, setError] = useState("");
+  const [token, setToken] = useState("");
+  const refresh = () => setVersion((value) => value + 1);
+  return (
+    <div className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>
+            <Bot size={18} /> Installed GITOWN Apps
+          </h2>
+          <p>
+            Install an app by the id its developer gave you. It gets its own bot
+            identity with access to only this repository.
+          </p>
+        </div>
+      </div>
+      <ErrorMessage error={error || installs.error} />
+      {token && (
+        <pre className="panel">
+          <code>{token}</code>
+        </pre>
+      )}
+      <form
+        className="two-fields"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setError("");
+          setToken("");
+          const data = new FormData(event.currentTarget);
+          try {
+            const result = await post<{ installation_token: string }>(
+              `${endpoint}/gitown-apps`,
+              {
+                client_id: String(data.get("client_id") || ""),
+                scope: String(data.get("scope") || ""),
+              },
+            );
+            setToken(result.installation_token);
+            refresh();
+            event.currentTarget.reset();
+          } catch (installError) {
+            setError((installError as Error).message);
+          }
+        }}
+      >
+        <label>
+          App id
+          <input name="client_id" required maxLength={80} />
+        </label>
+        <label>
+          Access
+          <select name="scope" defaultValue="repo:read">
+            <option value="repo:read">Read only</option>
+            <option value="repo:write">Read and write</option>
+          </select>
+        </label>
+        <button className="button primary" type="submit">
+          <Plus size={16} /> Install app
+        </button>
+      </form>
+      {installs.loading ? (
+        <Loading />
+      ) : installs.data?.items.length ? (
+        <div className="deploy-key-list">
+          {installs.data.items.map((install) => (
+            <div className="deploy-key-row" key={install.id}>
+              <div>
+                <strong>{install.name}</strong>
+                <span>{install.granted_scope}</span>
+              </div>
+              <button
+                aria-label={`Uninstall ${install.name}`}
+                className="icon-button danger-icon"
+                type="button"
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await remove<{ removed: boolean }>(
+                      `${endpoint}/gitown-apps/${install.id}`,
+                    );
+                    refresh();
+                  } catch (uninstallError) {
+                    setError((uninstallError as Error).message);
+                  }
+                }}
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-inline">No installed apps.</div>
       )}
     </div>
   );
