@@ -51,6 +51,8 @@ var webhookEventKinds = map[string]bool{
 	"pull.reviewed":   true,
 	"pull.commented":  true,
 	"drop.published":  true,
+	"app.installed":   true,
+	"app.uninstalled": true,
 }
 
 // execer is satisfied by both *pgxpool.Pool and pgx.Tx, so fireWebhook can
@@ -293,9 +295,9 @@ func (a *App) deliverWebhooks(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	for _, item := range batch {
-		var targetURL string
+		var targetURL, kind string
 		var secretCiphertext, secretNonce []byte
-		err = a.db.QueryRow(ctx, `SELECT url,secret_ciphertext,secret_nonce FROM webhooks WHERE id=$1`, item.webhookID).Scan(&targetURL, &secretCiphertext, &secretNonce)
+		err = a.db.QueryRow(ctx, `SELECT url,secret_ciphertext,secret_nonce,kind FROM webhooks WHERE id=$1`, item.webhookID).Scan(&targetURL, &secretCiphertext, &secretNonce, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The subscription was deleted after this delivery was queued.
 			if _, delErr := a.db.Exec(ctx, `UPDATE webhook_deliveries SET status='failed',last_error='webhook was deleted' WHERE id=$1`, item.id); delErr != nil {
@@ -310,7 +312,11 @@ func (a *App) deliverWebhooks(ctx context.Context) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		ok, responseStatus, responseBody, sendErr := a.sendWebhook(ctx, targetURL, secret, item.event, item.payload)
+		// Slack/Discord targets get their payload reshaped into the body
+		// each platform expects; the HMAC signature below covers whatever
+		// bytes are actually sent, so this happens before signing.
+		body := formatWebhookBody(kind, item.event, item.payload)
+		ok, responseStatus, responseBody, sendErr := a.sendWebhook(ctx, targetURL, secret, item.event, body)
 		attempts := item.attempts + 1
 		// A transport failure (DNS, connect, timeout, the SSRF guard
 		// refusing the resolved address) never reached a receiver, so
@@ -481,7 +487,7 @@ func (a *App) replayDistrictWebhookDelivery(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *App) listWebhooks(w http.ResponseWriter, r *http.Request, scope *webhookScope) {
-	rows, err := a.db.Query(r.Context(), `SELECT id,url,events,active,created_at FROM webhooks WHERE `+scope.column+`=$1 ORDER BY created_at DESC`, scope.id)
+	rows, err := a.db.Query(r.Context(), `SELECT id,url,events,active,kind,created_at FROM webhooks WHERE `+scope.column+`=$1 ORDER BY created_at DESC`, scope.id)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -489,21 +495,60 @@ func (a *App) listWebhooks(w http.ResponseWriter, r *http.Request, scope *webhoo
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, hookURL string
+		var id, hookURL, kind string
 		var events []string
 		var active bool
 		var created time.Time
-		if err = rows.Scan(&id, &hookURL, &events, &active, &created); err != nil {
+		if err = rows.Scan(&id, &hookURL, &events, &active, &kind, &created); err != nil {
 			serverError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"id": id, "url": hookURL, "events": events, "active": active, "created_at": created})
+		items = append(items, map[string]any{"id": id, "url": hookURL, "events": events, "active": active, "kind": kind, "created_at": created})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
 	respond(w, 200, map[string]any{"items": items})
+}
+
+func normalizeWebhookKind(kind string) string {
+	switch kind {
+	case "slack", "discord":
+		return kind
+	default:
+		return "generic"
+	}
+}
+
+// formatWebhookBody reshapes the generic event JSON into the payload shape
+// each chat platform actually expects, immediately before signing and
+// sending — the HMAC signature covers whatever bytes are put on the wire,
+// so reshaping happens here rather than at enqueue time. A generic
+// (non-chat) webhook is passed through untouched.
+func formatWebhookBody(kind, event string, raw []byte) []byte {
+	if kind != "slack" && kind != "discord" {
+		return raw
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(raw, &generic); err != nil {
+		return raw
+	}
+	summary := fmt.Sprintf("GITOWN: `%s` event", event)
+	if repo, ok := generic["repository"].(string); ok && repo != "" {
+		summary = fmt.Sprintf("GITOWN: `%s` on %s", event, repo)
+	}
+	var body map[string]any
+	if kind == "slack" {
+		body = map[string]any{"text": summary}
+	} else {
+		body = map[string]any{"content": summary}
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return raw
+	}
+	return encoded
 }
 
 func normalizeWebhookEvents(w http.ResponseWriter, raw []string) ([]string, bool) {
@@ -530,11 +575,13 @@ func (a *App) createWebhook(w http.ResponseWriter, r *http.Request, scope *webho
 	var in struct {
 		URL    string   `json:"url"`
 		Events []string `json:"events"`
+		Kind   string   `json:"kind"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
 	in.URL = strings.TrimSpace(in.URL)
+	in.Kind = normalizeWebhookKind(in.Kind)
 	if err := validWebhookURL(r.Context(), in.URL); err != nil {
 		fail(w, 422, "validation_failed", err.Error())
 		return
@@ -570,8 +617,8 @@ func (a *App) createWebhook(w http.ResponseWriter, r *http.Request, scope *webho
 		districtArg = scope.id
 	}
 	var created time.Time
-	if err = a.db.QueryRow(r.Context(), `INSERT INTO webhooks(id,repository_id,district_id,url,secret_ciphertext,secret_nonce,events,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING created_at`,
-		id, repoArg, districtArg, in.URL, ciphertext, nonce, events, u.ID).Scan(&created); err != nil {
+	if err = a.db.QueryRow(r.Context(), `INSERT INTO webhooks(id,repository_id,district_id,url,secret_ciphertext,secret_nonce,events,created_by,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING created_at`,
+		id, repoArg, districtArg, in.URL, ciphertext, nonce, events, u.ID, in.Kind).Scan(&created); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -579,7 +626,7 @@ func (a *App) createWebhook(w http.ResponseWriter, r *http.Request, scope *webho
 	// The secret is only ever shown here, at creation (or on regeneration
 	// through updateWebhook) — every later read omits it, matching how
 	// access tokens and district secrets behave in this codebase.
-	respond(w, 201, map[string]any{"id": id, "url": in.URL, "events": events, "active": true, "created_at": created, "secret": secret})
+	respond(w, 201, map[string]any{"id": id, "url": in.URL, "events": events, "active": true, "kind": in.Kind, "created_at": created, "secret": secret})
 }
 
 func (a *App) updateWebhook(w http.ResponseWriter, r *http.Request, scope *webhookScope, u *User) {

@@ -121,7 +121,8 @@ func (a *App) searchBuilders(w http.ResponseWriter, r *http.Request) {
 		(SELECT count(*)::int FROM user_follows f WHERE f.followed_id=u.id),
 		(SELECT count(*)::int FROM repositories r WHERE r.owner_id=u.id AND r.visibility='public' AND r.deleted_at IS NULL),
 		u.open_to_collaborators
-		FROM users u WHERE ($1='' OR strpos(lower(u.username||' '||u.display_name||' '||u.bio||' '||u.skills||' '||u.location||' '||u.availability),lower($1))>0)
+		FROM users u WHERE NOT u.is_bot
+		AND ($1='' OR strpos(lower(u.username||' '||u.display_name||' '||u.bio||' '||u.skills||' '||u.location||' '||u.availability),lower($1))>0)
 		AND ($3=false OR u.open_to_collaborators)
 		AND ($4='' OR EXISTS (SELECT 1 FROM regexp_split_to_table(lower(u.skills), '\s*[,;\n]\s*') tag WHERE btrim(tag)=lower($4)))
 		AND ($5='' OR strpos(lower(u.location),lower($5))>0)

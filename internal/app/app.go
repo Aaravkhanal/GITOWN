@@ -119,6 +119,18 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/user/tokens", a.tokens)
 	mux.HandleFunc("POST /api/v1/user/tokens", a.createToken)
 	mux.HandleFunc("DELETE /api/v1/user/tokens/{id}", a.deleteToken)
+	mux.HandleFunc("GET /api/v1/user/oauth-apps", a.oauthApps)
+	mux.HandleFunc("POST /api/v1/user/oauth-apps", a.createOAuthApp)
+	mux.HandleFunc("POST /api/v1/user/oauth-apps/{id}/secret", a.regenerateOAuthAppSecret)
+	mux.HandleFunc("DELETE /api/v1/user/oauth-apps/{id}", a.deleteOAuthApp)
+	mux.HandleFunc("GET /api/v1/oauth/authorize", a.oauthAuthorizeInfo)
+	mux.HandleFunc("POST /api/v1/oauth/authorize", a.oauthAuthorizeDecide)
+	mux.HandleFunc("POST /api/v1/oauth/token", a.oauthToken)
+	mux.HandleFunc("GET /api/v1/user/authorized-apps", a.userOAuthAuthorizations)
+	mux.HandleFunc("DELETE /api/v1/user/authorized-apps/{id}", a.revokeOAuthAuthorization)
+	mux.HandleFunc("GET /api/v1/user/gitown-apps", a.gitownApps)
+	mux.HandleFunc("POST /api/v1/user/gitown-apps", a.createGitownApp)
+	mux.HandleFunc("DELETE /api/v1/user/gitown-apps/{id}", a.deleteGitownApp)
 	mux.HandleFunc("GET /api/v1/user/activity", a.activity)
 	mux.HandleFunc("GET /api/v1/user/sessions", a.sessions)
 	mux.HandleFunc("DELETE /api/v1/user/sessions/{id}", a.deleteSession)
@@ -293,6 +305,9 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/deploy-keys", a.deployKeys)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/deploy-keys", a.createDeployKey)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/deploy-keys/{id}", a.deleteDeployKey)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/gitown-apps", a.repoGitownApps)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/gitown-apps", a.installGitownApp)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/gitown-apps/{id}", a.uninstallGitownApp)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/webhooks", a.repoWebhooks)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/webhooks", a.createRepoWebhook)
 	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/webhooks/{id}", a.updateRepoWebhook)
@@ -344,7 +359,11 @@ func (a *App) Handler() http.Handler {
 			// RFC 8058 one-click unsubscribe comes from mail clients: no
 			// Origin header, form-encoded body, secret token in the URL.
 			oneClick := r.Method == "POST" && r.URL.Path == "/api/v1/email/unsubscribe" && r.URL.Query().Get("token") != ""
-			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick {
+			// The OAuth token endpoint is called directly by third-party
+			// clients per the OAuth spec — form-encoded, no browser Origin —
+			// unlike /oauth/authorize, which our own frontend calls normally.
+			oauthTokenExchange := r.Method == "POST" && r.URL.Path == "/api/v1/oauth/token"
+			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange {
 				if r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
 					return
@@ -399,7 +418,30 @@ func conflict(err error) bool {
 	return errors.As(err, &pg) && pg.Code == "23505"
 }
 
+// user resolves the caller's identity from a session cookie first, falling
+// back to a Bearer access token (a personal access token, or one issued
+// through the OAuth or GITOWN App flow — all three live in access_tokens)
+// for GET/HEAD requests only. This is a deliberate, narrow bound: general
+// write handlers here check repo.CanWrite (the resolved user's actual
+// role) but not a token's own scope string the way the three purpose-built
+// Bearer surfaces (git push, package publish, commit-status posting) do —
+// so letting a Bearer token authenticate a write through this general path
+// would let even a repo:read-scoped token write, since nothing here would
+// stop it. Restricting the fallback to safe methods sidesteps that gap
+// entirely: a token can always be used to read through the general API
+// (the real point of issuing one to an OAuth app or automation script),
+// and can only ever write through a surface that checks its scope itself.
 func (a *App) user(r *http.Request) *User {
+	if u := a.sessionUser(r); u != nil {
+		return u
+	}
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return a.bearerUser(r)
+	}
+	return nil
+}
+
+func (a *App) sessionUser(r *http.Request) *User {
 	c, err := r.Cookie("gitown_session")
 	if err != nil {
 		return nil
@@ -411,6 +453,19 @@ func (a *App) user(r *http.Request) *User {
 		return nil
 	}
 	_, _ = a.db.Exec(r.Context(), `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'`, digest)
+	return &u
+}
+
+func (a *App) bearerUser(r *http.Request) *User {
+	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || raw == "" || len(raw) > 200 {
+		return nil
+	}
+	var u User
+	err := a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name FROM access_tokens t JOIN users u ON u.id=t.user_id WHERE t.token_hash=$1 AND t.expires_at>now()`, auth.Digest(raw)).Scan(&u.ID, &u.Username, &u.DisplayName)
+	if err != nil {
+		return nil
+	}
 	return &u
 }
 func (a *App) requireUser(w http.ResponseWriter, r *http.Request) *User {
