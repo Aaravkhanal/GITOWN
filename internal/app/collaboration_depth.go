@@ -462,39 +462,7 @@ func (a *App) updateCommitStatus(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if in.State == "success" || in.State == "failure" || in.State == "error" {
-		kind := "check_success"
-		if in.State != "success" {
-			kind = "check_failure"
-		}
-		rows, err := a.db.Query(r.Context(), `SELECT id,head_branch FROM pull_requests WHERE repository_id=$1 AND state='open'`, repo.ID)
-		var matches []string
-		if err == nil {
-			for rows.Next() {
-				var pullID, branch string
-				if rows.Scan(&pullID, &branch) != nil {
-					continue
-				}
-				head, resolveErr := a.git.Resolve(r.Context(), repo.ID, branch)
-				if resolveErr == nil && head == sha {
-					matches = append(matches, pullID)
-				}
-			}
-			rows.Close()
-			if tx, txErr := a.db.Begin(r.Context()); txErr == nil {
-				for _, pullID := range matches {
-					if notifyErr := notifyPullKey(r.Context(), tx, pullID, u.ID, kind, sha+":"+in.Context+":"+in.State); notifyErr != nil {
-						_ = tx.Rollback(r.Context())
-						tx = nil
-						break
-					}
-				}
-				if tx != nil {
-					_ = tx.Commit(r.Context())
-				}
-			}
-		}
-	}
+	a.notifyCheckResult(r.Context(), repo, u.ID, sha, in.Context, in.State, in.Description)
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'commit.status',$2)`, u.ID, fmt.Sprintf("%s/%s@%s:%s=%s", repo.Owner, repo.Name, sha, in.Context, in.State))
 	respond(w, 200, map[string]string{"sha": sha, "context": in.Context, "state": in.State, "description": in.Description})
 }

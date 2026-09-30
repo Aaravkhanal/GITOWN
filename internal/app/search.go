@@ -16,6 +16,8 @@ type BuilderResult struct {
 	DisplayName         string `json:"display_name"`
 	Bio                 string `json:"bio"`
 	Location            string `json:"location"`
+	Skills              string `json:"skills"`
+	Availability        string `json:"availability"`
 	Followers           int    `json:"followers"`
 	Repositories        int    `json:"repositories"`
 	OpenToCollaborators bool   `json:"open_to_collaborators"`
@@ -107,17 +109,23 @@ func (a *App) searchBuilders(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Available must be 1 when it is set.")
 		return
 	}
-	if len(q) > 100 || offset < 0 || offset > 1000 {
-		fail(w, 422, "validation_failed", "Use a query up to 100 characters and offset from zero to 1000.")
+	skill := strings.TrimSpace(r.URL.Query().Get("skill"))
+	location := strings.TrimSpace(r.URL.Query().Get("location"))
+	if len(q) > 100 || offset < 0 || offset > 1000 || len(skill) > 60 || len(location) > 100 {
+		fail(w, 422, "validation_failed", "Use a query up to 100 characters, skill up to 60, location up to 100, and offset from zero to 1000.")
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT u.username,u.display_name,u.bio,u.location,
+	// The query matches names, bio, skills, location, and availability so
+	// people can find collaborators by what they know and when they can help.
+	rows, err := a.db.Query(r.Context(), `SELECT u.username,u.display_name,u.bio,u.location,u.skills,u.availability,
 		(SELECT count(*)::int FROM user_follows f WHERE f.followed_id=u.id),
 		(SELECT count(*)::int FROM repositories r WHERE r.owner_id=u.id AND r.visibility='public' AND r.deleted_at IS NULL),
 		u.open_to_collaborators
-		FROM users u WHERE ($1='' OR strpos(lower(u.username||' '||u.display_name||' '||u.bio),lower($1))>0)
+		FROM users u WHERE ($1='' OR strpos(lower(u.username||' '||u.display_name||' '||u.bio||' '||u.skills||' '||u.location||' '||u.availability),lower($1))>0)
 		AND ($3=false OR u.open_to_collaborators)
-		ORDER BY u.username ASC LIMIT 26 OFFSET $2`, q, offset, available == "1")
+		AND ($4='' OR EXISTS (SELECT 1 FROM regexp_split_to_table(lower(u.skills), '\s*[,;\n]\s*') tag WHERE btrim(tag)=lower($4)))
+		AND ($5='' OR strpos(lower(u.location),lower($5))>0)
+		ORDER BY u.username ASC LIMIT 26 OFFSET $2`, q, offset, available == "1", skill, location)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -126,7 +134,7 @@ func (a *App) searchBuilders(w http.ResponseWriter, r *http.Request) {
 	result := BuilderSearch{Items: []BuilderResult{}}
 	for rows.Next() {
 		var builder BuilderResult
-		if err = rows.Scan(&builder.Username, &builder.DisplayName, &builder.Bio, &builder.Location, &builder.Followers, &builder.Repositories, &builder.OpenToCollaborators); err != nil {
+		if err = rows.Scan(&builder.Username, &builder.DisplayName, &builder.Bio, &builder.Location, &builder.Skills, &builder.Availability, &builder.Followers, &builder.Repositories, &builder.OpenToCollaborators); err != nil {
 			serverError(w, err)
 			return
 		}

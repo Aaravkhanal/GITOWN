@@ -1,6 +1,6 @@
 // Start a private development database, API, and web app without touching other projects.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
@@ -148,7 +148,11 @@ try {
     GITOWN_ALLOW_SIGNUP: process.env.GITOWN_ALLOW_SIGNUP || "true",
     GITOWN_API_URL: `http://127.0.0.1:${apiPort}`,
   });
-  run(go, ["build", "-o", ".tools/gitown", "./apps/server"]);
+  const { version } = JSON.parse(
+    readFileSync(join(root, "package.json"), "utf8"),
+  );
+  const ldflags = `-X github.com/Aaravkhanal/GITOWN/internal/version.Version=${version}`;
+  run(go, ["build", "-ldflags", ldflags, "-o", ".tools/gitown", "./apps/server"]);
   start(join(root, ".tools/gitown"), []);
   await waitFor(async () => {
     try {

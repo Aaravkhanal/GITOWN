@@ -185,6 +185,10 @@ func (a *App) editIssueComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.noteIssueCommentMentions(r.Context(), tx, repo, u, r.PathValue("id"), in.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.comment_edited',$2)`, u.ID, repo.Owner+"/"+repo.Name+"#"+strconv.Itoa(number)); err != nil {
 		serverError(w, err)
 		return
@@ -443,8 +447,9 @@ func (a *App) updatePresentation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Homepage string `json:"homepage"`
-		Stack    string `json:"stack"`
+		Homepage    string        `json:"homepage"`
+		Stack       string        `json:"stack"`
+		Screenshots *[]Screenshot `json:"screenshots"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -455,11 +460,56 @@ func (a *App) updatePresentation(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Use an optional HTTPS demo link up to 300 characters and a tech stack up to 200 characters.")
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `UPDATE repositories SET homepage=$1,stack=$2 WHERE id=$3`, in.Homepage, in.Stack, repo.ID); err != nil {
+	if in.Screenshots != nil {
+		if len(*in.Screenshots) > 6 {
+			fail(w, 422, "validation_failed", "Add up to six screenshots.")
+			return
+		}
+		for index, shot := range *in.Screenshots {
+			shot.URL = strings.TrimSpace(shot.URL)
+			shot.Caption = strings.TrimSpace(shot.Caption)
+			if shot.URL == "" || len(shot.URL) > 300 || !validProfileWebsite(shot.URL) || len(shot.Caption) > 140 {
+				fail(w, 422, "validation_failed", "Each screenshot needs an HTTPS image address and a caption up to 140 characters.")
+				return
+			}
+			(*in.Screenshots)[index] = shot
+		}
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
 		serverError(w, err)
 		return
 	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `UPDATE repositories SET homepage=$1,stack=$2 WHERE id=$3`, in.Homepage, in.Stack, repo.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if in.Screenshots != nil {
+		if _, err = tx.Exec(r.Context(), `DELETE FROM repository_screenshots WHERE repository_id=$1`, repo.ID); err != nil {
+			serverError(w, err)
+			return
+		}
+		for index, shot := range *in.Screenshots {
+			if _, err = tx.Exec(r.Context(), `INSERT INTO repository_screenshots(repository_id,position,url,caption) VALUES($1,$2,$3,$4)`, repo.ID, index+1, shot.URL, shot.Caption); err != nil {
+				serverError(w, err)
+				return
+			}
+		}
+	}
 	u := a.user(r)
-	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.presentation',$2)`, u.ID, repo.Owner+"/"+repo.Name)
-	respond(w, 200, map[string]string{"homepage": in.Homepage, "stack": in.Stack})
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.presentation',$2)`, u.ID, repo.Owner+"/"+repo.Name); err != nil {
+		serverError(w, err)
+		return
+	}
+	shots, err := a.repositoryScreenshots(r.Context(), tx, repo.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"homepage": in.Homepage, "stack": in.Stack, "screenshots": shots})
 }

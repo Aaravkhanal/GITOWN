@@ -501,6 +501,10 @@ func (a *App) editPullComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, in.Body, "", p.ID, r.PathValue("id")); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.comment_edited',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
 		serverError(w, err)
 		return

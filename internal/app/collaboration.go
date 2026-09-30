@@ -183,6 +183,10 @@ func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.AnnounceIssue(r.Context(), tx, repo, u, i.ID, i.Title+"\n"+i.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, i.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -750,6 +754,10 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.AnnouncePull(r.Context(), tx, repo, u, p.ID, p.Title+"\n"+p.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO pull_events(pull_request_id,actor_id,kind,body) VALUES($1,$2,'opened',$3)`, p.ID, u.ID, p.Title); err != nil {
 		serverError(w, err)
 		return
@@ -1085,7 +1093,11 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_review"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_review", "", review.Body); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.noteMentions(r.Context(), tx, repo, u, review.Body, "", p.ID, "review-"+review.ID); err != nil {
 		serverError(w, err)
 		return
 	}
