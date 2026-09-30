@@ -17,13 +17,21 @@ info:
     package:read or package:write authenticate crate routes with
     Authorization: Bearer. A package token cannot push Git. Session cookies
     still authenticate the JSON API. The SSH gateway is a forced command, not
-    an embedded server, and it trusts the fingerprint argument. Drop provenance
-    is verified only when the publisher supplies an SSH signature that matches
-    a signing key they registered. It is not Sigstore. Tag listings still report
-    only whether a signature block is present. Crate publishing, unscoped npm
-    routes at /npm, and OCI blob and manifest routes at /v2 use a fixed pattern
-    list, not a malware engine. Those routes are not a full npm registry or a
-    container registry. Code search ranks a capped index of public default-branch
+    an embedded server, and it trusts the fingerprint argument. A Drop reports
+    two independent signature claims: tag_signed is a real `git tag -v`
+    verification of the Git tag object against the account's registered
+    signing keys, and provenance_verified is a separate verification of a
+    publisher-supplied signed note about the release artifacts. Neither
+    implies the other. Crate publishing, unscoped npm routes at /npm, and OCI
+    blob and manifest routes at /v2 use a fixed pattern list, not a malware
+    engine (npm publishes are scanned after decompressing the tarball, not
+    against its raw bytes). Those routes are not a full npm registry or a
+    container registry. OCI image namespaces are crate records under
+    ecosystem=oci: a namespace is created private on first push, owned by
+    whoever pushed it, and only its owner can push to it or read it until it
+    is made public via PATCH /crates/{name}?ecosystem=oci. Drop asset download
+    counts increment at most once per identity (session user, else caller IP)
+    per hour. Code search ranks a capped index of public default-branch
     text and falls back to git grep. District invoices record operator-entered
     amounts and do not charge a card. Most lists return bounded arrays; public
     repository and builder search use offset pagination with 25-item pages.
@@ -292,14 +300,59 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
   /crates:
     get:
-      summary: List crate records. Unscoped npm and OCI routes are outside this JSON API.
+      summary: List crate records for one ecosystem (default npm; pass ?ecosystem=oci for image namespaces)
+      parameters:
+        - {
+            name: ecosystem,
+            in: query,
+            schema: { type: string, enum: [npm, oci] },
+          }
       responses:
         "200": { description: Crate records }
     post:
-      summary: Create a crate record
+      summary: Create a crate record (npm or oci); a pushed OCI namespace also auto-creates one, private, owned by the pusher
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "201": { description: Created crate }
+  /crates/{name}:
+    get:
+      summary: A crate's description, visibility, retention, and published versions
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - {
+            name: ecosystem,
+            in: query,
+            schema: { type: string, enum: [npm, oci] },
+          }
+      responses:
+        "200": { description: Crate detail with versions }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update description, visibility, or retention. Owner only; this is how an OCI namespace is made public.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - {
+            name: ecosystem,
+            in: query,
+            schema: { type: string, enum: [npm, oci] },
+          }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Updated crate }
+        "403": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a crate and all its versions. Owner only.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - {
+            name: ecosystem,
+            in: query,
+            schema: { type: string, enum: [npm, oci] },
+          }
+        - { $ref: "#/components/parameters/Origin" }
+      responses:
+        "200": { description: Removed }
+        "403": { $ref: "#/components/responses/Error" }
   /user/ssh-keys:
     get:
       summary: List SSH public keys
