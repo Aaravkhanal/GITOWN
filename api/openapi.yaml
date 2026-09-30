@@ -207,12 +207,72 @@ paths:
         "200": { description: Invitations }
   /user/invitations/{id}/accept:
     post:
-      summary: Accept an invitation for the matching account
-      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      summary: Accept an invitation addressed to the signed-in username
+      description: Invitations sent to a bare email address are accepted with /invitations/accept and the emailed token instead.
+      parameters:
+        - { $ref: "#/components/parameters/Origin" }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         "200": { description: Accepted }
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /user/invitations/{id}/decline:
+    post:
+      summary: Decline an invitation addressed to the signed-in username
+      parameters:
+        - { $ref: "#/components/parameters/Origin" }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Declined }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /invitations/accept:
+    post:
+      summary: Accept an email invitation with the token from its link
+      description: Binds the invitation to the signed-in account. Invitations addressed to a username can only be accepted by that account.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200": { description: Accepted }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/transfers:
+    get:
+      summary: List ownership transfers offered to the signed-in account
+      responses:
+        "200": { description: Transfers }
+  /user/transfers/{id}/accept:
+    post:
+      summary: Accept ownership of a repository
+      parameters:
+        - { $ref: "#/components/parameters/Origin" }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Ownership moved }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Transfer closed, stale because the owner changed, or the name is already taken
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /user/transfers/{id}/decline:
+    post:
+      summary: Decline a repository ownership transfer
+      parameters:
+        - { $ref: "#/components/parameters/Origin" }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Declined }
+        "404": { $ref: "#/components/responses/Error" }
   /user/email-notifications:
     get:
       summary: Read email delivery preference
@@ -239,10 +299,154 @@ paths:
         "200": { description: Threads, including outdated and resolved state }
     post:
       summary: Comment on an exact file, side, and line of the current head
+      description: The line must appear in the unite request's diff on that side (changed or context lines).
       parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [commit_sha, path, side, line, body]
+              properties:
+                commit_sha: { type: string }
+                path: { type: string }
+                side: { type: string, enum: [left, right] }
+                line: { type: integer, minimum: 1 }
+                body: { type: string, maxLength: 10000 }
       responses:
         "201": { description: Conversation created }
         "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/threads/{id}/resolve:
+    post:
+      summary: Resolve or reopen a conversation (its author or a triager)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolved: { type: boolean }
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/threads/{id}/replies:
+    get:
+      summary: List replies in a conversation
+      responses:
+        "200":
+          description: Replies, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    author: { type: string }
+                    body: { type: string }
+                    created_at: { type: string, format: date-time }
+    post:
+      summary: Reply in a conversation
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "201": { description: Reply created }
+  /repos/{owner}/{repo}/pulls/{number}/reviews/{id}/dismiss:
+    post:
+      summary: Dismiss a review with a reason (the reviewer or a maintainer)
+      description: The reason is kept in the timeline and the audit log. Dismissed reviews no longer count toward branch rules.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 2000 }
+      responses:
+        "200": { description: Dismissed }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/pulls/{number}/timeline:
+    get:
+      summary: Unite request history
+      description: Comments, reviews, inline comments and replies, pushes, check results, and state changes, oldest first, 50 per page.
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 1000 } }
+      responses:
+        "200":
+          description: Timeline page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  has_more: { type: boolean }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind: { type: string }
+                        actor: { type: string }
+                        body: { type: string }
+                        created_at: { type: string, format: date-time }
+  /repos/{owner}/{repo}/pulls/{number}/crews:
+    get:
+      summary: List crews that can review and crews already requested
+      responses:
+        "200": { description: District crews and requested crew slugs }
+    put:
+      summary: Request reviews from district crews (triage)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slugs: { type: array, maxItems: 5, items: { type: string } }
+      responses:
+        "200": { description: Requested crews }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/commits/{sha}/statuses:
+    get:
+      security: []
+      summary: List check results for a commit
+      responses:
+        "200": { description: Statuses with state, description, target_url, and reporter }
+  /repos/{owner}/{repo}/commits/{sha}/status:
+    post:
+      security: [{ session: [] }, { token: [] }]
+      summary: Report a check result for a commit
+      description: CI systems authenticate with a personal access token with repo:write scope as a bearer token; no Origin header is needed then. Browser sessions must send the Origin header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context, state]
+              properties:
+                context: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$" }
+                state: { type: string, enum: [pending, success, failure, error] }
+                description: { type: string, maxLength: 300 }
+                target_url: { type: string, format: uri, maxLength: 500 }
+      responses:
+        "200": { description: Saved status }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/issues/{number}/planning:
     put:
       summary: Set pin, priority, estimate, due date, iteration, or duplicate
@@ -843,27 +1047,6 @@ paths:
                 items: { $ref: "#/components/schemas/RepositoryMember" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
-    post:
-      summary: Add a collaborator as the repository owner
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [username, role]
-              properties:
-                username: { type: string }
-                role: { $ref: "#/components/schemas/RepositoryRole" }
-      responses:
-        "201":
-          description: Collaborator added
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/RepositoryMember" }
-        "404": { $ref: "#/components/responses/Error" }
-        "409": { $ref: "#/components/responses/Error" }
-        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/members/{username}:
     parameters:
       [
@@ -894,6 +1077,121 @@ paths:
       summary: Remove a collaborator as the repository owner
       responses:
         "200": { description: Collaborator removed }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/permissions:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: The signed-in viewer's capabilities in this repository
+      description: read views and comments; triage manages issues and review requests; write pushes and merges; maintain edits branch rules, dismisses reviews, and pushes to restricted branches; manage (owner or district admin) controls access, visibility, transfer, and deletion.
+      responses:
+        "200":
+          description: Capability flags
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  role: { type: string }
+                  read: { type: boolean }
+                  triage: { type: boolean }
+                  write: { type: boolean }
+                  maintain: { type: boolean }
+                  manage: { type: boolean }
+  /repos/{owner}/{repo}/invitations:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List invitations for the repository (manage)
+      responses:
+        "200":
+          description: Invitations, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Invitation" }
+    post:
+      summary: Invite a username or an email address (manage)
+      description: Collaborators are added only when the invitee accepts. An email address that belongs to an account becomes an invitation to that account. Invitations to other addresses return accept_url and are emailed when mail is configured.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+                role: { $ref: "#/components/schemas/RepositoryRole" }
+      responses:
+        "201":
+          description: Invitation created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Invitation" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409":
+          description: Already a collaborator, or an invitation is already pending
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/invitations/{id}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: id, in: path, required: true, schema: { type: string, format: uuid } },
+      ]
+    delete:
+      summary: Revoke a pending invitation (manage)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Revoked }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/transfer:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: Show the pending ownership transfer (manage)
+      responses:
+        "200": { description: "{ pending: { id, username, created_at } | null }" }
+    post:
+      summary: Offer ownership to another account (manage)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, confirm]
+              properties:
+                username: { type: string }
+                confirm: { type: string, description: The repository's owner/name, typed to confirm }
+      responses:
+        "201": { description: Transfer pending the recipient's acceptance }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Cancel the pending ownership transfer (manage)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200": { description: Cancelled }
         "404": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/tree:
     parameters:
@@ -1059,7 +1357,8 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
     put:
-      summary: Create or replace a branch merge guard (owner only)
+      summary: Create or replace a branch rule (owner, maintainer, or district admin)
+      description: Rules apply equally to browser edits, API merges, HTTPS pushes, and SSH pushes.
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1067,11 +1366,23 @@ paths:
           application/json:
             schema:
               type: object
-              required: [required_approvals, block_changes_requested]
+              required: [required_approvals]
               properties:
                 required_approvals: { type: integer, minimum: 0, maximum: 10 }
                 block_changes_requested: { type: boolean }
                 require_unite: { type: boolean, default: false }
+                require_resolved: { type: boolean, default: false }
+                require_up_to_date: { type: boolean, default: false }
+                restrict_push: { type: boolean, default: false }
+                require_signed: { type: boolean, default: false }
+                require_maintainer_approval: { type: boolean, default: false }
+                required_checks: { type: array, maxItems: 8, items: { type: string } }
+                required_reviewers:
+                  type: array
+                  maxItems: 8
+                  items: { type: string, description: "A username, or crew:<slug> for a crew in the repository's district" }
+                allow_force_push: { type: boolean, default: false }
+                allow_deletion: { type: boolean, default: false }
       responses:
         "200":
           description: Saved merge guard
@@ -1861,6 +2172,7 @@ paths:
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }
+    token: { type: http, scheme: bearer, description: "Personal access token (gtn_...) where an endpoint accepts one" }
   parameters:
     Origin:
       {
@@ -2002,6 +2314,7 @@ components:
         can_write: { type: boolean }
         can_triage: { type: boolean }
         can_manage: { type: boolean }
+        can_maintain: { type: boolean }
         can_comment: { type: boolean }
         archived: { type: boolean }
         role:
@@ -2025,7 +2338,29 @@ components:
         required_approvals: { type: integer, minimum: 0, maximum: 10 }
         block_changes_requested: { type: boolean }
         require_unite: { type: boolean }
+        require_resolved: { type: boolean }
+        require_up_to_date: { type: boolean }
+        restrict_push: { type: boolean }
+        require_signed: { type: boolean }
+        require_maintainer_approval: { type: boolean }
+        required_checks: { type: array, items: { type: string } }
+        required_reviewers: { type: array, items: { type: string } }
+        allow_force_push: { type: boolean }
+        allow_deletion: { type: boolean }
         updated_at: { type: string, format: date-time }
+    Invitation:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        owner: { type: string }
+        repository: { type: string }
+        email: { type: string }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/RepositoryRole" }
+        status: { type: string, enum: [pending, accepted, declined, expired, revoked] }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        accept_url: { type: string, format: uri, description: Present only when an email-only invitation is created }
     DeletedRepository:
       type: object
       properties:
@@ -2238,6 +2573,8 @@ components:
         base_branch: { type: string }
         head_branch: { type: string }
         merge_sha: { type: [string, "null"] }
+        branch_deleted: { type: boolean, description: Present in a merge response when source-branch deletion was requested }
+        branch_delete_error: { type: string, description: Why the source branch was kept }
     PullComment:
       type: object
       properties:
