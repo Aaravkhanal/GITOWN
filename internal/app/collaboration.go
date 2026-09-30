@@ -394,7 +394,7 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyIssue(r.Context(), tx, issueID, u.ID, "issue_comment"); err != nil {
+	if err = notifyIssueEvent(r.Context(), tx, issueID, u.ID, "issue_comment", "", comment.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -981,7 +981,7 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_comment", "", comment.Body); err != nil {
 		serverError(w, err)
 		return
 	}

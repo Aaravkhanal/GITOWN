@@ -210,7 +210,7 @@ func (a *App) createPullThread(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyPull(r.Context(), tx, p.ID, u.ID, "pull_comment"); err != nil {
+	if err = notifyPullEvent(r.Context(), tx, p.ID, u.ID, "pull_comment", "", thread.Body); err != nil {
 		serverError(w, err)
 		return
 	}
