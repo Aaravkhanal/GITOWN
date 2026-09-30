@@ -72,6 +72,23 @@ import {
 } from "./ui";
 import { BoardView } from "./board";
 import {
+  CommentHistory,
+  IssueEditor,
+  IssueFilterBar,
+  IssueFormFields,
+  IssueReferencesPanel,
+  IssueTransfer,
+  LinkedText,
+  TemplateFieldsEditor,
+  Pagination,
+  SubIssuesPanel,
+  emptyIssueFilter,
+  formValues,
+  issuesPerPage,
+  usePagedIssues,
+  type IssueFilter,
+} from "./issues";
+import {
   CommentEdit,
   IssuePlanning,
   OwnerDelivery,
@@ -301,14 +318,21 @@ export function RepositoryPage({
         <CommitList endpoint={endpoint} branch={branch} />
       ) : tab === "drops" ? (
         <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
+      ) : tab === "issues" && number ? (
+        <IssueDetail endpoint={endpoint} repo={r} number={number} />
       ) : tab === "issues" ? (
         <IssueList
           endpoint={endpoint}
+          repo={r}
           canTriage={r.can_triage}
           canComment={r.can_comment}
         />
       ) : tab === "board" ? (
-        <BoardView endpoint={endpoint} canTriage={r.can_triage} />
+        <BoardView
+          endpoint={endpoint}
+          canTriage={r.can_triage && !r.archived}
+          canConfigure={r.can_write && !r.archived}
+        />
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (
@@ -948,6 +972,18 @@ function IssueTemplateSettings({
               onChange={(event) => update(index, "body", event.target.value)}
             />
           </label>
+          <TemplateFieldsEditor
+            index={index}
+            fields={template.fields || []}
+            disabled={busy || archived}
+            onChange={(fields) =>
+              setDraft(
+                current.map((item, position) =>
+                  position === index ? { ...item, fields } : item,
+                ),
+              )
+            }
+          />
           <button
             className="button"
             type="button"
@@ -973,6 +1009,36 @@ function IssueTemplateSettings({
           }
         >
           Add issue template
+        </button>
+        <button
+          className="button"
+          type="button"
+          disabled={
+            busy ||
+            archived ||
+            current.length >= 9 ||
+            (current.some((item) => item.kind === "bug") &&
+              current.some((item) => item.kind === "feature"))
+          }
+          onClick={async () => {
+            setError("");
+            try {
+              const offered = await api<IssueTemplate[]>(
+                `${endpoint}/issue-templates?include_defaults=true`,
+              );
+              const kinds = new Set(current.map((item) => item.kind));
+              setDraft([
+                ...current,
+                ...offered
+                  .filter((item) => item.builtin && !kinds.has(item.kind))
+                  .map((item) => ({ ...item, builtin: undefined })),
+              ]);
+            } catch (cause) {
+              setError((cause as Error).message);
+            }
+          }}
+        >
+          Add default bug and feature forms
         </button>
         <button
           className="button primary"
@@ -1597,12 +1663,122 @@ function CommitList({
   );
 }
 
+function IssueCreateForm({
+  endpoint,
+  onCreated,
+  onCancel,
+}: {
+  endpoint: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const templates = useData<IssueTemplate[]>(
+    `${endpoint}/issue-templates?include_defaults=true`,
+  );
+  const [template, setTemplate] = useState<IssueTemplate | null>(null);
+  const [issueTitle, setIssueTitle] = useState("");
+  const [issueBody, setIssueBody] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fields = template?.fields || [];
+  return (
+    <form
+      className="panel form-panel inline-form"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await post(`${endpoint}/issues`, {
+            title: issueTitle,
+            body: issueBody,
+            ...(fields.length
+              ? { template: template!.name, fields: formValues(fields, values) }
+              : {}),
+          });
+          onCreated();
+        } catch (createError) {
+          setError((createError as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h2>Give your idea a starting point.</h2>
+      <ErrorMessage error={error || templates.error} />
+      {!!templates.data?.length && (
+        <label>
+          Start from template
+          <select
+            aria-label="Issue template"
+            value={template?.name || ""}
+            onChange={(event) => {
+              const selected =
+                templates.data?.find(
+                  (item) => item.name === event.target.value,
+                ) || null;
+              setTemplate(selected);
+              setValues({});
+              if (selected) {
+                setIssueTitle(selected.title);
+                setIssueBody(selected.body);
+              }
+            }}
+          >
+            <option value="">Blank issue</option>
+            {templates.data.map((item) => (
+              <option key={item.name} value={item.name}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label>
+        Title
+        <input
+          name="title"
+          value={issueTitle}
+          onChange={(event) => setIssueTitle(event.target.value)}
+          placeholder="What needs to happen?"
+          maxLength={200}
+          required
+          autoFocus
+        />
+      </label>
+      <IssueFormFields fields={fields} values={values} onChange={setValues} />
+      <label>
+        {fields.length ? "Additional context" : "Description"}
+        <textarea
+          name="body"
+          value={issueBody}
+          onChange={(event) => setIssueBody(event.target.value)}
+          placeholder="Add context, a plan, or steps to reproduce…"
+          maxLength={20000}
+          rows={5}
+        />
+      </label>
+      <div className="form-actions">
+        <button type="button" className="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button disabled={busy} className="button primary">
+          {busy ? "Creating…" : "Create issue"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function IssueList({
   endpoint,
+  repo,
   canTriage,
   canComment,
 }: {
   endpoint: string;
+  repo: Repo;
   canTriage: boolean;
   canComment: boolean;
 }) {
@@ -1612,61 +1788,57 @@ function IssueList({
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [filter, setFilter] = useState("open");
-  const [textQuery, setTextQuery] = useState("");
-  const [labelFilter, setLabelFilter] = useState("");
-  const issues = useData<Issue[]>(
-    `${endpoint}/issues?${new URLSearchParams({ q: textQuery, label: labelFilter })}`,
-    version,
-  );
+  const [filter, setFilter] = useState<IssueFilter>(emptyIssueFilter);
+  const [page, setPage] = useState(1);
+  const issues = usePagedIssues(endpoint, filter, page, version);
   const [expanded, setExpanded] = useState<number | null>(null);
   const labels = useData<Label[]>(`${endpoint}/labels`, version);
   const milestones = useData<Milestone[]>(`${endpoint}/milestones`, version);
-  const templates = useData<IssueTemplate[]>(
-    `${endpoint}/issue-templates`,
-    version,
-  );
-  const [issueTitle, setIssueTitle] = useState("");
-  const [issueBody, setIssueBody] = useState("");
-  const filtered = issues.data?.filter((i) => i.state === filter) || [];
+  const refresh = () => setVersion((value) => value + 1);
+  const applyFilter = (next: IssueFilter) => {
+    setFilter(next);
+    setPage(1);
+    setExpanded(null);
+  };
   return (
     <>
       <div className="section-heading">
         <div className="state-filters">
           <button
-            className={filter === "open" ? "active" : ""}
-            onClick={() => setFilter("open")}
+            className={filter.state === "open" ? "active" : ""}
+            onClick={() => applyFilter({ ...filter, state: "open" })}
           >
             <CircleDot size={16} />
-            Open{" "}
-            <span>
-              {issues.data?.filter((i) => i.state === "open").length || 0}
-            </span>
+            Open <span>{issues.counts.open || 0}</span>
           </button>
           <button
-            className={filter === "closed" ? "active" : ""}
-            onClick={() => setFilter("closed")}
+            className={filter.state === "closed" ? "active" : ""}
+            onClick={() => applyFilter({ ...filter, state: "closed" })}
           >
             <Check size={16} />
             Closed
           </button>
         </div>
-        {canTriage && (
+        {canComment && (
           <div className="heading-actions">
-            <button
-              className="button small-button"
-              onClick={() => setShowMilestoneForm(!showMilestoneForm)}
-            >
-              <Plus size={15} />
-              New milestone
-            </button>
-            <button
-              className="button small-button"
-              onClick={() => setShowLabelForm(!showLabelForm)}
-            >
-              <Plus size={15} />
-              New label
-            </button>
+            {canTriage && (
+              <button
+                className="button small-button"
+                onClick={() => setShowMilestoneForm(!showMilestoneForm)}
+              >
+                <Plus size={15} />
+                New milestone
+              </button>
+            )}
+            {canTriage && (
+              <button
+                className="button small-button"
+                onClick={() => setShowLabelForm(!showLabelForm)}
+              >
+                <Plus size={15} />
+                New label
+              </button>
+            )}
             <button
               className="button primary small-button"
               onClick={() => setShowForm(!showForm)}
@@ -1677,26 +1849,14 @@ function IssueList({
           </div>
         )}
       </div>
-      <div className="filter-row">
-        <input
-          aria-label="Search issues"
-          placeholder="Search issues"
-          value={textQuery}
-          onChange={(event) => setTextQuery(event.target.value)}
-        />
-        <select
-          aria-label="Filter by label"
-          value={labelFilter}
-          onChange={(event) => setLabelFilter(event.target.value)}
-        >
-          <option value="">All labels</option>
-          {labels.data?.map((label) => (
-            <option key={label.id} value={label.name}>
-              {label.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <IssueFilterBar
+        repository={`${repo.owner}/${repo.name}`}
+        filter={filter}
+        labels={labels.data || []}
+        milestones={milestones.data || []}
+        signedIn={canComment}
+        onChange={applyFilter}
+      />
       <ErrorMessage
         error={error || issues.error || labels.error || milestones.error}
       />
@@ -1715,7 +1875,7 @@ function IssueList({
                 due_date: data.get("due_date"),
               });
               setShowMilestoneForm(false);
-              setVersion((value) => value + 1);
+              refresh();
             } catch (saveError) {
               setError((saveError as Error).message);
             } finally {
@@ -1775,7 +1935,7 @@ function IssueList({
                         due_date: milestone.due_date || "",
                         state: milestone.state === "open" ? "closed" : "open",
                       });
-                      setVersion((value) => value + 1);
+                      refresh();
                     } catch (saveError) {
                       setError((saveError as Error).message);
                     } finally {
@@ -1805,7 +1965,7 @@ function IssueList({
                 description: data.get("description"),
               });
               setShowLabelForm(false);
-              setVersion((value) => value + 1);
+              refresh();
             } catch (error) {
               setError((error as Error).message);
             } finally {
@@ -1862,7 +2022,7 @@ function IssueList({
                     setError("");
                     try {
                       await remove(`${endpoint}/labels/${label.id}`);
-                      setVersion((value) => value + 1);
+                      refresh();
                     } catch (error) {
                       setError((error as Error).message);
                     } finally {
@@ -1878,98 +2038,21 @@ function IssueList({
         </div>
       )}
       {showForm && (
-        <form
-          className="panel form-panel inline-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError("");
-            const data = new FormData(e.currentTarget);
-            try {
-              await post(`${endpoint}/issues`, {
-                title: data.get("title"),
-                body: data.get("body"),
-              });
-              setShowForm(false);
-              setIssueTitle("");
-              setIssueBody("");
-              setVersion((v) => v + 1);
-              setFilter("open");
-            } catch (error) {
-              setError((error as Error).message);
-            } finally {
-              setBusy(false);
-            }
+        <IssueCreateForm
+          endpoint={endpoint}
+          onCancel={() => setShowForm(false)}
+          onCreated={() => {
+            setShowForm(false);
+            applyFilter({ ...filter, state: "open" });
+            refresh();
           }}
-        >
-          <h2>Give your idea a starting point.</h2>
-          {!!templates.data?.length && (
-            <label>
-              Start from template
-              <select
-                aria-label="Issue template"
-                defaultValue=""
-                onChange={(event) => {
-                  const selected = templates.data?.find(
-                    (template) => template.name === event.target.value,
-                  );
-                  if (selected) {
-                    setIssueTitle(selected.title);
-                    setIssueBody(selected.body);
-                  }
-                }}
-              >
-                <option value="">Blank issue</option>
-                {templates.data.map((template) => (
-                  <option key={template.name} value={template.name}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>
-            Title
-            <input
-              name="title"
-              value={issueTitle}
-              onChange={(event) => setIssueTitle(event.target.value)}
-              placeholder="What needs to happen?"
-              maxLength={200}
-              required
-              autoFocus
-            />
-          </label>
-          <label>
-            Description
-            <textarea
-              name="body"
-              value={issueBody}
-              onChange={(event) => setIssueBody(event.target.value)}
-              placeholder="Add context, a plan, or steps to reproduce…"
-              maxLength={20000}
-              rows={5}
-            />
-          </label>
-          <div className="form-actions">
-            <button
-              type="button"
-              className="button"
-              onClick={() => setShowForm(false)}
-            >
-              Cancel
-            </button>
-            <button disabled={busy} className="button primary">
-              {busy ? "Creating…" : "Create issue"}
-            </button>
-          </div>
-        </form>
+        />
       )}
-      {issues.loading ? (
+      {issues.loading && !issues.items.length ? (
         <Loading />
-      ) : filtered.length ? (
+      ) : issues.items.length ? (
         <div className="panel issue-list">
-          {filtered.map((issue) => (
+          {issues.items.map((issue) => (
             <article className="issue-item" key={issue.id}>
               <div className="issue-title-row">
                 <CircleDot
@@ -1987,9 +2070,33 @@ function IssueList({
                   >
                     {issue.title}
                   </button>
+                  <span className="issue-row-labels">
+                    {issue.labels?.map((label) => (
+                      <LabelChip
+                        key={label.name}
+                        label={{
+                          id: label.name,
+                          name: label.name,
+                          color: label.color,
+                          description: "",
+                          created_at: "",
+                        }}
+                      />
+                    ))}
+                  </span>
                   <p>
-                    #{issue.number} opened {date(issue.created_at)} by{" "}
-                    {issue.author}
+                    <Link
+                      href={`${repoPath(repo)}/issues/${issue.number}`}
+                      aria-label={`Open issue #${issue.number}`}
+                    >
+                      #{issue.number}
+                    </Link>{" "}
+                    opened {date(issue.created_at)} by {issue.author}
+                    {issue.milestone ? ` · ${issue.milestone}` : ""}
+                    {issue.sub_issues?.total
+                      ? ` · ${issue.sub_issues.closed}/${issue.sub_issues.total} sub-issues`
+                      : ""}
+                    {issue.comments ? ` · ${issue.comments} comments` : ""}
                   </p>
                 </div>
                 <Badge kind={issue.state === "open" ? "green" : ""}>
@@ -1997,79 +2104,17 @@ function IssueList({
                 </Badge>
               </div>
               {expanded === issue.number && (
-                <div className="issue-body">
-                  <p>{issue.body || "No description provided."}</p>
-                  {issue.pinned && <Badge>Pinned</Badge>}
-                  {issue.priority && issue.priority !== "none" && (
-                    <Badge>{issue.priority}</Badge>
-                  )}
-                  <IssuePlanning
-                    endpoint={endpoint}
-                    issue={issue}
-                    canTriage={canTriage}
-                  />
-                  <IssueComments
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    canComment={canComment}
-                    onComment={() => setVersion((value) => value + 1)}
-                  />
-                  <IssueLabels
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    labels={labels.data || []}
-                    canTriage={canTriage}
-                  />
-                  <IssueAssigneePicker
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    canTriage={canTriage}
-                  />
-                  <IssueDependenciesPicker
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    issues={issues.data || []}
-                    canTriage={canTriage}
-                  />
-                  <IssueSubscription
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    canSubscribe={canComment}
-                    refreshVersion={version}
-                  />
-                  <IssueMilestonePicker
-                    endpoint={endpoint}
-                    issueNumber={issue.number}
-                    milestones={milestones.data || []}
-                    canTriage={canTriage}
-                    onChange={() => setVersion((value) => value + 1)}
-                  />
-                  {canTriage && (
-                    <button
-                      disabled={busy}
-                      className="button small-button"
-                      onClick={async () => {
-                        setBusy(true);
-                        setError("");
-                        try {
-                          await api(`${endpoint}/issues/${issue.number}`, {
-                            method: "PATCH",
-                            body: JSON.stringify({
-                              state: issue.state === "open" ? "closed" : "open",
-                            }),
-                          });
-                          setVersion((v) => v + 1);
-                        } catch (error) {
-                          setError((error as Error).message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {issue.state === "open" ? "Close issue" : "Reopen issue"}
-                    </button>
-                  )}
-                </div>
+                <IssueView
+                  endpoint={endpoint}
+                  repo={repo}
+                  issue={issue}
+                  canTriage={canTriage}
+                  canComment={canComment}
+                  labels={labels.data || []}
+                  milestones={milestones.data || []}
+                  version={version}
+                  onChange={refresh}
+                />
               )}
             </article>
           ))}
@@ -2077,10 +2122,265 @@ function IssueList({
       ) : (
         <div className="empty-state panel">
           <CircleDot size={30} />
-          <h3>No {filter} issues</h3>
+          <h3>No {filter.state} issues</h3>
           <p>A place for bugs, ideas, and the things you want to build next.</p>
         </div>
       )}
+      <Pagination
+        page={page}
+        total={issues.total}
+        perPage={issuesPerPage}
+        onPage={(next) => {
+          setPage(next);
+          setExpanded(null);
+        }}
+      />
+    </>
+  );
+}
+
+const closeReasons: Record<string, string> = {
+  completed: "completed",
+  not_planned: "not planned",
+  duplicate: "a duplicate",
+};
+
+function IssueView({
+  endpoint,
+  repo,
+  issue,
+  canTriage,
+  canComment,
+  labels,
+  milestones,
+  version,
+  onChange,
+}: {
+  endpoint: string;
+  repo: Repo;
+  issue: Issue;
+  canTriage: boolean;
+  canComment: boolean;
+  labels: Label[];
+  milestones: Milestone[];
+  version: number;
+  onChange: () => void;
+}) {
+  const me = useData<{ user: { username: string } | null }>("/auth/me");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isAuthor = me.data?.user?.username === issue.author;
+  const canEdit = canComment && (canTriage || isAuthor);
+  const repository = { owner: repo.owner, name: repo.name };
+  async function setState(state: "open" | "closed", reason = "") {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`${endpoint}/issues/${issue.number}`, {
+        method: "PATCH",
+        body: JSON.stringify(
+          reason ? { state, state_reason: reason } : { state },
+        ),
+      });
+      onChange();
+    } catch (stateError) {
+      setError((stateError as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="issue-body">
+      <ErrorMessage error={error} />
+      {issue.state === "closed" && issue.state_reason && (
+        <p className="muted small-text">
+          Closed as {closeReasons[issue.state_reason] || issue.state_reason}
+          {issue.duplicate_of ? (
+            <>
+              {" "}
+              of{" "}
+              <Link href={`${repoPath(repo)}/issues/${issue.duplicate_of}`}>
+                #{issue.duplicate_of}
+              </Link>
+            </>
+          ) : null}
+          .
+        </p>
+      )}
+      <p className="issue-description">
+        {issue.body ? (
+          <LinkedText
+            text={issue.body}
+            owner={repo.owner}
+            repository={repo.name}
+          />
+        ) : (
+          "No description provided."
+        )}
+      </p>
+      {canEdit && (
+        <IssueEditor endpoint={endpoint} issue={issue} onSaved={onChange} />
+      )}
+      {issue.pinned && <Badge>Pinned</Badge>}
+      {issue.priority && issue.priority !== "none" && (
+        <Badge>{issue.priority}</Badge>
+      )}
+      <IssuePlanning
+        endpoint={endpoint}
+        issue={issue}
+        canTriage={canTriage}
+        onSaved={onChange}
+      />
+      <IssueComments
+        endpoint={endpoint}
+        repo={repo}
+        issueNumber={issue.number}
+        canComment={canComment}
+        onComment={onChange}
+      />
+      <IssueLabels
+        endpoint={endpoint}
+        issueNumber={issue.number}
+        labels={labels}
+        canTriage={canTriage}
+      />
+      <IssueAssigneePicker
+        endpoint={endpoint}
+        issueNumber={issue.number}
+        canTriage={canTriage}
+      />
+      <SubIssuesPanel
+        endpoint={endpoint}
+        repository={repository}
+        number={issue.number}
+        canTriage={canTriage && !repo.archived}
+        onChange={onChange}
+      />
+      <IssueDependenciesPicker
+        endpoint={endpoint}
+        issueNumber={issue.number}
+        canTriage={canTriage}
+      />
+      <IssueReferencesPanel
+        endpoint={endpoint}
+        number={issue.number}
+        version={version}
+      />
+      <IssueSubscription
+        endpoint={endpoint}
+        issueNumber={issue.number}
+        canSubscribe={canComment}
+        refreshVersion={version}
+      />
+      <IssueMilestonePicker
+        endpoint={endpoint}
+        issueNumber={issue.number}
+        milestones={milestones}
+        canTriage={canTriage}
+        onChange={onChange}
+      />
+      {canEdit &&
+        (issue.state === "open" ? (
+          <div className="form-actions issue-actions">
+            <button
+              disabled={busy}
+              className="button small-button"
+              onClick={() => setState("closed")}
+            >
+              Close issue
+            </button>
+            <button
+              disabled={busy}
+              className="button small-button"
+              onClick={() => setState("closed", "not_planned")}
+            >
+              Close as not planned
+            </button>
+          </div>
+        ) : (
+          <button
+            disabled={busy}
+            className="button small-button"
+            onClick={() => setState("open")}
+          >
+            Reopen issue
+          </button>
+        ))}
+      {repo.can_write && !repo.archived && (
+        <IssueTransfer
+          endpoint={endpoint}
+          repository={repository}
+          number={issue.number}
+        />
+      )}
+    </div>
+  );
+}
+
+function IssueDetail({
+  endpoint,
+  repo,
+  number,
+}: {
+  endpoint: string;
+  repo: Repo;
+  number: string;
+}) {
+  const [version, setVersion] = useState(0);
+  const issue = useData<Issue>(`${endpoint}/issues/${number}`, version);
+  const labels = useData<Label[]>(`${endpoint}/labels`, version);
+  const milestones = useData<Milestone[]>(`${endpoint}/milestones`, version);
+  if (issue.loading) return <Loading />;
+  if (!issue.data)
+    return (
+      <>
+        <ErrorMessage error={issue.error || "Issue not found."} />
+        <Link className="button" href={`${repoPath(repo)}/issues`}>
+          Back to issues
+        </Link>
+      </>
+    );
+  return (
+    <>
+      <div className="section-heading">
+        <div>
+          <h2>
+            {issue.data.title}{" "}
+            <span className="muted">#{issue.data.number}</span>
+          </h2>
+          <p className="muted small-text">
+            <Badge kind={issue.data.state === "open" ? "green" : ""}>
+              {issue.data.state}
+            </Badge>{" "}
+            {issue.data.author} opened this {date(issue.data.created_at)}
+            {issue.data.parent ? (
+              <>
+                {" "}
+                · part of{" "}
+                <Link href={`${repoPath(repo)}/issues/${issue.data.parent}`}>
+                  #{issue.data.parent}
+                </Link>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <Link className="button small-button" href={`${repoPath(repo)}/issues`}>
+          All issues
+        </Link>
+      </div>
+      <article className="panel issue-item">
+        <IssueView
+          endpoint={endpoint}
+          repo={repo}
+          issue={issue.data}
+          canTriage={repo.can_triage}
+          canComment={repo.can_comment}
+          labels={labels.data || []}
+          milestones={milestones.data || []}
+          version={version}
+          onChange={() => setVersion((value) => value + 1)}
+        />
+      </article>
     </>
   );
 }
@@ -2148,15 +2448,18 @@ function IssueMilestonePicker({
 function IssueDependenciesPicker({
   endpoint,
   issueNumber,
-  issues,
   canTriage,
 }: {
   endpoint: string;
   issueNumber: number;
-  issues: Issue[];
   canTriage: boolean;
 }) {
   const [version, setVersion] = useState(0);
+  const candidates = useData<Issue[]>(
+    canTriage ? `${endpoint}/issues?state=open&per_page=100` : null,
+    version,
+  );
+  const issues = candidates.data || [];
   const dependencies = useData<IssueDependencies>(
     `${endpoint}/issues/${issueNumber}/dependencies`,
     version,
@@ -2448,11 +2751,13 @@ function IssueLabels({
 
 function IssueComments({
   endpoint,
+  repo,
   issueNumber,
   canComment,
   onComment,
 }: {
   endpoint: string;
+  repo: Repo;
   issueNumber: number;
   canComment: boolean;
   onComment: () => void;
@@ -2476,12 +2781,24 @@ function IssueComments({
               <div>
                 <strong>@{comment.author}</strong>
                 <span>{date(comment.created_at)}</span>
+                {comment.edited && (
+                  <CommentHistory path={`${path}/${comment.id}`} />
+                )}
               </div>
-              <p>{comment.body}</p>
-              <CommentEdit
-                path={`${path}/${comment.id}`}
-                initial={comment.body}
-              />
+              <p>
+                <LinkedText
+                  text={comment.body}
+                  owner={repo.owner}
+                  repository={repo.name}
+                />
+              </p>
+              {comment.editable && (
+                <CommentEdit
+                  path={`${path}/${comment.id}`}
+                  initial={comment.body}
+                  onSaved={() => setVersion((value) => value + 1)}
+                />
+              )}
             </article>
           ))}
         </div>

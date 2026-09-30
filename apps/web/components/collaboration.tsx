@@ -25,50 +25,60 @@ export function IssuePlanning({
   endpoint,
   issue,
   canTriage,
+  onSaved,
 }: {
   endpoint: string;
   issue: Issue;
   canTriage: boolean;
+  onSaved?: () => void;
 }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   if (!canTriage) return null;
+  async function save(body: Record<string, unknown>, message: string) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await put(`${endpoint}/issues/${issue.number}/planning`, body);
+      setNotice(message);
+      onSaved?.();
+    } catch (saveError) {
+      setError((saveError as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <form
       className="issue-labels"
-      onSubmit={async (event) => {
+      onSubmit={(event) => {
         event.preventDefault();
-        setBusy(true);
-        setError("");
-        setNotice("");
         const data = new FormData(event.currentTarget);
-        try {
-          const estimate = String(data.get("estimate") || "");
-          await put(`${endpoint}/issues/${issue.number}/planning`, {
+        const estimate = String(data.get("estimate") || "");
+        const duplicate = String(data.get("duplicate_of") || "");
+        void save(
+          {
             pinned: data.get("pinned") === "on",
             priority: data.get("priority"),
-            ...(estimate ? { estimate: Number(estimate) } : {}),
+            ...(estimate
+              ? { estimate: Number(estimate) }
+              : { clear_estimate: true }),
             due_date: data.get("due_date") || "",
             iteration: data.get("iteration") || "",
-            ...(data.get("duplicate_of")
-              ? { duplicate_of: Number(data.get("duplicate_of")) }
-              : {}),
-          });
-          setNotice("Planning saved.");
-        } catch (saveError) {
-          setError((saveError as Error).message);
-        } finally {
-          setBusy(false);
-        }
+            ...(duplicate ? { duplicate_of: Number(duplicate) } : {}),
+          },
+          "Planning saved.",
+        );
       }}
     >
       <h4>Planning</h4>
       <ErrorMessage error={error} />
       {notice && <p className="green-text">{notice}</p>}
       <label className="checkbox-row">
-        <input name="pinned" type="checkbox" defaultChecked={issue.pinned} /> Pin
-        this issue
+        <input name="pinned" type="checkbox" defaultChecked={issue.pinned} />{" "}
+        Pin this issue
       </label>
       <label>
         Priority
@@ -106,10 +116,26 @@ export function IssuePlanning({
           defaultValue={issue.iteration || ""}
         />
       </label>
-      <label>
-        Duplicate of issue number
-        <input name="duplicate_of" type="number" min="1" />
-      </label>
+      {issue.duplicate_of ? (
+        <p className="small-text">
+          Marked as a duplicate of #{issue.duplicate_of}.{" "}
+          <button
+            type="button"
+            className="text-button"
+            disabled={busy}
+            onClick={() =>
+              save({ clear_duplicate: true }, "Duplicate mark removed.")
+            }
+          >
+            Not a duplicate
+          </button>
+        </p>
+      ) : (
+        <label>
+          Duplicate of issue number (closes this issue)
+          <input name="duplicate_of" type="number" min="1" />
+        </label>
+      )}
       <button className="button small-button" disabled={busy}>
         {busy ? "Saving…" : "Save planning"}
       </button>
@@ -120,9 +146,11 @@ export function IssuePlanning({
 export function CommentEdit({
   path,
   initial,
+  onSaved,
 }: {
   path: string;
   initial: string;
+  onSaved?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState(initial);
@@ -130,7 +158,14 @@ export function CommentEdit({
   const [busy, setBusy] = useState(false);
   if (!open) {
     return (
-      <button className="text-button" type="button" onClick={() => setOpen(true)}>
+      <button
+        className="text-button"
+        type="button"
+        onClick={() => {
+          setBody(initial);
+          setOpen(true);
+        }}
+      >
         Edit
       </button>
     );
@@ -144,6 +179,7 @@ export function CommentEdit({
         try {
           await patch(path, { body });
           setOpen(false);
+          onSaved?.();
         } catch (saveError) {
           setError((saveError as Error).message);
         } finally {
@@ -153,6 +189,7 @@ export function CommentEdit({
     >
       <ErrorMessage error={error} />
       <textarea
+        aria-label="Edit comment"
         value={body}
         onChange={(event) => setBody(event.target.value)}
         maxLength={10000}
@@ -161,6 +198,13 @@ export function CommentEdit({
       />
       <button className="button small-button" disabled={busy}>
         {busy ? "Saving…" : "Save edit"}
+      </button>
+      <button
+        type="button"
+        className="text-button"
+        onClick={() => setOpen(false)}
+      >
+        Cancel
       </button>
     </form>
   );

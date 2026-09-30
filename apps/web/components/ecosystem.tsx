@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { patch, post, put, remove, repoPath, type Repo } from "@/lib/api";
 import { ErrorMessage, Loading, useData } from "@/components/ui";
+import { BoardView } from "@/components/board";
 
 type Collection = {
   owner: string;
@@ -269,9 +270,23 @@ export function DistrictsPage() {
           </ul>
           <DistrictAdmin slug={slug} onChange={() => setVersion((value) => value + 1)} />
           <DistrictControls slug={slug} />
+          <DistrictBoard slug={slug} />
         </section>
       )}
     </div>
+  );
+}
+
+function DistrictBoard({ slug }: { slug: string }) {
+  const [open, setOpen] = useState(false);
+  const district = useData<District>(open ? `/districts/${encodeURIComponent(slug)}` : null);
+  return (
+    <section aria-label="District board">
+      <button className="button small-button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? "Hide district board" : "Show district board"}
+      </button>
+      {open && <BoardView key={slug} district={encodeURIComponent(slug)} canTriage={!!district.data?.role} />}
+    </section>
   );
 }
 

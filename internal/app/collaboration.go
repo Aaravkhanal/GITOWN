@@ -14,28 +14,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type Issue struct {
-	ID        string     `json:"id"`
-	Number    int        `json:"number"`
-	Title     string     `json:"title"`
-	Body      string     `json:"body"`
-	State     string     `json:"state"`
-	Author    string     `json:"author"`
-	CreatedAt time.Time  `json:"created_at"`
-	Pinned    bool       `json:"pinned"`
-	Priority  string     `json:"priority"`
-	Iteration string     `json:"iteration"`
-	Estimate  *int       `json:"estimate"`
-	DueDate   *time.Time `json:"due_date"`
-}
-
-type IssueComment struct {
-	ID        string    `json:"id"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
 type Label struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -92,46 +70,6 @@ func scanPull(row scanner) (Pull, error) {
 	return p, err
 }
 
-func (a *App) issues(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	state := r.URL.Query().Get("state")
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	label := strings.TrimSpace(r.URL.Query().Get("label"))
-	assignee := strings.TrimSpace(r.URL.Query().Get("assignee"))
-	if (state != "" && state != "open" && state != "closed") || len(q) > 100 || len(label) > 50 || (assignee != "" && !slug.MatchString(assignee)) {
-		fail(w, 422, "validation_failed", "Filter by open or closed, a query up to 100 characters, a label, and an assignee username.")
-		return
-	}
-	rows, err := a.db.Query(r.Context(), `SELECT i.id,i.number,i.title,i.body,i.state,u.username,i.created_at,i.pinned,i.priority,i.iteration,i.estimate,i.due_date FROM issues i JOIN users u ON u.id=i.author_id WHERE repository_id=$1
-		AND ($2='' OR i.state=$2)
-		AND ($3='' OR strpos(lower(i.title||' '||i.body), lower($3))>0)
-		AND ($4='' OR EXISTS(SELECT 1 FROM issue_labels il JOIN labels l ON l.id=il.label_id WHERE il.issue_id=i.id AND lower(l.name)=lower($4)))
-		AND ($5='' OR EXISTS(SELECT 1 FROM issue_assignees ia JOIN users au ON au.id=ia.user_id WHERE ia.issue_id=i.id AND au.username=$5))
-		ORDER BY i.pinned DESC, number DESC LIMIT 100`, repo.ID, state, q, label, assignee)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer rows.Close()
-	items := []Issue{}
-	for rows.Next() {
-		var i Issue
-		if err := rows.Scan(&i.ID, &i.Number, &i.Title, &i.Body, &i.State, &i.Author, &i.CreatedAt, &i.Pinned, &i.Priority, &i.Iteration, &i.Estimate, &i.DueDate); err != nil {
-			serverError(w, err)
-			return
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 200, items)
-}
-
 func validContent(title, body string) bool {
 	return strings.TrimSpace(title) != "" && len(title) <= 200 && len(body) <= 20000
 }
@@ -142,163 +80,6 @@ func activeRepository(w http.ResponseWriter, repo *Repository) bool {
 	}
 	return true
 }
-func (a *App) createIssue(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	if !repo.CanTriage {
-		fail(w, 403, "forbidden", "Repository triage permission is required.")
-		return
-	}
-	if !activeRepository(w, repo) {
-		return
-	}
-	u := a.user(r)
-	var in struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if !validContent(in.Title, in.Body) {
-		fail(w, 422, "validation_failed", "A title up to 200 characters and body up to 20,000 characters are required.")
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	i := Issue{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username}
-	err = tx.QueryRow(r.Context(), `INSERT INTO issues(id,repository_id,number,author_id,title,body) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5 FROM issues WHERE repository_id=$2 RETURNING number,created_at`, i.ID, repo.ID, u.ID, i.Title, i.Body).Scan(&i.Number, &i.CreatedAt)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO issue_subscriptions(issue_id,user_id) VALUES($1,$2)`, i.ID, u.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, i.Number)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 201, i)
-}
-
-func (a *App) updateIssue(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	if !repo.CanTriage {
-		fail(w, 403, "forbidden", "Repository triage permission is required.")
-		return
-	}
-	if !activeRepository(w, repo) {
-		return
-	}
-	u := a.user(r)
-	var in struct {
-		State string `json:"state"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if in.State != "open" && in.State != "closed" {
-		fail(w, 422, "validation_failed", "State must be open or closed.")
-		return
-	}
-	number, err := strconv.Atoi(r.PathValue("number"))
-	if err != nil {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `SELECT id FROM repositories WHERE id=$1 FOR UPDATE`, repo.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	var issueID, previousState string
-	if err = tx.QueryRow(r.Context(), `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID, &previousState); err == pgx.ErrNoRows {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	} else if err != nil {
-		serverError(w, err)
-		return
-	}
-	if in.State == "closed" {
-		blocked, blockerErr := hasOpenBlockers(r.Context(), tx, issueID)
-		if blockerErr != nil {
-			serverError(w, blockerErr)
-			return
-		}
-		if blocked {
-			fail(w, 409, "open_blockers", "Close this issue's blockers before closing the issue.")
-			return
-		}
-	}
-	result, err := tx.Exec(r.Context(), `UPDATE issues SET state=$1 WHERE repository_id=$2 AND number=$3`, in.State, repo.ID, number)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if result.RowsAffected() == 0 {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	kind := "issue_closed"
-	if in.State == "open" {
-		kind = "issue_reopened"
-	}
-	if previousState != in.State {
-		err = notifyIssue(r.Context(), tx, issueID, u.ID, kind)
-	}
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if in.State == "closed" {
-		if _, err = tx.Exec(r.Context(), `INSERT INTO issue_board_status(issue_id,status)
-			SELECT id,'done' FROM issues WHERE repository_id=$1 AND number=$2
-			ON CONFLICT (issue_id) DO UPDATE SET status='done',updated_at=now()`, repo.ID, number); err != nil {
-			serverError(w, err)
-			return
-		}
-	} else {
-		if _, err = tx.Exec(r.Context(), `UPDATE issue_board_status SET status='todo',updated_at=now()
-			WHERE issue_id IN (SELECT id FROM issues WHERE repository_id=$1 AND number=$2) AND status='done'`, repo.ID, number); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,$2,$3)`, u.ID, "issue."+in.State, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 200, map[string]string{"state": in.State})
-}
-
 func issueNumber(w http.ResponseWriter, r *http.Request) (int, bool) {
 	number, err := strconv.Atoi(r.PathValue("number"))
 	if err != nil || number < 1 {
@@ -306,110 +87,6 @@ func issueNumber(w http.ResponseWriter, r *http.Request) (int, bool) {
 		return 0, false
 	}
 	return number, true
-}
-
-func (a *App) issueComments(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	number, ok := issueNumber(w, r)
-	if !ok {
-		return
-	}
-	var exists bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM issues WHERE repository_id=$1 AND number=$2)`, repo.ID, number).Scan(&exists); err != nil {
-		serverError(w, err)
-		return
-	}
-	if !exists {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	rows, err := a.db.Query(r.Context(), `SELECT c.id,c.body,u.username,c.created_at FROM issue_comments c JOIN issues i ON i.id=c.issue_id JOIN users u ON u.id=c.author_id WHERE i.repository_id=$1 AND i.number=$2 ORDER BY c.created_at,c.id LIMIT 200`, repo.ID, number)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer rows.Close()
-	comments := []IssueComment{}
-	for rows.Next() {
-		var comment IssueComment
-		if err = rows.Scan(&comment.ID, &comment.Body, &comment.Author, &comment.CreatedAt); err != nil {
-			serverError(w, err)
-			return
-		}
-		comments = append(comments, comment)
-	}
-	if err = rows.Err(); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 200, comments)
-}
-
-func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	u := a.requireUser(w, r)
-	if u == nil || !activeRepository(w, repo) {
-		return
-	}
-	number, ok := issueNumber(w, r)
-	if !ok {
-		return
-	}
-	var in struct {
-		Body string `json:"body"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	in.Body = strings.TrimSpace(in.Body)
-	if in.Body == "" || len(in.Body) > 10000 {
-		fail(w, 422, "validation_failed", "A comment between 1 and 10,000 characters is required.")
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	comment := IssueComment{ID: auth.ID(), Body: in.Body, Author: u.Username}
-	var issueID string
-	err = tx.QueryRow(r.Context(), `INSERT INTO issue_comments(id,issue_id,author_id,body) SELECT $1,i.id,$2,$3 FROM issues i WHERE i.repository_id=$4 AND i.number=$5 RETURNING issue_id,created_at`, comment.ID, u.ID, comment.Body, repo.ID, number).Scan(&issueID, &comment.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO issue_subscriptions(issue_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, issueID, u.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = notifyIssue(r.Context(), tx, issueID, u.ID, "issue_comment"); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = a.noteMentions(r.Context(), tx, repo, u, comment.Body, issueID, "", comment.ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.commented',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 201, comment)
 }
 
 func (a *App) labels(w http.ResponseWriter, r *http.Request) {
@@ -757,6 +434,14 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = syncPullBoard(r.Context(), tx, repo.ID, p.ID, "opened"); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.recordReferences(r.Context(), tx, repo, u.ID, "pull", p.ID, "", p.ID, p.Body); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -884,6 +569,10 @@ func (a *App) updatePull(w http.ResponseWriter, r *http.Request) {
 				serverError(w, err)
 				return
 			}
+			if err = syncPullBoard(r.Context(), tx, repo.ID, p.ID, strings.TrimPrefix(kind, "pull_")); err != nil {
+				serverError(w, err)
+				return
+			}
 		}
 		p.State = in.State
 	}
@@ -981,6 +670,10 @@ func (a *App) createPullComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = a.noteMentions(r.Context(), tx, repo, u, comment.Body, "", p.ID, comment.ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.recordReferences(r.Context(), tx, repo, u.ID, "pull_comment", comment.ID, "", p.ID, comment.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -1307,6 +1000,9 @@ func (a *App) finishMerge(ctx context.Context, db beginner, p Pull, repo Reposit
 		return err
 	}
 	if err = a.closeReferencedIssues(ctx, tx, &repo, &p, &u, messages); err != nil {
+		return err
+	}
+	if err = syncPullBoard(ctx, tx, repo.ID, p.ID, "merged"); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.merged',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {

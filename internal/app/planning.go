@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -11,127 +10,6 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/jackc/pgx/v5"
 )
-
-func (a *App) updateIssuePlanning(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil || !repo.CanTriage || !activeRepository(w, repo) {
-		if repo != nil && !repo.CanTriage {
-			fail(w, 403, "forbidden", "Repository triage permission is required.")
-		}
-		return
-	}
-	number, ok := issueNumber(w, r)
-	if !ok {
-		return
-	}
-	var in struct {
-		Pinned         *bool   `json:"pinned"`
-		Priority       *string `json:"priority"`
-		Estimate       *int    `json:"estimate"`
-		DueDate        *string `json:"due_date"`
-		Iteration      *string `json:"iteration"`
-		DuplicateOf    *int    `json:"duplicate_of"`
-		ClearDuplicate bool    `json:"clear_duplicate"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if in.Priority != nil && *in.Priority != "none" && *in.Priority != "low" && *in.Priority != "medium" && *in.Priority != "high" && *in.Priority != "urgent" {
-		fail(w, 422, "validation_failed", "Priority must be none, low, medium, high, or urgent.")
-		return
-	}
-	if in.Estimate != nil && (*in.Estimate < 0 || *in.Estimate > 100) {
-		fail(w, 422, "validation_failed", "Estimate must be between 0 and 100.")
-		return
-	}
-	if in.Iteration != nil && len(*in.Iteration) > 40 {
-		fail(w, 422, "validation_failed", "Iteration names can be up to 40 characters.")
-		return
-	}
-	if in.DueDate != nil && *in.DueDate != "" {
-		if _, err := time.Parse("2006-01-02", *in.DueDate); err != nil {
-			fail(w, 422, "validation_failed", "Due date must be YYYY-MM-DD.")
-			return
-		}
-	}
-	if in.DuplicateOf != nil && *in.DuplicateOf == number {
-		fail(w, 422, "validation_failed", "An issue cannot be a duplicate of itself.")
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var issueID string
-	if err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID); err != nil {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	if in.Pinned != nil {
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET pinned=$1 WHERE id=$2`, *in.Pinned, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.Priority != nil {
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET priority=$1 WHERE id=$2`, *in.Priority, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.Estimate != nil {
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET estimate=$1 WHERE id=$2`, *in.Estimate, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.DueDate != nil {
-		var due any
-		if *in.DueDate != "" {
-			due = *in.DueDate
-		}
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET due_date=$1 WHERE id=$2`, due, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.Iteration != nil {
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET iteration=$1 WHERE id=$2`, strings.TrimSpace(*in.Iteration), issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.ClearDuplicate {
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET duplicate_of=NULL WHERE id=$1`, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if in.DuplicateOf != nil {
-		var duplicateID string
-		err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, *in.DuplicateOf).Scan(&duplicateID)
-		if err != nil {
-			fail(w, 422, "validation_failed", "The duplicate target must be an issue in this repository.")
-			return
-		}
-		if _, err = tx.Exec(r.Context(), `UPDATE issues SET duplicate_of=$1 WHERE id=$2`, duplicateID, issueID); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	u := a.user(r)
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.planning_updated',$2)`, u.ID, repo.Owner+"/"+repo.Name+"#"+strconv.Itoa(number)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 200, map[string]bool{"ok": true})
-}
 
 func (a *App) editIssueComment(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
@@ -163,8 +41,8 @@ func (a *App) editIssueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var previous, authorID string
-	err = tx.QueryRow(r.Context(), `SELECT c.body,c.author_id FROM issue_comments c JOIN issues i ON i.id=c.issue_id WHERE c.id=$1 AND i.repository_id=$2 AND i.number=$3 FOR UPDATE`, r.PathValue("id"), repo.ID, number).Scan(&previous, &authorID)
+	var previous, authorID, issueID string
+	err = tx.QueryRow(r.Context(), `SELECT c.body,c.author_id,c.issue_id FROM issue_comments c JOIN issues i ON i.id=c.issue_id WHERE c.id=$1 AND i.repository_id=$2 AND i.number=$3 FOR UPDATE OF c`, r.PathValue("id"), repo.ID, number).Scan(&previous, &authorID, &issueID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "not_found", "Comment not found.")
 		return
@@ -182,6 +60,10 @@ func (a *App) editIssueComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `UPDATE issue_comments SET body=$1,updated_at=now() WHERE id=$2`, in.Body, r.PathValue("id")); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.recordReferences(r.Context(), tx, repo, u.ID, "issue_comment", r.PathValue("id"), issueID, "", in.Body); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -235,62 +117,6 @@ func (a *App) issueCommentHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, 200, items)
 }
-
-func (a *App) issueReferences(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, false)
-	if repo == nil {
-		return
-	}
-	number, ok := issueNumber(w, r)
-	if !ok {
-		return
-	}
-	var body string
-	err := a.db.QueryRow(r.Context(), `SELECT body FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&body)
-	if errors.Is(err, pgx.ErrNoRows) {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	rows, err := a.db.Query(r.Context(), `SELECT c.body FROM issue_comments c JOIN issues i ON i.id=c.issue_id WHERE i.repository_id=$1 AND i.number=$2`, repo.ID, number)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer rows.Close()
-	text := body
-	for rows.Next() {
-		var comment string
-		if err = rows.Scan(&comment); err != nil {
-			serverError(w, err)
-			return
-		}
-		text += "\n" + comment
-	}
-	seen := map[int]bool{}
-	numbers := []int{}
-	for _, match := range regexpReference.FindAllStringSubmatch(text, 50) {
-		n, _ := strconv.Atoi(match[1])
-		if n > 0 && n != number && !seen[n] {
-			seen[n] = true
-			numbers = append(numbers, n)
-		}
-	}
-	items := []map[string]any{}
-	for _, n := range numbers {
-		var title, state string
-		err = a.db.QueryRow(r.Context(), `SELECT title,state FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, n).Scan(&title, &state)
-		if err == nil {
-			items = append(items, map[string]any{"number": n, "title": title, "state": state})
-		}
-	}
-	respond(w, 200, items)
-}
-
-var regexpReference = regexp.MustCompile(`(?:^|[^A-Za-z0-9])#([1-9][0-9]{0,8})`)
 
 func (a *App) savedSearches(w http.ResponseWriter, r *http.Request) {
 	u := a.requireUser(w, r)
@@ -376,65 +202,6 @@ func (a *App) deleteSavedSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, map[string]bool{"deleted": true})
-}
-
-func (a *App) transferIssue(w http.ResponseWriter, r *http.Request) {
-	repo := a.managedRepository(w, r)
-	if repo == nil || !activeRepository(w, repo) {
-		return
-	}
-	number, ok := issueNumber(w, r)
-	if !ok {
-		return
-	}
-	var in struct {
-		Repository string `json:"repository"`
-	}
-	if !decode(w, r, &in) || !repoSlug.MatchString(in.Repository) || in.Repository == repo.Name {
-		fail(w, 422, "validation_failed", "Choose another repository you own.")
-		return
-	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	defer tx.Rollback(r.Context())
-	var targetID string
-	err = tx.QueryRow(r.Context(), `SELECT id FROM repositories WHERE owner_id=$1 AND name=$2 AND deleted_at IS NULL AND archived_at IS NULL`, repo.OwnerID, in.Repository).Scan(&targetID)
-	if err != nil {
-		fail(w, 422, "validation_failed", "Choose an active repository you own.")
-		return
-	}
-	var issueID string
-	err = tx.QueryRow(r.Context(), `SELECT id FROM issues WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, number).Scan(&issueID)
-	if err != nil {
-		fail(w, 404, "not_found", "Issue not found.")
-		return
-	}
-	var newNumber int
-	if err = tx.QueryRow(r.Context(), `UPDATE issues SET repository_id=$1,number=(SELECT COALESCE(MAX(number),0)+1 FROM issues WHERE repository_id=$1),milestone_id=NULL,duplicate_of=NULL WHERE id=$2 RETURNING number`, targetID, issueID).Scan(&newNumber); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM issue_labels WHERE issue_id=$1`, issueID); err != nil {
-		serverError(w, err)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM issue_dependencies WHERE issue_id=$1 OR blocker_id=$1`, issueID); err != nil {
-		serverError(w, err)
-		return
-	}
-	u := a.user(r)
-	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.transferred',$2)`, u.ID, repo.Owner+"/"+repo.Name+"#"+strconv.Itoa(number)+"->"+in.Repository+"#"+strconv.Itoa(newNumber)); err != nil {
-		serverError(w, err)
-		return
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		serverError(w, err)
-		return
-	}
-	respond(w, 200, map[string]any{"repository": in.Repository, "number": newNumber})
 }
 
 func (a *App) updatePresentation(w http.ResponseWriter, r *http.Request) {

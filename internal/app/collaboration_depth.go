@@ -40,7 +40,7 @@ func pageLines(r *http.Request, text string) (string, bool) {
 	return strings.Join(lines[offset:end], "\n"), truncated
 }
 
-var closingReference = regexp.MustCompile(`(?i)(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#([0-9]+)`)
+var closingReference = regexp.MustCompile(`(?i)\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?):?\s+#([0-9]+)\b`)
 
 // closeReferencedIssues closes issues named by closing keywords in the unite
 // request body, in the merged commits' messages, or by closing links. Callers
@@ -80,39 +80,11 @@ func (a *App) closeReferencedIssues(ctx context.Context, tx pgx.Tx, repo *Reposi
 	if err = rows.Err(); err != nil {
 		return err
 	}
+	list := make([]int, 0, len(numbers))
 	for number := range numbers {
-		var issueID, state string
-		err = tx.QueryRow(ctx, `SELECT id,state FROM issues WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&issueID, &state)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if state != "open" {
-			continue
-		}
-		blocked, err := hasOpenBlockers(ctx, tx, issueID)
-		if err != nil || blocked {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if _, err = tx.Exec(ctx, `UPDATE issues SET state='closed' WHERE id=$1`, issueID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO issue_board_status(issue_id,status) VALUES($1,'done') ON CONFLICT (issue_id) DO UPDATE SET status='done',updated_at=now()`, issueID); err != nil {
-			return err
-		}
-		if err = notifyIssue(ctx, tx, issueID, actor.ID, "issue_closed"); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'issue.closed',$2)`, actor.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, number)); err != nil {
-			return err
-		}
+		list = append(list, number)
 	}
-	return nil
+	return a.closeIssueNumbers(ctx, tx, repo, list, actor.ID, "")
 }
 
 type ReviewThread struct {
