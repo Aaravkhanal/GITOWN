@@ -194,14 +194,13 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("DELETE", "/repos/owner/project/contents", map[string]string{
 		"branch": "main", "path": "README.md", "message": "Stale delete", "expected_head": strings.Repeat("0", 40),
 	}, 409, nil)
-	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "missing", "role": "read"}, 404, nil)
-	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "owner", "role": "write"}, 422, nil)
-	var member RepositoryMember
-	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "other", "role": "read"}, 201, &member)
+	owner.request("POST", "/repos/owner/project/invitations", map[string]string{"username": "missing", "role": "read"}, 404, nil)
+	owner.request("POST", "/repos/owner/project/invitations", map[string]string{"username": "owner", "role": "write"}, 422, nil)
+	member := inviteAndAccept(owner, other, "owner/project", "other", "read")
 	if member.Username != "other" || member.Role != "read" {
 		t.Fatalf("unexpected collaborator: %+v", member)
 	}
-	owner.request("POST", "/repos/owner/project/members", map[string]string{"username": "other", "role": "write"}, 409, nil)
+	owner.request("POST", "/repos/owner/project/invitations", map[string]string{"username": "other", "role": "write"}, 409, nil)
 	other.request("GET", "/repos/owner/project", nil, 200, nil)
 	other.request("PATCH", "/repos/owner/project", map[string]string{"description": "not yours", "visibility": "public"}, 403, nil)
 	other.request("GET", "/repos/owner/project/members", nil, 403, nil)
@@ -269,12 +268,17 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("PATCH", "/repos/owner/project/members/other", map[string]string{"role": "write"}, 200, &member)
 	gitRun(work, "other", otherToken, true, "push", "origin", "feature")
 	owner.request("GET", "/repos/owner/project/tree?ref=feature&path=hello.txt", nil, 200, nil)
+	// A protected branch refuses deletion and non-fast-forward pushes even with
+	// write credentials; the default branch can never be deleted.
+	owner.request("PUT", "/repos/owner/project/branch-rules?branch=feature", map[string]any{"required_approvals": 0}, 200, nil)
 	gitRun(work, "owner", writeToken, false, "push", "origin", "--delete", "feature")
+	gitRun(work, "owner", writeToken, false, "push", "origin", "--delete", "main")
 	gitRun(work, "", "", true, "tag", "v0.1.0")
 	gitRun(work, "owner", writeToken, true, "push", "origin", "v0.1.0")
-	// A non-fast-forward push must fail even with write credentials.
 	gitRun(work, "", "", true, "reset", "--hard", "HEAD~1")
-	gitRun(work, "owner", writeToken, false, "push", "--force", "origin", "feature")
+	if out := gitRun(work, "owner", writeToken, false, "push", "--force", "origin", "feature"); !strings.Contains(out, "force pushes") {
+		t.Fatalf("force push was not refused by branch policy: %s", out)
+	}
 	gitRun(work, "", "", true, "reset", "--hard", "origin/feature")
 	var pull Pull
 	owner.request("POST", "/repos/owner/project/pulls", map[string]string{"title": "Add hello", "body": "Real integration test", "base_branch": "main", "head_branch": "feature"}, 201, &pull)

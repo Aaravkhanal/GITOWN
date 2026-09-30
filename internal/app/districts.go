@@ -820,9 +820,69 @@ func (a *App) deleteDistrictSecret(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]bool{"removed": true})
 }
 
+func (a *App) pullCrews(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	p := a.getPull(w, r, repo)
+	if p == nil {
+		return
+	}
+	available := []map[string]string{}
+	if repo.DistrictID != "" {
+		rows, err := a.db.Query(r.Context(), `SELECT slug,name FROM crews WHERE district_id=$1 ORDER BY slug LIMIT 100`, repo.DistrictID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for rows.Next() {
+			var crewSlug, name string
+			if err = rows.Scan(&crewSlug, &name); err != nil {
+				rows.Close()
+				serverError(w, err)
+				return
+			}
+			available = append(available, map[string]string{"slug": crewSlug, "name": name})
+		}
+		rows.Close()
+		if err = rows.Err(); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT c.slug FROM pull_crew_requests pcr JOIN crews c ON c.id=pcr.crew_id WHERE pcr.pull_request_id=$1 ORDER BY c.slug`, p.ID)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	requested := []string{}
+	for rows.Next() {
+		var crewSlug string
+		if err = rows.Scan(&crewSlug); err != nil {
+			serverError(w, err)
+			return
+		}
+		requested = append(requested, crewSlug)
+	}
+	if err = rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"district": repo.District, "available": available, "requested": requested})
+}
+
 func (a *App) updatePullCrews(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
-	if repo == nil || !repo.CanTriage || !activeRepository(w, repo) {
+	if repo == nil {
+		return
+	}
+	if !repo.CanTriage {
+		fail(w, 403, "forbidden", "Repository triage permission is required to request crew reviews.")
+		return
+	}
+	if !activeRepository(w, repo) {
 		return
 	}
 	if repo.DistrictID == "" {

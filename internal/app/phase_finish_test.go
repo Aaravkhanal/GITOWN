@@ -129,7 +129,7 @@ func TestPhaseCompletion(t *testing.T) {
 	owner.request("PATCH", "/districts/acme", map[string]any{"allow_public": false, "allow_outside_collaborators": false}, 200, nil)
 	owner.request("POST", "/repos", map[string]any{"name": "open", "visibility": "public", "district": "acme"}, 403, nil)
 	owner.request("POST", "/repos", map[string]any{"name": "closed", "visibility": "private", "district": "acme"}, 201, nil)
-	owner.request("POST", "/repos/owner/closed/members", map[string]string{"username": "other", "role": "read"}, 403, nil)
+	owner.request("POST", "/repos/owner/closed/invitations", map[string]string{"username": "other", "role": "read"}, 403, nil)
 	var usage struct {
 		Repositories int  `json:"repositories"`
 		Charges      bool `json:"charges"`

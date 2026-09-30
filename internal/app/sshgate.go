@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -368,48 +367,6 @@ func (a *App) SSHSession(ctx context.Context, fingerprint, command string, stdin
 		fmt.Fprintln(stderr, "repository not found")
 		return err
 	}
-	var input io.Reader = stdin
-	var updates []refUpdate
-	if service == "git-receive-pack" {
-		raw, readErr := io.ReadAll(io.LimitReader(stdin, 100<<20+1))
-		if readErr != nil || len(raw) > 100<<20 {
-			fmt.Fprintln(stderr, "could not read Git receive request")
-			return errors.New("could not read Git receive request")
-		}
-		protected, blockErr := a.blockedPushBranches(ctx, grant.repo.ID, grant.role)
-		if blockErr != nil {
-			fmt.Fprintln(stderr, "could not validate Git receive request")
-			return blockErr
-		}
-		replay, blocked, parsed, inspectErr := inspectReceiveCommands(bytes.NewReader(raw), false, protected)
-		if inspectErr != nil {
-			if len(protected) > 0 {
-				fmt.Fprintln(stderr, "could not validate Git receive request")
-				return inspectErr
-			}
-			input = bytes.NewReader(raw)
-		} else if blocked != "" {
-			message := "Direct pushes to this branch are disabled."
-			if protected[blocked] == "unite" {
-				message = "This branch requires a Unite request; direct pushes are disabled."
-			} else if protected[blocked] == "restricted" {
-				message = "Only the owner or a maintainer can push to this branch."
-			}
-			fmt.Fprintln(stderr, message)
-			return errors.New(message)
-		} else {
-			input = replay
-			updates = parsed
-		}
-		if quotaErr := a.withinQuota(ctx, &grant.repo, int64(len(raw))); quotaErr != nil {
-			if errors.Is(quotaErr, errStorageQuota) {
-				fmt.Fprintln(stderr, "repository or account storage quota would be exceeded")
-				return errStorageQuota
-			}
-			fmt.Fprintln(stderr, "could not validate Git receive request")
-			return quotaErr
-		}
-	}
 	select {
 	case a.transports <- struct{}{}:
 		defer func() { <-a.transports }()
@@ -417,36 +374,66 @@ func (a *App) SSHSession(ctx context.Context, fingerprint, command string, stdin
 		fmt.Fprintln(stderr, "git server busy")
 		return errors.New("git server busy")
 	}
-	gitArgs := []string{"upload-pack", a.git.Path(grant.repo.ID)}
-	if service == "git-receive-pack" {
-		gitArgs = []string{"receive-pack", a.git.Path(grant.repo.ID)}
-	}
-	cmd := exec.CommandContext(ctx, a.git.Binary, gitArgs...)
-	cmd.Env = gitstore.Environment()
-	cmd.Stdin = input
-	var receiveOut bytes.Buffer
-	if service == "git-receive-pack" {
-		cmd.Stdout = &receiveOut
-	} else {
+	if service != "git-receive-pack" {
+		cmd := exec.CommandContext(ctx, a.git.Binary, "upload-pack", a.git.Path(grant.repo.ID))
+		cmd.Env = gitstore.Environment()
+		cmd.Stdin = stdin
 		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+		cmd.WaitDelay = time.Second
+		return cmd.Run()
 	}
-	cmd.Stderr = stderr
-	cmd.WaitDelay = time.Second
-	if err = cmd.Run(); err != nil {
-		if service == "git-receive-pack" {
-			_, _ = stdout.Write(receiveOut.Bytes())
-		}
+	// receive-pack speaks first (the ref advertisement), so both directions
+	// stream. The command list is inspected as it arrives for an early, clear
+	// refusal; the pre-receive hook enforces every rule before refs move.
+	env, cleanup, err := a.receivePolicyEnv(ctx, &grant.repo, grant.role)
+	if err != nil {
+		fmt.Fprintln(stderr, "could not validate Git receive request")
 		return err
 	}
-	if service == "git-receive-pack" {
-		if quotaErr := a.enforceUnpackedQuota(ctx, &grant.repo, updates); errors.Is(quotaErr, errStorageQuota) {
-			fmt.Fprintln(stderr, "repository or account storage quota would be exceeded")
-			return errStorageQuota
-		}
-		if _, err = stdout.Write(receiveOut.Bytes()); err != nil {
-			return err
-		}
-		a.finishReceive(ctx, &grant.repo, grant.actorID, updates, "ssh")
+	defer cleanup()
+	protected, err := a.blockedPushBranches(ctx, grant.repo.ID, grant.role)
+	if err != nil {
+		fmt.Fprintln(stderr, "could not validate Git receive request")
+		return err
 	}
+	cmd := exec.CommandContext(ctx, a.git.Binary, "receive-pack", a.git.Path(grant.repo.ID))
+	cmd.Env = env
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	cmd.WaitDelay = time.Second
+	input, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err = cmd.Start(); err != nil {
+		return err
+	}
+	replay, blocked, updates, inspectErr := inspectReceiveCommands(io.LimitReader(stdin, 100<<20), false, protected)
+	if inspectErr == nil && blocked != "" {
+		message := directWriteMessage(protected[blocked])
+		fmt.Fprintln(stderr, message)
+		_ = input.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return errors.New(message)
+	}
+	if inspectErr != nil {
+		updates = nil
+	}
+	_, copyErr := io.Copy(input, replay)
+	_ = input.Close()
+	if err = cmd.Wait(); err != nil {
+		return err
+	}
+	if copyErr != nil {
+		return copyErr
+	}
+	updates = a.appliedUpdates(ctx, grant.repo.ID, updates)
+	if quotaErr := a.enforceUnpackedQuota(ctx, &grant.repo, updates); errors.Is(quotaErr, errStorageQuota) {
+		fmt.Fprintln(stderr, "repository or account storage quota would be exceeded")
+		return errStorageQuota
+	}
+	a.finishReceive(ctx, &grant.repo, grant.actorID, updates, "ssh")
 	return nil
 }

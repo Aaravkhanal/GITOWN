@@ -68,13 +68,7 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			requestBody = bytes.NewReader(raw)
 		} else if blocked != "" {
-			message := "Direct pushes to this branch are disabled."
-			if protected[blocked] == "unite" {
-				message = "This branch requires a Unite request; direct pushes are disabled."
-			} else if protected[blocked] == "restricted" {
-				message = "Only the owner or a maintainer can push to this branch."
-			}
-			http.Error(w, message, 403)
+			http.Error(w, directWriteMessage(protected[blocked]), 403)
 			return
 		} else {
 			requestBody = replay
@@ -101,7 +95,17 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, a.git.Backend)
 	remoteIP, _, _ := net.SplitHostPort(r.RemoteAddr)
-	env := append(gitstore.Environment(), "GIT_PROJECT_ROOT="+a.git.Root, "GIT_HTTP_EXPORT_ALL=1", "PATH_INFO=/"+repo.ID+".git/"+suffix, "REQUEST_METHOD="+r.Method, "QUERY_STRING="+r.URL.RawQuery, "CONTENT_TYPE="+r.Header.Get("Content-Type"), "SERVER_PROTOCOL=HTTP/1.1", "GATEWAY_INTERFACE=CGI/1.1", "SERVER_NAME=gitown", "REMOTE_ADDR="+remoteIP)
+	baseEnv := gitstore.Environment()
+	if write && r.Method == "POST" {
+		policyEnv, cleanup, policyErr := a.receivePolicyEnv(r.Context(), repo, repo.Role)
+		if policyErr != nil {
+			serverError(w, policyErr)
+			return
+		}
+		defer cleanup()
+		baseEnv = policyEnv
+	}
+	env := append(baseEnv, "GIT_PROJECT_ROOT="+a.git.Root, "GIT_HTTP_EXPORT_ALL=1", "PATH_INFO=/"+repo.ID+".git/"+suffix, "REQUEST_METHOD="+r.Method, "QUERY_STRING="+r.URL.RawQuery, "CONTENT_TYPE="+r.Header.Get("Content-Type"), "SERVER_PROTOCOL=HTTP/1.1", "GATEWAY_INTERFACE=CGI/1.1", "SERVER_NAME=gitown", "REMOTE_ADDR="+remoteIP)
 	if user != nil {
 		env = append(env, "REMOTE_USER="+user.Username)
 	}
@@ -157,6 +161,7 @@ func (a *App) gitHTTP(w http.ResponseWriter, r *http.Request) {
 		if waitErr == nil && readErr == nil && status < 300 && user != nil {
 			auditCtx, auditCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer auditCancel()
+			updates = a.appliedUpdates(auditCtx, repo.ID, updates)
 			if quotaErr := a.enforceUnpackedQuota(auditCtx, repo, updates); errors.Is(quotaErr, errStorageQuota) {
 				http.Error(w, "Repository or account storage quota would be exceeded.", 413)
 				return

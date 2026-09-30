@@ -231,11 +231,28 @@ test("account security, project collaboration, Git transport, and responsive nav
     },
   );
   expect(registration.ok()).toBeTruthy();
-  await page.getByLabel("Username", { exact: true }).fill(collaboratorUsername);
+  await page.getByLabel("Invite username").fill(collaboratorUsername);
+  await page.getByLabel("Invitation role").selectOption("read");
   await page
-    .getByRole("button", { name: "Add collaborator", exact: true })
+    .getByRole("button", { name: "Send invitation", exact: true })
     .click();
-  await expect(page.getByText(`@${collaboratorUsername}`)).toBeVisible();
+  await expect(
+    page.getByText(`Invitation sent to @${collaboratorUsername}.`),
+  ).toBeVisible();
+  const invitationList = await collaborator.request.get(
+    `${appOrigin}/api/v1/user/invitations`,
+  );
+  expect(invitationList.ok()).toBeTruthy();
+  const [invitation] = await invitationList.json();
+  const accepted = await collaborator.request.post(
+    `${appOrigin}/api/v1/user/invitations/${invitation.id}/accept`,
+    { headers: { Origin: appOrigin }, data: {} },
+  );
+  expect(accepted.ok()).toBeTruthy();
+  await page.reload();
+  await expect(
+    page.getByText(`@${collaboratorUsername}`, { exact: true }),
+  ).toBeVisible();
   const collaboratorPage = await collaborator.newPage();
   await collaboratorPage.goto(`/repos/${username}/first-project`);
   await expect(
@@ -352,12 +369,18 @@ test("account security, project collaboration, Git transport, and responsive nav
     },
   );
   expect(commenterRegistration.ok()).toBeTruthy();
-  const membership = await page.request.post(
-    `${appOrigin}/api/v1/repos/${username}/first-project/members`,
+  const commenterInvitation = await page.request.post(
+    `${appOrigin}/api/v1/repos/${username}/first-project/invitations`,
     {
       headers: { Origin: appOrigin },
       data: { username: commenterUsername, role: "read" },
     },
+  );
+  expect(commenterInvitation.ok()).toBeTruthy();
+  const { id: commenterInvitationID } = await commenterInvitation.json();
+  const membership = await commenter.request.post(
+    `${appOrigin}/api/v1/user/invitations/${commenterInvitationID}/accept`,
+    { headers: { Origin: appOrigin }, data: {} },
   );
   expect(membership.ok()).toBeTruthy();
   const reply = await commenter.request.post(

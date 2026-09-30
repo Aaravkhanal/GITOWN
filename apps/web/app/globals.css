@@ -2461,6 +2461,63 @@ textarea {
   background: #1d3044;
   color: #a2c7e5;
 }
+.diff-line {
+  position: relative;
+}
+.diff-comment {
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: #2f6f45;
+  color: #e8fff0;
+  opacity: 0;
+  cursor: pointer;
+}
+.diff-line:hover .diff-comment,
+.diff-comment:focus-visible {
+  opacity: 1;
+}
+.review-thread form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.review-thread form input {
+  flex: 1;
+  min-width: 0;
+}
+.thread-replies {
+  border-left: 2px solid var(--border);
+  margin: 8px 0;
+  padding-left: 12px;
+}
+.timeline-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.permission-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+@media (hover: none) {
+  .diff-comment {
+    opacity: 1;
+  }
+}
 @media (min-width: 1550px) {
   .main-content {
     padding-left: 55px;
