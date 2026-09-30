@@ -240,7 +240,7 @@ func TestPlatformWorkflow(t *testing.T) {
 		}
 		cmd := exec.Command("git", append(argv, args...)...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.CombinedOutput()
 		if success && err != nil {
 			t.Fatalf("git %s failed: %s", args[0], out)
@@ -431,7 +431,9 @@ func TestPlatformWorkflow(t *testing.T) {
 	anon.request("GET", "/user/notifications", nil, 401, nil)
 	var board []BoardItem
 	owner.request("GET", "/repos/owner/project/board", nil, 200, &board)
-	if len(board) != 1 || board[0].Status != "todo" {
+	// Unite requests opened earlier join the board through automation;
+	// issues are listed first.
+	if len(board) == 0 || board[0].Kind != "issue" || board[0].Number != 1 || board[0].Status != "todo" {
 		t.Fatalf("new issue did not appear on board: %+v", board)
 	}
 	owner.request("PUT", "/repos/owner/project/issues/1/board", map[string]string{"status": "progress"}, 200, nil)
@@ -689,7 +691,11 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("PATCH", "/repos/owner/public-project", map[string]string{"description": "Public again", "visibility": "public"}, 200, nil)
 	anon.request("GET", "/users/missing/profile", nil, 404, nil)
 	anon.request("GET", "/repos/owner/public-project", nil, 200, nil)
-	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Unauthorized"}, 403, nil)
+	anon.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Anonymous"}, 401, nil)
+	// Signed-in visitors can report issues on public repositories, but not
+	// label, assign, or close other people's issues.
+	other.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Visitor report"}, 201, nil)
+	other.request("PUT", "/repos/owner/public-project/issues/1/planning", map[string]any{"pinned": true}, 403, nil)
 	other.request("POST", "/repos/owner/public-project/labels", map[string]string{"name": "Unauthorized", "color": "ffffff"}, 403, nil)
 	other.request("POST", "/repos/owner/public-project/milestones", map[string]string{"title": "Unauthorized"}, 403, nil)
 	owner.request("POST", "/repos/owner/public-project/issues", map[string]string{"title": "Public issue"}, 201, nil)

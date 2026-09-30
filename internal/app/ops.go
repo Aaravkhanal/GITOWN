@@ -165,6 +165,11 @@ func (a *App) finishReceive(ctx context.Context, repo *Repository, actorID strin
 		}
 	}
 	a.recordRefEvents(ctx, repo.ID, actorID, updates, via)
+	for _, update := range updates {
+		if update.Ref == "refs/heads/"+repo.DefaultBranch {
+			a.closeIssuesFromPush(ctx, repo, actorID, update.Old, update.New)
+		}
+	}
 	_ = a.noteRepositoryFacts(ctx, repo)
 }
 

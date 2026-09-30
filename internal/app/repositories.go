@@ -580,6 +580,9 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_commit',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
 	_ = a.noteRepositoryFacts(r.Context(), repo)
 	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
+	if in.Branch == repo.DefaultBranch {
+		a.closeIssuesFromPush(r.Context(), repo, u.ID, in.ExpectedHead, sha)
+	}
 	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 
@@ -624,6 +627,9 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_delete',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
 	_ = a.noteRepositoryFacts(r.Context(), repo)
 	a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
+	if in.Branch == repo.DefaultBranch {
+		a.closeIssuesFromPush(r.Context(), repo, u.ID, in.ExpectedHead, sha)
+	}
 	respond(w, 200, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
 func (a *App) commits(w http.ResponseWriter, r *http.Request) {

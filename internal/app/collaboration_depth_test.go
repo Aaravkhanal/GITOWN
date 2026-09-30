@@ -109,9 +109,9 @@ func TestCollaborationDepth(t *testing.T) {
 		t.Fatalf("comment history missing: %+v", history)
 	}
 	other.request("PATCH", "/repos/owner/depth/issues/1/comments/"+comment.ID, map[string]string{"body": "nope"}, 403, nil)
-	var references []map[string]any
+	var references IssueReferences
 	owner.request("GET", "/repos/owner/depth/issues/1/references", nil, 200, &references)
-	if len(references) != 0 {
+	if len(references.Mentions) != 0 || len(references.ReferencedBy) != 0 {
 		t.Fatalf("an issue should not list itself: %+v", references)
 	}
 	owner.request("PUT", "/repos/owner/depth/issues/1/planning", map[string]any{"pinned": true, "priority": "high", "estimate": 3, "iteration": "now", "due_date": "2026-10-01"}, 200, nil)
@@ -185,7 +185,7 @@ func TestCollaborationDepth(t *testing.T) {
 		argv := []string{"-c", "credential.helper=", "-c", "http.extraHeader=Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("owner:"+writeToken))}
 		cmd := exec.Command("git", append(argv, args...)...)
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 		out, gitErr := cmd.CombinedOutput()
 		if ok && gitErr != nil {
 			t.Fatalf("git %s failed: %s", args[0], out)
