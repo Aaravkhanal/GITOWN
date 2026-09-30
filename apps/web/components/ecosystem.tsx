@@ -65,12 +65,21 @@ export function ExploreMore() {
   const tasks = useData<{ items: Task[] }>("/search/tasks?kind=help");
   const collections = useData<{ items: Collection[] }>("/collections");
   const featured = useData<{ items: Collection[] }>("/collections?featured=1");
-  const topics = useData<{ items: { topic: string; repositories: number }[] }>("/topics");
+  const topics = useData<{ items: { topic: string; repositories: number }[] }>(
+    "/topics",
+  );
   const [query, setQuery] = useState("");
   const [codePath, setCodePath] = useState<string | null>(null);
   const code = useData<{
     ranked?: boolean;
-    items: { owner: string; repository: string; path: string; line: number; snippet: string; rank?: number }[];
+    items: {
+      owner: string;
+      repository: string;
+      path: string;
+      line: number;
+      snippet: string;
+      rank?: number;
+    }[];
   }>(codePath);
   return (
     <div className="dashboard-columns">
@@ -91,7 +100,9 @@ export function ExploreMore() {
                 <Link href={repoPath(repo)}>
                   {repo.owner}/{repo.name}
                 </Link>
-                {repo.language ? <span className="muted"> {repo.language}</span> : null}
+                {repo.language ? (
+                  <span className="muted"> {repo.language}</span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -116,7 +127,8 @@ export function ExploreMore() {
         )}
         <h2>Featured collections</h2>
         <p className="muted small-text">
-          Operators mark a collection as featured. These are public repository lists, not a ranking model.
+          Operators mark a collection as featured. These are public repository
+          lists, not a ranking model.
         </p>
         <ErrorMessage error={featured.error} />
         <ul>
@@ -149,26 +161,38 @@ export function ExploreMore() {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            if (query.trim().length >= 2) setCodePath(`/search/code?q=${encodeURIComponent(query.trim())}`);
+            if (query.trim().length >= 2)
+              setCodePath(`/search/code?q=${encodeURIComponent(query.trim())}`);
           }}
         >
           <label>
             Search public code
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Public text, 2–80 characters" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Public text, 2–80 characters"
+            />
           </label>
           <button className="button" type="submit">
             Search code
           </button>
         </form>
         {code.data?.ranked ? (
-          <p className="muted small-text">Ranked from the capped public text index.</p>
+          <p className="muted small-text">
+            Ranked from the capped public text index.
+          </p>
         ) : code.data ? (
-          <p className="muted small-text">Shown from a git grep of recent public repositories. The ranked index had no match.</p>
+          <p className="muted small-text">
+            Shown from a git grep of recent public repositories. The ranked
+            index had no match.
+          </p>
         ) : null}
         <ErrorMessage error={code.error} />
         <ul>
           {(code.data?.items || []).map((item) => (
-            <li key={`${item.owner}/${item.repository}/${item.path}:${item.line}`}>
+            <li
+              key={`${item.owner}/${item.repository}/${item.path}:${item.line}`}
+            >
               <Link href={`/repos/${item.owner}/${item.repository}`}>
                 {item.owner}/{item.repository}
               </Link>{" "}
@@ -187,12 +211,16 @@ export function DistrictsPage() {
   const [slug, setSlug] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const selected = useData<{ items: Repo[] }>(slug ? `/districts/${slug}/repos` : null, version);
+  const selected = useData<{ items: Repo[] }>(
+    slug ? `/districts/${slug}/repos` : null,
+    version,
+  );
   return (
     <div className="form-page">
       <h1>Districts</h1>
       <p className="page-description">
-        A district is an organization. Crews are teams inside it. Members inherit the district base permission on its repositories.
+        A district is an organization. Crews are teams inside it. Members
+        inherit the district base permission on its repositories.
       </p>
       <ErrorMessage error={error || districts.error} />
       <form
@@ -243,7 +271,10 @@ export function DistrictsPage() {
         <ul>
           {(districts.data?.items || []).map((item) => (
             <li key={item.slug}>
-              <button className="text-button" onClick={() => setSlug(item.slug)}>
+              <button
+                className="text-button"
+                onClick={() => setSlug(item.slug)}
+              >
                 {item.name}
               </button>{" "}
               <span className="muted">
@@ -268,7 +299,10 @@ export function DistrictsPage() {
               </li>
             ))}
           </ul>
-          <DistrictAdmin slug={slug} onChange={() => setVersion((value) => value + 1)} />
+          <DistrictAdmin
+            slug={slug}
+            onChange={() => setVersion((value) => value + 1)}
+          />
           <DistrictControls slug={slug} />
           <DistrictBoard slug={slug} />
         </section>
@@ -279,13 +313,25 @@ export function DistrictsPage() {
 
 function DistrictBoard({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false);
-  const district = useData<District>(open ? `/districts/${encodeURIComponent(slug)}` : null);
+  const district = useData<District>(
+    open ? `/districts/${encodeURIComponent(slug)}` : null,
+  );
   return (
     <section aria-label="District board">
-      <button className="button small-button" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button
+        className="button small-button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
         {open ? "Hide district board" : "Show district board"}
       </button>
-      {open && <BoardView key={slug} district={encodeURIComponent(slug)} canTriage={!!district.data?.role} />}
+      {open && (
+        <BoardView
+          key={slug}
+          district={encodeURIComponent(slug)}
+          canTriage={!!district.data?.role}
+        />
+      )}
     </section>
   );
 }
@@ -293,7 +339,10 @@ function DistrictBoard({ slug }: { slug: string }) {
 function DistrictControls({ slug }: { slug: string }) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
-  const district = useData<District>(`/districts/${encodeURIComponent(slug)}`, version);
+  const district = useData<District>(
+    `/districts/${encodeURIComponent(slug)}`,
+    version,
+  );
   const role = district.data?.role;
   const canAdmin = role === "owner" || role === "admin";
   const usage = useData<{
@@ -306,16 +355,29 @@ function DistrictControls({ slug }: { slug: string }) {
   }>(canAdmin ? `/districts/${encodeURIComponent(slug)}/usage` : null, version);
   const invoices = useData<{
     charges: boolean;
-    items: { id: string; period: string; amount_cents: number; status: string }[];
-  }>(canAdmin ? `/districts/${encodeURIComponent(slug)}/invoices` : null, version);
+    items: {
+      id: string;
+      period: string;
+      amount_cents: number;
+      status: string;
+    }[];
+  }>(
+    canAdmin ? `/districts/${encodeURIComponent(slug)}/invoices` : null,
+    version,
+  );
   if (district.loading) return <Loading />;
-  if (!district.data) return <ErrorMessage error={district.error || "District unavailable."} />;
+  if (!district.data)
+    return <ErrorMessage error={district.error || "District unavailable."} />;
   const current = district.data;
   return (
     <div>
       <h3>Policy</h3>
       <p className="muted small-text">
-        Public repositories are {current.allow_public ? "allowed" : "blocked"}. Collaborators from outside the district are {current.allow_outside_collaborators ? "allowed" : "blocked"}. Repository creation is limited to {current.repo_creation}. Members receive {current.base_permission} on district repositories.
+        Public repositories are {current.allow_public ? "allowed" : "blocked"}.
+        Collaborators from outside the district are{" "}
+        {current.allow_outside_collaborators ? "allowed" : "blocked"}.
+        Repository creation is limited to {current.repo_creation}. Members
+        receive {current.base_permission} on district repositories.
       </p>
       <ErrorMessage error={error || usage.error || invoices.error} />
       {current.role === "owner" && (
@@ -330,8 +392,12 @@ function DistrictControls({ slug }: { slug: string }) {
               await patch(`/districts/${encodeURIComponent(slug)}`, {
                 allow_public: data.get("allow_public") === "on",
                 allow_outside_collaborators: data.get("allow_outside") === "on",
-                repo_creation: String(data.get("repo_creation") || current.repo_creation),
-                base_permission: String(data.get("base_permission") || current.base_permission),
+                repo_creation: String(
+                  data.get("repo_creation") || current.repo_creation,
+                ),
+                base_permission: String(
+                  data.get("base_permission") || current.base_permission,
+                ),
               });
               setVersion((value) => value + 1);
             } catch (caught) {
@@ -340,16 +406,27 @@ function DistrictControls({ slug }: { slug: string }) {
           }}
         >
           <label className="checkbox-label">
-            <input name="allow_public" type="checkbox" defaultChecked={current.allow_public !== false} />
+            <input
+              name="allow_public"
+              type="checkbox"
+              defaultChecked={current.allow_public !== false}
+            />
             <span>Allow public repositories</span>
           </label>
           <label className="checkbox-label">
-            <input name="allow_outside" type="checkbox" defaultChecked={current.allow_outside_collaborators !== false} />
+            <input
+              name="allow_outside"
+              type="checkbox"
+              defaultChecked={current.allow_outside_collaborators !== false}
+            />
             <span>Allow collaborators from outside the district</span>
           </label>
           <label>
             Who can create repositories
-            <select name="repo_creation" defaultValue={current.repo_creation || "admin"}>
+            <select
+              name="repo_creation"
+              defaultValue={current.repo_creation || "admin"}
+            >
               <option value="owner">Owner</option>
               <option value="admin">Admins</option>
               <option value="member">Members</option>
@@ -357,7 +434,10 @@ function DistrictControls({ slug }: { slug: string }) {
           </label>
           <label>
             Base permission
-            <select name="base_permission" defaultValue={current.base_permission || "read"}>
+            <select
+              name="base_permission"
+              defaultValue={current.base_permission || "read"}
+            >
               <option value="none">None</option>
               <option value="read">Read</option>
               <option value="triage">Triage</option>
@@ -371,11 +451,17 @@ function DistrictControls({ slug }: { slug: string }) {
         <section>
           <h3>Usage and invoices</h3>
           <p className="muted small-text">
-            This ledger records amounts an operator enters. GITOWN does not charge a card.
-            {usage.data ? ` ${usage.data.repositories} repositories, ${usage.data.storage_bytes} bytes, ${usage.data.members} members, ${usage.data.secrets} secrets, ${usage.data.open_invoices} open invoices.` : ""}
+            This ledger records amounts an operator enters. GITOWN does not
+            charge a card.
+            {usage.data
+              ? ` ${usage.data.repositories} repositories, ${usage.data.storage_bytes} bytes, ${usage.data.members} members, ${usage.data.secrets} secrets, ${usage.data.open_invoices} open invoices.`
+              : ""}
           </p>
           <p>
-            <a className="button" href={`/api/v1/districts/${encodeURIComponent(slug)}/audit?download=1`}>
+            <a
+              className="button"
+              href={`/api/v1/districts/${encodeURIComponent(slug)}/audit?download=1`}
+            >
               Download audit CSV
             </a>
           </p>
@@ -389,7 +475,10 @@ function DistrictControls({ slug }: { slug: string }) {
                     onClick={async () => {
                       setError("");
                       try {
-                        await post(`/districts/${encodeURIComponent(slug)}/invoices/${item.id}/pay`, {});
+                        await post(
+                          `/districts/${encodeURIComponent(slug)}/invoices/${item.id}/pay`,
+                          {},
+                        );
                         setVersion((value) => value + 1);
                       } catch (caught) {
                         setError((caught as Error).message);
@@ -421,15 +510,28 @@ function DistrictControls({ slug }: { slug: string }) {
             }}
           >
             <p className="muted small-text">
-              Recording or paying an invoice requires your username in GITOWN_OPERATORS.
+              Recording or paying an invoice requires your username in
+              GITOWN_OPERATORS.
             </p>
             <label>
               Period
-              <input name="period" required pattern="[0-9]{4}-[0-9]{2}" placeholder="YYYY-MM" />
+              <input
+                name="period"
+                required
+                pattern="[0-9]{4}-[0-9]{2}"
+                placeholder="YYYY-MM"
+              />
             </label>
             <label>
               Amount in cents
-              <input name="amount_cents" type="number" min={0} max={100000000} required defaultValue={0} />
+              <input
+                name="amount_cents"
+                type="number"
+                min={0}
+                max={100000000}
+                required
+                defaultValue={0}
+              />
             </label>
             <button className="button">Record invoice</button>
           </form>
@@ -440,7 +542,9 @@ function DistrictControls({ slug }: { slug: string }) {
 }
 
 export function TopicsPage({ topic }: { topic?: string }) {
-  const catalog = useData<{ items: { topic: string; repositories: number }[] }>(topic ? null : "/topics");
+  const catalog = useData<{ items: { topic: string; repositories: number }[] }>(
+    topic ? null : "/topics",
+  );
   const page = useData<{ topic: string; items: Repo[] }>(
     topic ? `/topics/${encodeURIComponent(topic)}` : null,
   );
@@ -448,7 +552,8 @@ export function TopicsPage({ topic }: { topic?: string }) {
     <div className="form-page">
       <h1>{topic ? `Topic · ${topic}` : "Topics"}</h1>
       <p className="page-description">
-        Topics group public repositories. A topic page lists the public repositories that carry that label.
+        Topics group public repositories. A topic page lists the public
+        repositories that carry that label.
       </p>
       <ErrorMessage error={catalog.error || page.error} />
       {topic ? (
@@ -461,7 +566,9 @@ export function TopicsPage({ topic }: { topic?: string }) {
                 <Link href={repoPath(repo)}>
                   {repo.owner}/{repo.name}
                 </Link>
-                {repo.language ? <span className="muted"> {repo.language}</span> : null}
+                {repo.language ? (
+                  <span className="muted"> {repo.language}</span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -482,7 +589,13 @@ export function TopicsPage({ topic }: { topic?: string }) {
   );
 }
 
-function DistrictAdmin({ slug, onChange }: { slug: string; onChange: () => void }) {
+function DistrictAdmin({
+  slug,
+  onChange,
+}: {
+  slug: string;
+  onChange: () => void;
+}) {
   const [error, setError] = useState("");
   return (
     <form
@@ -547,7 +660,12 @@ export function CratesPage() {
     <div className="form-page">
       <h1>Crates</h1>
       <p className="page-description">
-        A crate is a package record. Unscoped npm publish, packument, and tarball requests are served at /npm. OCI blob and manifest requests are served at /v2. Publishing checks a fixed pattern list: private-key headers, token prefixes, and a few dangerous command strings. That list is not a malware engine, and these endpoints are not a full npm registry or a container registry.
+        A crate is a package record. Unscoped npm publish, packument, and
+        tarball requests are served at /npm. OCI blob and manifest requests are
+        served at /v2. Publishing checks a fixed pattern list: private-key
+        headers, token prefixes, and a few dangerous command strings. That list
+        is not a malware engine, and these endpoints are not a full npm registry
+        or a container registry.
       </p>
       <ErrorMessage error={error || crates.error} />
       <form
@@ -587,7 +705,13 @@ export function CratesPage() {
         </label>
         <label>
           Retention
-          <input name="retention" type="number" min={1} max={100} defaultValue={20} />
+          <input
+            name="retention"
+            type="number"
+            min={1}
+            max={100}
+            defaultValue={20}
+          />
         </label>
         <button className="button primary">Create crate</button>
       </form>
@@ -597,7 +721,8 @@ export function CratesPage() {
         <ul>
           {(crates.data?.items || []).map((item) => (
             <li key={item.name}>
-              {item.owner}/{item.name} · {item.visibility} · keep {item.retention}
+              {item.owner}/{item.name} · {item.visibility} · keep{" "}
+              {item.retention}
             </li>
           ))}
         </ul>
@@ -610,14 +735,20 @@ export function SSHKeysPage() {
   const [version, setVersion] = useState(0);
   const [signingVersion, setSigningVersion] = useState(0);
   const keys = useData<{ items: SSHKey[] }>("/user/ssh-keys", version);
-  const signing = useData<{ items: SSHKey[] }>("/user/signing-keys", signingVersion);
+  const signing = useData<{ items: SSHKey[] }>(
+    "/user/signing-keys",
+    signingVersion,
+  );
   const [error, setError] = useState("");
   const [line, setLine] = useState("");
   return (
     <div className="form-page">
       <h1>SSH keys</h1>
       <p className="page-description">
-        Add a public key, then install the authorized_keys line on an sshd that forces <code>gitown ssh-shell</code>. GITOWN does not embed an SSH server. The gateway trusts the fingerprint argument supplied by that forced command.
+        Add a public key, then install the authorized_keys line on an sshd that
+        forces <code>gitown ssh-shell</code>. GITOWN does not embed an SSH
+        server. The gateway trusts the fingerprint argument supplied by that
+        forced command.
       </p>
       <ErrorMessage error={error || keys.error} />
       {line && (
@@ -632,10 +763,13 @@ export function SSHKeysPage() {
           const data = new FormData(event.currentTarget);
           setError("");
           try {
-            const created = await post<{ authorized_keys: string }>("/user/ssh-keys", {
-              title: String(data.get("title") || ""),
-              public_key: String(data.get("public_key") || ""),
-            });
+            const created = await post<{ authorized_keys: string }>(
+              "/user/ssh-keys",
+              {
+                title: String(data.get("title") || ""),
+                public_key: String(data.get("public_key") || ""),
+              },
+            );
             setLine(created.authorized_keys);
             setVersion((value) => value + 1);
             event.currentTarget.reset();
@@ -681,7 +815,10 @@ export function SSHKeysPage() {
       )}
       <h2>Signing keys</h2>
       <p className="page-description">
-        A signing key verifies drop provenance with ssh-keygen. The same public key may also be an authentication key. Verification uses the keys you register here. It is not Sigstore and it does not consult a global keyring.
+        A signing key verifies drop provenance with ssh-keygen. The same public
+        key may also be an authentication key. Verification uses the keys you
+        register here. It is not Sigstore and it does not consult a global
+        keyring.
       </p>
       <ErrorMessage error={signing.error} />
       <form
@@ -741,7 +878,13 @@ export function SSHKeysPage() {
   );
 }
 
-export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite: boolean }) {
+export function DropsPanel({
+  endpoint,
+  canWrite,
+}: {
+  endpoint: string;
+  canWrite: boolean;
+}) {
   const [version, setVersion] = useState(0);
   const [tag, setTag] = useState("");
   const [error, setError] = useState("");
@@ -758,7 +901,11 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
   return (
     <section>
       <p className="muted small-text">
-        A drop is a release. You can attach it to a tag that already exists, or create an annotated tag from a branch while publishing. If you supply an SSH signature, GITOWN verifies it against a signing key registered by the publisher and records that result. A note without a signature stays unverified. This is not Sigstore.
+        A drop is a release. You can attach it to a tag that already exists, or
+        create an annotated tag from a branch while publishing. If you supply an
+        SSH signature, GITOWN verifies it against a signing key registered by
+        the publisher and records that result. A note without a signature stays
+        unverified. This is not Sigstore.
       </p>
       <ErrorMessage error={error || drops.error || detail.error} />
       {canWrite && (
@@ -796,7 +943,9 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
           </label>
           <label className="checkbox-label">
             <input name="create_tag" type="checkbox" />
-            <span>Create the annotated tag from a branch if it does not exist</span>
+            <span>
+              Create the annotated tag from a branch if it does not exist
+            </span>
           </label>
           <label>
             Branch
@@ -804,11 +953,19 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
           </label>
           <label>
             Provenance note
-            <input name="provenance" maxLength={4000} placeholder="Text that the signature covers" />
+            <input
+              name="provenance"
+              maxLength={4000}
+              placeholder="Text that the signature covers"
+            />
           </label>
           <label>
             SSH signature
-            <textarea name="signature" rows={4} placeholder="Optional. Verified against your signing keys." />
+            <textarea
+              name="signature"
+              rows={4}
+              placeholder="Optional. Verified against your signing keys."
+            />
           </label>
           <label className="checkbox-label">
             <input name="draft" type="checkbox" />
@@ -850,7 +1007,9 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
           <ul>
             {(detail.data.assets || []).map((asset) => (
               <li key={asset.name}>
-                <a href={`/api/v1${endpoint}/drops/${encodeURIComponent(tag)}/assets/${encodeURIComponent(asset.name)}`}>
+                <a
+                  href={`/api/v1${endpoint}/drops/${encodeURIComponent(tag)}/assets/${encodeURIComponent(asset.name)}`}
+                >
                   {asset.name}
                 </a>{" "}
                 <span className="muted">
@@ -862,7 +1021,9 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
                     onClick={async () => {
                       setError("");
                       try {
-                        await remove(`${endpoint}/drops/${encodeURIComponent(tag)}/assets/${encodeURIComponent(asset.name)}`);
+                        await remove(
+                          `${endpoint}/drops/${encodeURIComponent(tag)}/assets/${encodeURIComponent(asset.name)}`,
+                        );
                         setVersion((value) => value + 1);
                       } catch (caught) {
                         setError((caught as Error).message);
@@ -894,7 +1055,10 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
                 );
                 if (!response.ok) {
                   const payload = await response.json().catch(() => null);
-                  setError(payload?.error?.message || `Upload failed (${response.status}).`);
+                  setError(
+                    payload?.error?.message ||
+                      `Upload failed (${response.status}).`,
+                  );
                   return;
                 }
                 setVersion((value) => value + 1);
@@ -910,7 +1074,9 @@ export function DropsPanel({ endpoint, canWrite }: { endpoint: string; canWrite:
               onClick={async () => {
                 setError("");
                 try {
-                  await put(`${endpoint}/drops/${encodeURIComponent(tag)}`, { draft: false });
+                  await put(`${endpoint}/drops/${encodeURIComponent(tag)}`, {
+                    draft: false,
+                  });
                   setVersion((value) => value + 1);
                 } catch (caught) {
                   setError((caught as Error).message);

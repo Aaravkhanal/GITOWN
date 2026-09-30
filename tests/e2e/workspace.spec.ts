@@ -489,9 +489,13 @@ test("account security, project collaboration, Git transport, and responsive nav
     page.getByText("These branches can be merged", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("No formal reviews yet.")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Unfollow Unite" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Unfollow Unite" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Unfollow Unite" }).click();
-  await expect(page.getByRole("button", { name: "Follow Unite" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Follow Unite" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Follow Unite" }).click();
   await expect(
     page.getByRole("button", { name: "Submit review", exact: true }),

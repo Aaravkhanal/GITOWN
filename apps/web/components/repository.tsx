@@ -1112,73 +1112,73 @@ function RepositorySettings({
       </div>
       <RepositoryPermissionSummary endpoint={endpoint} />
       {repo.can_manage && (
-      <form
-        className="panel settings-form"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setError("");
-          setMessage("");
-          const data = new FormData(event.currentTarget);
-          try {
-            await patch<Repo>(endpoint, {
-              description: data.get("description"),
-              visibility,
-            });
-            setMessage("Repository settings saved.");
-          } catch (saveError) {
-            setError((saveError as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Description
-          <textarea
-            name="description"
-            defaultValue={repo.description}
-            maxLength={500}
-            rows={4}
-          />
-        </label>
-        <div>
-          <span className="label-text">Visibility</span>
-          <div className="visibility-options compact">
-            {(["private", "public"] as const).map((option) => (
-              <label
-                className={`radio-card ${visibility === option ? "chosen" : ""}`}
-                key={option}
-              >
-                <input
-                  type="radio"
-                  name="visibility"
-                  value={option}
-                  checked={visibility === option}
-                  onChange={() => setVisibility(option)}
-                />
-                {option === "private" ? (
-                  <LockKeyhole size={18} />
-                ) : (
-                  <Globe2 size={18} />
-                )}
-                <span>
-                  <strong>{option}</strong>
-                  {option === "private"
-                    ? "Only you can see and clone this repository."
-                    : "Anyone can view and clone this repository."}
-                </span>
-              </label>
-            ))}
+        <form
+          className="panel settings-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError("");
+            setMessage("");
+            const data = new FormData(event.currentTarget);
+            try {
+              await patch<Repo>(endpoint, {
+                description: data.get("description"),
+                visibility,
+              });
+              setMessage("Repository settings saved.");
+            } catch (saveError) {
+              setError((saveError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <label>
+            Description
+            <textarea
+              name="description"
+              defaultValue={repo.description}
+              maxLength={500}
+              rows={4}
+            />
+          </label>
+          <div>
+            <span className="label-text">Visibility</span>
+            <div className="visibility-options compact">
+              {(["private", "public"] as const).map((option) => (
+                <label
+                  className={`radio-card ${visibility === option ? "chosen" : ""}`}
+                  key={option}
+                >
+                  <input
+                    type="radio"
+                    name="visibility"
+                    value={option}
+                    checked={visibility === option}
+                    onChange={() => setVisibility(option)}
+                  />
+                  {option === "private" ? (
+                    <LockKeyhole size={18} />
+                  ) : (
+                    <Globe2 size={18} />
+                  )}
+                  <span>
+                    <strong>{option}</strong>
+                    {option === "private"
+                      ? "Only you can see and clone this repository."
+                      : "Anyone can view and clone this repository."}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
-        {error && <div className="form-error">{error}</div>}
-        {message && <div className="success-box">{message}</div>}
-        <button className="button primary" disabled={busy} type="submit">
-          <Save size={16} />
-          {busy ? "Saving..." : "Save settings"}
-        </button>
-      </form>
+          {error && <div className="form-error">{error}</div>}
+          {message && <div className="success-box">{message}</div>}
+          <button className="button primary" disabled={busy} type="submit">
+            <Save size={16} />
+            {busy ? "Saving..." : "Save settings"}
+          </button>
+        </form>
       )}
       {branches.length > 0 && (
         <BranchRuleSettings
@@ -1202,105 +1202,107 @@ function RepositorySettings({
         <CollaboratorSettings endpoint={endpoint} owner={repo.owner} />
       )}
       {repo.can_manage && (
-      <div className="panel lifecycle-settings">
-        <div className="section-heading">
-          <div>
-            <h2>Repository lifecycle</h2>
-            <p>
-              Rename, archive, restore, or schedule this repository for
-              deletion.
-            </p>
+        <div className="panel lifecycle-settings">
+          <div className="section-heading">
+            <div>
+              <h2>Repository lifecycle</h2>
+              <p>
+                Rename, archive, restore, or schedule this repository for
+                deletion.
+              </p>
+            </div>
           </div>
-        </div>
-        <form
-          className="rename-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setBusy(true);
-            setError("");
-            const data = new FormData(event.currentTarget);
-            try {
-              const updated = await post<Repo>(`${endpoint}/rename`, {
-                name: data.get("name"),
-              });
-              router.push(`${repoPath(updated)}/settings`);
-            } catch (renameError) {
-              setError((renameError as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <label>
-            Repository name
-            <input name="name" defaultValue={repo.name} required />
-          </label>
-          <button className="button" disabled={busy} type="submit">
-            Rename repository
-          </button>
-        </form>
-        <div className="lifecycle-row">
-          <div>
-            <strong>
-              {repo.archived ? "Unarchive repository" : "Archive repository"}
-            </strong>
-            <span>
-              {repo.archived
-                ? "Allow pushes, issues, and merges again."
-                : "Keep the code readable while blocking pushes and collaboration changes."}
-            </span>
-          </div>
-          <button
-            className="button"
-            disabled={busy}
-            onClick={async () => {
+          <form
+            className="rename-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
               setBusy(true);
               setError("");
+              const data = new FormData(event.currentTarget);
               try {
-                await post<Repo>(
-                  `${endpoint}/${repo.archived ? "unarchive" : "archive"}`,
-                  {},
+                const updated = await post<Repo>(`${endpoint}/rename`, {
+                  name: data.get("name"),
+                });
+                router.push(`${repoPath(updated)}/settings`);
+              } catch (renameError) {
+                setError((renameError as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <label>
+              Repository name
+              <input name="name" defaultValue={repo.name} required />
+            </label>
+            <button className="button" disabled={busy} type="submit">
+              Rename repository
+            </button>
+          </form>
+          <div className="lifecycle-row">
+            <div>
+              <strong>
+                {repo.archived ? "Unarchive repository" : "Archive repository"}
+              </strong>
+              <span>
+                {repo.archived
+                  ? "Allow pushes, issues, and merges again."
+                  : "Keep the code readable while blocking pushes and collaboration changes."}
+              </span>
+            </div>
+            <button
+              className="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await post<Repo>(
+                    `${endpoint}/${repo.archived ? "unarchive" : "archive"}`,
+                    {},
+                  );
+                  window.location.reload();
+                } catch (archiveError) {
+                  setError((archiveError as Error).message);
+                  setBusy(false);
+                }
+              }}
+              type="button"
+            >
+              <Archive size={16} /> {repo.archived ? "Unarchive" : "Archive"}
+            </button>
+          </div>
+          <div className="lifecycle-row danger-zone">
+            <div>
+              <strong>Delete repository</strong>
+              <span>Hide it immediately. You can restore it for 30 days.</span>
+            </div>
+            <button
+              className="button danger"
+              disabled={busy}
+              onClick={async () => {
+                const confirmation = window.prompt(
+                  `Type ${repo.name} to schedule deletion.`,
                 );
-                window.location.reload();
-              } catch (archiveError) {
-                setError((archiveError as Error).message);
-                setBusy(false);
-              }
-            }}
-            type="button"
-          >
-            <Archive size={16} /> {repo.archived ? "Unarchive" : "Archive"}
-          </button>
-        </div>
-        <div className="lifecycle-row danger-zone">
-          <div>
-            <strong>Delete repository</strong>
-            <span>Hide it immediately. You can restore it for 30 days.</span>
+                if (confirmation === null) return;
+                setBusy(true);
+                setError("");
+                try {
+                  await destroy<{ deleted: boolean }>(endpoint, {
+                    confirmation,
+                  });
+                  router.push("/");
+                } catch (deleteError) {
+                  setError((deleteError as Error).message);
+                  setBusy(false);
+                }
+              }}
+              type="button"
+            >
+              <Trash2 size={16} /> Delete repository
+            </button>
           </div>
-          <button
-            className="button danger"
-            disabled={busy}
-            onClick={async () => {
-              const confirmation = window.prompt(
-                `Type ${repo.name} to schedule deletion.`,
-              );
-              if (confirmation === null) return;
-              setBusy(true);
-              setError("");
-              try {
-                await destroy<{ deleted: boolean }>(endpoint, { confirmation });
-                router.push("/");
-              } catch (deleteError) {
-                setError((deleteError as Error).message);
-                setBusy(false);
-              }
-            }}
-            type="button"
-          >
-            <Trash2 size={16} /> Delete repository
-          </button>
         </div>
-      </div>
       )}
     </section>
   );
@@ -1552,8 +1554,8 @@ function CollaboratorSettings({
             <Users size={18} /> Collaborators
           </h2>
           <p>
-            People who accepted an invitation. Change a role or remove access
-            at any time; add people with an invitation above.
+            People who accepted an invitation. Change a role or remove access at
+            any time; add people with an invitation above.
           </p>
         </div>
       </div>
@@ -2588,8 +2590,8 @@ function IssueSubscription({
       <ErrorMessage error={subscription.error} />
       <p className="muted small-text">
         Participate follows the conversation and state changes on this issue.
-        Watch also includes every other update, and ignore stays quiet even
-        when you are mentioned.
+        Watch also includes every other update, and ignore stays quiet even when
+        you are mentioned.
       </p>
       <SubscriptionMode path={path} version={refreshVersion} />
     </section>
@@ -3050,7 +3052,9 @@ function PullRequestDetail({
   const [mergeMethod, setMergeMethod] = useState("merge");
   const [deleteBranch, setDeleteBranch] = useState(false);
   const [lineDraft, setLineDraft] = useState<LineDraft | null>(null);
-  const [morePages, setMorePages] = useState<{ diff: string; truncated: boolean }[]>([]);
+  const [morePages, setMorePages] = useState<
+    { diff: string; truncated: boolean }[]
+  >([]);
   const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => setMorePages([]), [detail.data]);
   if (detail.loading) return <Loading />;
@@ -3220,58 +3224,56 @@ function PullRequestDetail({
                 />
                 Delete the source branch after merging
               </label>
-            <button
-              disabled={
-                busy ||
-                pull.draft ||
-                (!mergeable && pull.state !== "merging")
-              }
-              className="button primary"
-              onClick={async () => {
-                if (pull.draft) return;
-                if (
-                  !window.confirm(
-                    `Merge unite request #${number} into ${pull.base_branch}?`,
-                  )
-                )
-                  return;
-                setBusy(true);
-                setError("");
-                setNotice("");
-                try {
-                  const merged = await post<Pull>(
-                    `${endpoint}/pulls/${number}/merge`,
-                    {
-                      head_sha: detail.data!.head_sha,
-                      base_sha: detail.data!.base_sha,
-                      method: mergeMethod,
-                      delete_branch: deleteBranch,
-                    },
-                  );
-                  if (merged.branch_deleted) {
-                    setNotice(`Deleted ${pull.head_branch}.`);
-                  } else if (merged.branch_delete_error) {
-                    setNotice(
-                      `${pull.head_branch} was kept: ${merged.branch_delete_error}`,
-                    );
-                  }
-                  setVersion((v) => v + 1);
-                } catch (error) {
-                  setError((error as Error).message);
-                } finally {
-                  setBusy(false);
+              <button
+                disabled={
+                  busy || pull.draft || (!mergeable && pull.state !== "merging")
                 }
-              }}
-            >
-              <GitMerge size={16} />
-              {busy
-                ? "Merging…"
-                : pull.draft
-                  ? "Drafts cannot merge"
-                  : pull.state === "merging"
-                    ? "Recover merge"
-                    : "Merge unite request"}
-            </button>
+                className="button primary"
+                onClick={async () => {
+                  if (pull.draft) return;
+                  if (
+                    !window.confirm(
+                      `Merge unite request #${number} into ${pull.base_branch}?`,
+                    )
+                  )
+                    return;
+                  setBusy(true);
+                  setError("");
+                  setNotice("");
+                  try {
+                    const merged = await post<Pull>(
+                      `${endpoint}/pulls/${number}/merge`,
+                      {
+                        head_sha: detail.data!.head_sha,
+                        base_sha: detail.data!.base_sha,
+                        method: mergeMethod,
+                        delete_branch: deleteBranch,
+                      },
+                    );
+                    if (merged.branch_deleted) {
+                      setNotice(`Deleted ${pull.head_branch}.`);
+                    } else if (merged.branch_delete_error) {
+                      setNotice(
+                        `${pull.head_branch} was kept: ${merged.branch_delete_error}`,
+                      );
+                    }
+                    setVersion((v) => v + 1);
+                  } catch (error) {
+                    setError((error as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <GitMerge size={16} />
+                {busy
+                  ? "Merging…"
+                  : pull.draft
+                    ? "Drafts cannot merge"
+                    : pull.state === "merging"
+                      ? "Recover merge"
+                      : "Merge unite request"}
+              </button>
             </div>
           )}
       </div>

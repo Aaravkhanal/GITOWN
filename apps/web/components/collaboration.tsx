@@ -281,7 +281,11 @@ export function UnitePanel({
         <form
           className="comment-form"
           id="line-comment-form"
-          key={lineDraft ? `${lineDraft.path}:${lineDraft.side}:${lineDraft.line}` : "blank"}
+          key={
+            lineDraft
+              ? `${lineDraft.path}:${lineDraft.side}:${lineDraft.line}`
+              : "blank"
+          }
           onSubmit={async (event) => {
             event.preventDefault();
             const form = event.currentTarget;
@@ -378,8 +382,9 @@ export function UnitePanel({
       )}
       <h4>Assignees</h4>
       <p className="muted small-text">
-        {(assignees.data?.assigned || []).map((person) => person.username).join(", ") ||
-          "Unassigned."}
+        {(assignees.data?.assigned || [])
+          .map((person) => person.username)
+          .join(", ") || "Unassigned."}
       </p>
       {canTriage && assignees.data && (
         <form
@@ -441,7 +446,9 @@ export function UnitePanel({
                 type="checkbox"
                 name="label"
                 value={label.id}
-                defaultChecked={labels.data?.some((item) => item.id === label.id)}
+                defaultChecked={labels.data?.some(
+                  (item) => item.id === label.id,
+                )}
               />
               {label.name}
             </label>
@@ -683,7 +690,11 @@ export function PullChecks({
           {status.target_url && (
             <>
               {" · "}
-              <a href={status.target_url} rel="noreferrer nofollow" target="_blank">
+              <a
+                href={status.target_url}
+                rel="noreferrer nofollow"
+                target="_blank"
+              >
                 Details
               </a>
             </>
@@ -703,8 +714,10 @@ function timelineText(item: TimelineItem) {
   if (kind.startsWith("check.")) return `check ${kind.slice(6)}`;
   if (kind === "push") return "pushed";
   if (kind === "review_dismissed") return "dismissed a review";
-  if (kind === "draft") return item.body === "true" ? "marked as draft" : "marked ready";
-  if (kind === "resolved" || kind === "unresolved") return `${kind} a conversation`;
+  if (kind === "draft")
+    return item.body === "true" ? "marked as draft" : "marked ready";
+  if (kind === "resolved" || kind === "unresolved")
+    return `${kind} a conversation`;
   return kind;
 }
 
@@ -736,12 +749,23 @@ export function PullTimeline({ base }: { base: string }) {
             <ol className="timeline-list">
               {timeline.data?.items.map((item, index) => (
                 <li key={`${offset}-${index}`}>
-                  <span className="muted small-text">{date(item.created_at)}</span>{" "}
+                  <span className="muted small-text">
+                    {date(item.created_at)}
+                  </span>{" "}
                   <strong>{item.actor ? `@${item.actor}` : "GITOWN"}</strong>{" "}
                   {timelineText(item)}
                   {item.kind === "push" ? (
-                    <code> {item.body.split("..").map((sha) => sha.slice(0, 7)).join("..")}</code>
-                  ) : item.kind !== "draft" && item.kind !== "resolved" && item.kind !== "unresolved" && item.body ? (
+                    <code>
+                      {" "}
+                      {item.body
+                        .split("..")
+                        .map((sha) => sha.slice(0, 7))
+                        .join("..")}
+                    </code>
+                  ) : item.kind !== "draft" &&
+                    item.kind !== "resolved" &&
+                    item.kind !== "unresolved" &&
+                    item.body ? (
                     <span className="muted"> · {item.body.slice(0, 140)}</span>
                   ) : null}
                 </li>
@@ -749,12 +773,20 @@ export function PullTimeline({ base }: { base: string }) {
             </ol>
             <div className="form-actions">
               {offset > 0 && (
-                <button className="button small-button" type="button" onClick={() => setOffset(Math.max(0, offset - 50))}>
+                <button
+                  className="button small-button"
+                  type="button"
+                  onClick={() => setOffset(Math.max(0, offset - 50))}
+                >
                   Earlier
                 </button>
               )}
               {timeline.data?.has_more && (
-                <button className="button small-button" type="button" onClick={() => setOffset(offset + 50)}>
+                <button
+                  className="button small-button"
+                  type="button"
+                  onClick={() => setOffset(offset + 50)}
+                >
                   Later
                 </button>
               )}
@@ -765,14 +797,21 @@ export function PullTimeline({ base }: { base: string }) {
   );
 }
 
-export function RepositoryPermissionSummary({ endpoint }: { endpoint: string }) {
+export function RepositoryPermissionSummary({
+  endpoint,
+}: {
+  endpoint: string;
+}) {
   const permissions = useData<RepositoryPermissions>(`${endpoint}/permissions`);
   if (!permissions.data) return <ErrorMessage error={permissions.error} />;
   const rows: [keyof RepositoryPermissions, string][] = [
     ["read", "View, clone, and comment"],
     ["triage", "Manage issues, labels, assignees, and review requests"],
     ["write", "Push branches and merge unite requests"],
-    ["maintain", "Edit branch rules, dismiss reviews, and push to restricted branches"],
+    [
+      "maintain",
+      "Edit branch rules, dismiss reviews, and push to restricted branches",
+    ],
     ["manage", "Control access, visibility, transfer, and deletion"],
   ];
   return (
@@ -800,12 +839,22 @@ export function OwnerDelivery({
 }) {
   return (
     <section className="panel settings-form">
-      <PresentationSettings endpoint={endpoint} homepage={homepage} stack={stack} />
+      <PresentationSettings
+        endpoint={endpoint}
+        homepage={homepage}
+        stack={stack}
+      />
     </section>
   );
 }
 
-export function RepositoryAccess({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+export function RepositoryAccess({
+  endpoint,
+  repo,
+}: {
+  endpoint: string;
+  repo: Repo;
+}) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -816,8 +865,10 @@ export function RepositoryAccess({ endpoint, repo }: { endpoint: string; repo: R
   }>(`${endpoint}/transfer`, version);
   const refresh = () => setVersion((value) => value + 1);
   const fullName = `${repo.owner}/${repo.name}`;
-  const pending = invitations.data?.filter((item) => item.status === "pending") || [];
-  const answered = invitations.data?.filter((item) => item.status !== "pending") || [];
+  const pending =
+    invitations.data?.filter((item) => item.status === "pending") || [];
+  const answered =
+    invitations.data?.filter((item) => item.status !== "pending") || [];
   return (
     <section className="panel settings-form" aria-label="Access and ownership">
       <h2>Invite collaborators</h2>
@@ -890,8 +941,8 @@ export function RepositoryAccess({ endpoint, repo }: { endpoint: string; repo: R
         pending.map((item) => (
           <p key={item.id} className="member-row">
             <span>
-              {item.username ? `@${item.username}` : item.email} · {item.role} · expires{" "}
-              {date(item.expires_at)}
+              {item.username ? `@${item.username}` : item.email} · {item.role} ·
+              expires {date(item.expires_at)}
             </span>
             <button
               className="button small-button"
@@ -921,7 +972,8 @@ export function RepositoryAccess({ endpoint, repo }: { endpoint: string; repo: R
           <summary>Past invitations</summary>
           {answered.map((item) => (
             <p key={item.id} className="muted small-text">
-              {item.username ? `@${item.username}` : item.email} · {item.role} · {item.status}
+              {item.username ? `@${item.username}` : item.email} · {item.role} ·{" "}
+              {item.status}
             </p>
           ))}
         </details>
@@ -1058,7 +1110,11 @@ export function InvitationsPage() {
       status: string;
     }[]
   >("/user/transfers", version);
-  async function respond(kind: "invitations" | "transfers", id: string, accept: boolean) {
+  async function respond(
+    kind: "invitations" | "transfers",
+    id: string,
+    accept: boolean,
+  ) {
     setError("");
     try {
       await post(`/user/${kind}/${id}/${accept ? "accept" : "decline"}`, {});
@@ -1168,7 +1224,8 @@ export function SubscriptionMode({
     version + local,
   );
   const value =
-    subscription.data?.mode || (subscription.data?.subscribed ? "participate" : "off");
+    subscription.data?.mode ||
+    (subscription.data?.subscribed ? "participate" : "off");
   return (
     <label>
       Notification mode

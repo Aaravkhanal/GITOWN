@@ -251,7 +251,12 @@ paths:
       description: Invitations sent to a bare email address are accepted with /invitations/accept and the emailed token instead.
       parameters:
         - { $ref: "#/components/parameters/Origin" }
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
       responses:
         "200": { description: Accepted }
         "403": { $ref: "#/components/responses/Error" }
@@ -261,7 +266,12 @@ paths:
       summary: Decline an invitation addressed to the signed-in username
       parameters:
         - { $ref: "#/components/parameters/Origin" }
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
       responses:
         "200": { description: Declined }
         "403": { $ref: "#/components/responses/Error" }
@@ -295,7 +305,12 @@ paths:
       summary: Accept ownership of a repository
       parameters:
         - { $ref: "#/components/parameters/Origin" }
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
       responses:
         "200": { description: Ownership moved }
         "404": { $ref: "#/components/responses/Error" }
@@ -309,7 +324,12 @@ paths:
       summary: Decline a repository ownership transfer
       parameters:
         - { $ref: "#/components/parameters/Origin" }
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
       responses:
         "200": { description: Declined }
         "404": { $ref: "#/components/responses/Error" }
@@ -565,7 +585,11 @@ paths:
       summary: Unite request history
       description: Comments, reviews, inline comments and replies, pushes, check results, and state changes, oldest first, 50 per page.
       parameters:
-        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 1000 } }
+        - {
+            name: offset,
+            in: query,
+            schema: { type: integer, minimum: 0, maximum: 1000 },
+          }
       responses:
         "200":
           description: Timeline page
@@ -609,7 +633,13 @@ paths:
       security: []
       summary: List check results for a commit
       responses:
-        "200": { description: Statuses with state, description, target_url, and reporter }
+        "200":
+          {
+            description: Statuses with state,
+            description,
+            target_url,
+            and reporter,
+          }
   /repos/{owner}/{repo}/commits/{sha}/status:
     post:
       security: [{ session: [] }, { token: [] }]
@@ -623,8 +653,13 @@ paths:
               type: object
               required: [context, state]
               properties:
-                context: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$" }
-                state: { type: string, enum: [pending, success, failure, error] }
+                context:
+                  {
+                    type: string,
+                    pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]{0,39}$",
+                  }
+                state:
+                  { type: string, enum: [pending, success, failure, error] }
                 description: { type: string, maxLength: 300 }
                 target_url: { type: string, format: uri, maxLength: 500 }
       responses:
@@ -1527,7 +1562,12 @@ paths:
       [
         { $ref: "#/components/parameters/Owner" },
         { $ref: "#/components/parameters/Repo" },
-        { name: id, in: path, required: true, schema: { type: string, format: uuid } },
+        {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        },
       ]
     delete:
       summary: Revoke a pending invitation (manage)
@@ -1544,7 +1584,8 @@ paths:
     get:
       summary: Show the pending ownership transfer (manage)
       responses:
-        "200": { description: "{ pending: { id, username, created_at } | null }" }
+        "200":
+          { description: "{ pending: { id, username, created_at } | null }" }
     post:
       summary: Offer ownership to another account (manage)
       parameters: [{ $ref: "#/components/parameters/Origin" }]
@@ -1557,7 +1598,12 @@ paths:
               required: [username, confirm]
               properties:
                 username: { type: string }
-                confirm: { type: string, description: The repository's owner/name, typed to confirm }
+                confirm:
+                  {
+                    type: string,
+                    description: The repository's owner/name,
+                    typed to confirm,
+                  }
       responses:
         "201": { description: Transfer pending the recipient's acceptance }
         "404": { $ref: "#/components/responses/Error" }
@@ -1752,11 +1798,16 @@ paths:
                 restrict_push: { type: boolean, default: false }
                 require_signed: { type: boolean, default: false }
                 require_maintainer_approval: { type: boolean, default: false }
-                required_checks: { type: array, maxItems: 8, items: { type: string } }
+                required_checks:
+                  { type: array, maxItems: 8, items: { type: string } }
                 required_reviewers:
                   type: array
                   maxItems: 8
-                  items: { type: string, description: "A username, or crew:<slug> for a crew in the repository's district" }
+                  items:
+                    {
+                      type: string,
+                      description: "A username, or crew:<slug> for a crew in the repository's district",
+                    }
                 allow_force_push: { type: boolean, default: false }
                 allow_deletion: { type: boolean, default: false }
       responses:
@@ -1840,14 +1891,16 @@ paths:
             name: assignee,
             in: query,
             schema: { type: string },
-            description: A username, or none,
+            description: A username,
+            or none,
           }
         - { name: author, in: query, schema: { type: string } }
         - {
             name: milestone,
             in: query,
             schema: { type: string },
-            description: A milestone title, or none,
+            description: A milestone title,
+            or none,
           }
         - { name: q, in: query, schema: { type: string, maxLength: 100 } }
         - {
@@ -2827,7 +2880,12 @@ paths:
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }
-    token: { type: http, scheme: bearer, description: "Personal access token (gtn_...) where an endpoint accepts one" }
+    token:
+      {
+        type: http,
+        scheme: bearer,
+        description: "Personal access token (gtn_...) where an endpoint accepts one",
+      }
   parameters:
     Origin:
       {
@@ -3087,10 +3145,19 @@ components:
         email: { type: string }
         username: { type: string }
         role: { $ref: "#/components/schemas/RepositoryRole" }
-        status: { type: string, enum: [pending, accepted, declined, expired, revoked] }
+        status:
+          {
+            type: string,
+            enum: [pending, accepted, declined, expired, revoked],
+          }
         expires_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
-        accept_url: { type: string, format: uri, description: Present only when an email-only invitation is created }
+        accept_url:
+          {
+            type: string,
+            format: uri,
+            description: Present only when an email-only invitation is created,
+          }
     DeletedRepository:
       type: object
       properties:
@@ -3463,8 +3530,13 @@ components:
         base_branch: { type: string }
         head_branch: { type: string }
         merge_sha: { type: [string, "null"] }
-        branch_deleted: { type: boolean, description: Present in a merge response when source-branch deletion was requested }
-        branch_delete_error: { type: string, description: Why the source branch was kept }
+        branch_deleted:
+          {
+            type: boolean,
+            description: Present in a merge response when source-branch deletion was requested,
+          }
+        branch_delete_error:
+          { type: string, description: Why the source branch was kept }
     PullComment:
       type: object
       properties:
