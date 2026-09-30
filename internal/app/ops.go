@@ -191,27 +191,41 @@ func (a *App) refEvents(w http.ResponseWriter, r *http.Request) {
 	if repo == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT ref,old_sha,new_sha,via,created_at FROM ref_events WHERE repository_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50`, repo.ID)
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var err error
+		offset, err = strconv.Atoi(raw)
+		if err != nil || offset < 0 || offset > 5000 {
+			fail(w, 422, "validation_failed", "Offset must be between zero and 5000.")
+			return
+		}
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT e.ref,e.old_sha,e.new_sha,e.via,e.created_at,COALESCE(u.username,'') FROM ref_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.repository_id=$1 ORDER BY e.created_at DESC,e.id DESC LIMIT 26 OFFSET $2`, repo.ID, offset)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	hasMore := false
 	for rows.Next() {
-		var ref, oldSHA, newSHA, via string
+		var ref, oldSHA, newSHA, via, actor string
 		var created time.Time
-		if err = rows.Scan(&ref, &oldSHA, &newSHA, &via, &created); err != nil {
+		if err = rows.Scan(&ref, &oldSHA, &newSHA, &via, &created, &actor); err != nil {
 			serverError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"ref": ref, "old_sha": oldSHA, "new_sha": newSHA, "via": via, "created_at": created})
+		if len(items) == 25 {
+			hasMore = true
+			break
+		}
+		items = append(items, map[string]any{"ref": ref, "old_sha": oldSHA, "new_sha": newSHA, "via": via, "created_at": created, "actor": actor})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, items)
+	respond(w, 200, map[string]any{"items": items, "has_more": hasMore})
 }
 
 func (a *App) maintainRepository(w http.ResponseWriter, r *http.Request) {
@@ -219,14 +233,13 @@ func (a *App) maintainRepository(w http.ResponseWriter, r *http.Request) {
 	if repo == nil || !activeRepository(w, repo) {
 		return
 	}
-	if err := a.git.Maintain(r.Context(), repo.ID); err != nil {
+	if err := a.runMaintenance(r.Context(), repo); err != nil {
 		serverError(w, err)
 		return
 	}
-	_ = a.noteRepositoryFacts(r.Context(), repo)
 	u := a.user(r)
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.maintained',$2)`, u.ID, repo.Owner+"/"+repo.Name)
-	respond(w, 200, map[string]any{"size_bytes": repo.SizeBytes, "language": repo.Language})
+	respond(w, 200, map[string]any{"size_bytes": repo.SizeBytes, "language": repo.Language, "last_maintained_at": repo.LastMaintainedAt})
 }
 
 func higherRole(current, next string) string {

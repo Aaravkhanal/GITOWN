@@ -339,9 +339,11 @@ func TestPhaseSixToNine(t *testing.T) {
 	if len(published.Assets) != 1 || published.Assets[0].DownloadCount != 1 || published.Assets[0].SHA256 != hex.EncodeToString(sum[:]) || published.ProvenanceVerified {
 		t.Fatalf("drop asset: %+v", published)
 	}
-	var refs []map[string]any
+	var refs struct {
+		Items []map[string]any `json:"items"`
+	}
 	owner.request("GET", "/repos/owner/atlas/refs", nil, 200, &refs)
-	if len(refs) == 0 {
+	if len(refs.Items) == 0 {
 		t.Fatal("ref events were not recorded")
 	}
 	owner.request("PUT", "/repos/owner/atlas/maintenance", map[string]any{}, 200, nil)

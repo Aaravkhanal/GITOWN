@@ -428,14 +428,16 @@ func TestPhaseThreeCollaboration(t *testing.T) {
 	if out := sshGit(sshWork, false, "push", "origin", "via-ssh"); !strings.Contains(out, "Unite request") {
 		t.Fatalf("ssh push ignored require_unite: %s", out)
 	}
-	var refs []map[string]any
+	var refs struct {
+		Items []map[string]any `json:"items"`
+	}
 	owner.request("GET", "/repos/owner/forge/refs", nil, 200, &refs)
 	sawSSH := false
-	for _, ref := range refs {
+	for _, ref := range refs.Items {
 		sawSSH = sawSSH || ref["via"] == "ssh"
 	}
 	if !sawSSH {
-		t.Fatalf("ssh ref event missing: %+v", refs)
+		t.Fatalf("ssh ref event missing: %+v", refs.Items)
 	}
 }
 

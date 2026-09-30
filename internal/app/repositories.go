@@ -17,39 +17,40 @@ import (
 )
 
 type Repository struct {
-	ID            string    `json:"id"`
-	OwnerID       string    `json:"-"`
-	Owner         string    `json:"owner"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description"`
-	Visibility    string    `json:"visibility"`
-	DefaultBranch string    `json:"default_branch"`
-	CreatedAt     time.Time `json:"created_at"`
-	CanWrite      bool      `json:"can_write"`
-	CanTriage     bool      `json:"can_triage"`
-	CanManage     bool      `json:"can_manage"`
-	CanMaintain   bool      `json:"can_maintain"`
-	CanComment    bool      `json:"can_comment"`
-	Role          string    `json:"role,omitempty"`
-	Archived      bool      `json:"archived"`
-	CloneURL      string    `json:"clone_url"`
-	Homepage      string    `json:"homepage"`
-	Stack         string    `json:"stack"`
-	Language      string    `json:"language"`
-	PushedAt      time.Time `json:"pushed_at"`
-	SizeBytes     int64     `json:"size_bytes"`
-	DistrictID    string    `json:"-"`
-	District      string    `json:"district,omitempty"`
-	SSHCloneURL   string    `json:"ssh_clone_url,omitempty"`
+	ID               string     `json:"id"`
+	OwnerID          string     `json:"-"`
+	Owner            string     `json:"owner"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	Visibility       string     `json:"visibility"`
+	DefaultBranch    string     `json:"default_branch"`
+	CreatedAt        time.Time  `json:"created_at"`
+	CanWrite         bool       `json:"can_write"`
+	CanTriage        bool       `json:"can_triage"`
+	CanManage        bool       `json:"can_manage"`
+	CanMaintain      bool       `json:"can_maintain"`
+	CanComment       bool       `json:"can_comment"`
+	Role             string     `json:"role,omitempty"`
+	Archived         bool       `json:"archived"`
+	CloneURL         string     `json:"clone_url"`
+	Homepage         string     `json:"homepage"`
+	Stack            string     `json:"stack"`
+	Language         string     `json:"language"`
+	PushedAt         time.Time  `json:"pushed_at"`
+	SizeBytes        int64      `json:"size_bytes"`
+	DistrictID       string     `json:"-"`
+	District         string     `json:"district,omitempty"`
+	SSHCloneURL      string     `json:"ssh_clone_url,omitempty"`
+	LastMaintainedAt *time.Time `json:"last_maintained_at,omitempty"`
 }
 
-const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL),r.homepage,r.stack,r.language,r.pushed_at,r.size_bytes,COALESCE(r.district_id::text,''),COALESCE((SELECT d.slug FROM districts d WHERE d.id=r.district_id),'')`
+const repoColumns = `r.id,r.owner_id,u.username,r.name,r.description,r.visibility,r.default_branch,r.created_at,(r.archived_at IS NOT NULL),r.homepage,r.stack,r.language,r.pushed_at,r.size_bytes,COALESCE(r.district_id::text,''),COALESCE((SELECT d.slug FROM districts d WHERE d.id=r.district_id),''),r.last_maintained_at`
 
 type scanner interface{ Scan(...any) error }
 
 func scanRepo(row scanner) (Repository, error) {
 	var r Repository
-	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived, &r.Homepage, &r.Stack, &r.Language, &r.PushedAt, &r.SizeBytes, &r.DistrictID, &r.District)
+	err := row.Scan(&r.ID, &r.OwnerID, &r.Owner, &r.Name, &r.Description, &r.Visibility, &r.DefaultBranch, &r.CreatedAt, &r.Archived, &r.Homepage, &r.Stack, &r.Language, &r.PushedAt, &r.SizeBytes, &r.DistrictID, &r.District, &r.LastMaintainedAt)
 	return r, err
 }
 
