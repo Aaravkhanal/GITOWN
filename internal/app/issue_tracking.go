@@ -674,7 +674,7 @@ func (a *App) createIssueComment(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if err = notifyIssue(r.Context(), tx, issueID, u.ID, "issue_comment"); err != nil {
+	if err = notifyIssueEvent(r.Context(), tx, issueID, u.ID, "issue_comment", "", comment.Body); err != nil {
 		serverError(w, err)
 		return
 	}
