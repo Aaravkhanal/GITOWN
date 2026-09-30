@@ -1,6 +1,9 @@
 package app
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,6 +19,53 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 	"github.com/jackc/pgx/v5"
 )
+
+// scanNpmTarball scans the decompressed contents of a gzip'd tar archive for
+// the same secret/dangerous-pattern markers scanPayload checks. Scanning the
+// raw compressed bytes (as writeCrateVersion otherwise does for every
+// ecosystem) almost never catches anything inside a real .tgz, because gzip
+// destroys the plaintext byte pattern a marker like "-----BEGIN PRIVATE
+// KEY-----" depends on. Reading is capped at maxNpmScanBytes total
+// decompressed content so a crafted archive can't be used to exhaust memory
+// or CPU (a zip-bomb style attack); once the cap is hit, scanning stops and
+// only what was actually read is judged — this trades completeness on
+// pathological archives for a bounded, predictable cost on every publish.
+const maxNpmScanBytes = 4 << 20
+
+func scanNpmTarball(content []byte) string {
+	gz, err := gzip.NewReader(strings.NewReader(string(content)))
+	if err != nil {
+		// Not a valid gzip stream; the raw-byte scan in writeCrateVersion
+		// already covers this content, nothing more to do here.
+		return ""
+	}
+	defer gz.Close()
+	reader := tar.NewReader(gz)
+	var scanned int64
+	for scanned < maxNpmScanBytes {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			break
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		remaining := maxNpmScanBytes - scanned
+		limited := io.LimitReader(reader, remaining)
+		data, err := io.ReadAll(limited)
+		if err != nil {
+			break
+		}
+		scanned += int64(len(data))
+		if reason := scanPayload(string(data)); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
 
 func scanPayload(value string) string {
 	if containsSecretMarker(value) {
@@ -142,6 +192,10 @@ func (a *App) npmPublish(w http.ResponseWriter, r *http.Request) {
 	content, err := base64.StdEncoding.DecodeString(attachment)
 	if !crateVersionPattern.MatchString(version) || err != nil || len(content) == 0 || len(content) > 524288 {
 		fail(w, 422, "validation_failed", "Publish one version with a base64 tarball up to 512 KB.")
+		return
+	}
+	if reason := scanNpmTarball(content); reason != "" {
+		fail(w, 422, "secret_detected", "The package tarball matches a private-key header, a known token prefix, or a known dangerous pattern. This is a fixed pattern list, not a malware engine.")
 		return
 	}
 	meta, _ := json.Marshal(map[string]string{"name": name, "version": version, "description": in.Versions[version].Description})
@@ -271,6 +325,69 @@ func (a *App) npmTarball(w http.ResponseWriter, r *http.Request) {
 	_ = crateID
 }
 
+// ociRepo returns the crates(ecosystem='oci') record for an image namespace.
+// A namespace that has never been pushed to has no record and no blobs or
+// manifests either, so read callers treat "no record" as "nothing to check
+// yet" and let the underlying blob/manifest lookup 404 on its own — this
+// avoids letting an anonymous pull attempt "claim" a name by creating a row.
+func (a *App) ociRepo(ctx context.Context, name string) (ownerID, visibility string, exists bool, err error) {
+	err = a.db.QueryRow(ctx, `SELECT owner_id::text,visibility FROM crates WHERE ecosystem='oci' AND name=$1`, name).Scan(&ownerID, &visibility)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	return ownerID, visibility, true, nil
+}
+
+// ociReadAccess reports whether u may pull from name: public images are open
+// to any package-scoped caller, private/internal ones only to their owner.
+func (a *App) ociReadAccess(w http.ResponseWriter, r *http.Request, u *User, name string) bool {
+	ownerID, visibility, exists, err := a.ociRepo(r.Context(), name)
+	if err != nil {
+		http.Error(w, "the operation could not be completed", 500)
+		return false
+	}
+	if !exists {
+		return true
+	}
+	if visibility != "public" && ownerID != u.ID {
+		http.Error(w, "blob not found", 404)
+		return false
+	}
+	return true
+}
+
+// ociWriteAccess loads (or, on first push, creates) the crates(ecosystem='oci')
+// record for name and confirms u owns it. New namespaces default to private
+// so a first `docker push` never silently exposes an image publicly; the
+// owner can make it public afterward via PATCH /api/v1/crates/{name}?ecosystem=oci.
+func (a *App) ociWriteAccess(w http.ResponseWriter, r *http.Request, u *User, name string) bool {
+	ownerID, _, exists, err := a.ociRepo(r.Context(), name)
+	if err != nil {
+		http.Error(w, "the operation could not be completed", 500)
+		return false
+	}
+	if !exists {
+		_, err = a.db.Exec(r.Context(), `INSERT INTO crates(id,owner_id,name,ecosystem,visibility,retention) VALUES($1,$2,$3,'oci','private',20) ON CONFLICT (ecosystem,name) DO NOTHING`, auth.ID(), u.ID, name)
+		if err != nil {
+			http.Error(w, "the operation could not be completed", 500)
+			return false
+		}
+		ownerID, _, exists, err = a.ociRepo(r.Context(), name)
+		if err != nil || !exists {
+			http.Error(w, "the operation could not be completed", 500)
+			return false
+		}
+	}
+	if ownerID != u.ID {
+		http.Error(w, "only the repository owner can push to this name", 403)
+		return false
+	}
+	return true
+}
+
 func (a *App) ociVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
 	if a.packageUser(w, r, false) == nil {
@@ -290,13 +407,15 @@ func (a *App) ociStartBlob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid repository name", 422)
 		return
 	}
+	if !a.ociWriteAccess(w, r, u, name) {
+		return
+	}
 	id := auth.ID()
 	path := filepath.Join(a.extraRoot(), "oci-uploads", id)
 	if err := writePrivateFile(path, nil); err != nil {
 		http.Error(w, "upload could not be started", 500)
 		return
 	}
-	_ = u
 	w.Header().Set("Location", "/v2/"+name+"/blobs/uploads/"+id)
 	w.Header().Set("Docker-Upload-UUID", id)
 	w.Header().Set("Range", "0-0")
@@ -315,6 +434,9 @@ func (a *App) ociFinishBlob(w http.ResponseWriter, r *http.Request) {
 	hexDigest, ok := strings.CutPrefix(digest, "sha256:")
 	if !crateNamePattern.MatchString(name) || !safeObjectID(upload) || !ok || !lfsOIDPattern.MatchString(hexDigest) {
 		http.Error(w, "invalid blob upload", 422)
+		return
+	}
+	if !a.ociWriteAccess(w, r, u, name) {
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<20))
@@ -361,6 +483,9 @@ func (a *App) ociPutManifest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid manifest reference", 422)
 		return
 	}
+	if !a.ociWriteAccess(w, r, u, name) {
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil || len(body) == 0 || !json.Valid(body) {
 		http.Error(w, "manifest must be a JSON document", 422)
@@ -402,11 +527,15 @@ func (a *App) ociPutManifest(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) ociGetManifest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-	if a.packageUser(w, r, false) == nil {
+	u := a.packageUser(w, r, false)
+	if u == nil {
 		return
 	}
 	name := r.PathValue("name")
 	reference := r.PathValue("reference")
+	if !a.ociReadAccess(w, r, u, name) {
+		return
+	}
 	var digest, media string
 	err := a.db.QueryRow(r.Context(), `SELECT digest,media_type FROM oci_manifests WHERE name=$1 AND reference=$2`, name, reference).Scan(&digest, &media)
 	if err != nil {
@@ -418,10 +547,15 @@ func (a *App) ociGetManifest(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) ociGetBlob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-	if a.packageUser(w, r, false) == nil {
+	u := a.packageUser(w, r, false)
+	if u == nil {
 		return
 	}
-	a.writeOCIBlob(w, r.PathValue("name"), r.PathValue("digest"), "application/octet-stream")
+	name := r.PathValue("name")
+	if !a.ociReadAccess(w, r, u, name) {
+		return
+	}
+	a.writeOCIBlob(w, name, r.PathValue("digest"), "application/octet-stream")
 }
 
 func (a *App) writeOCIBlob(w http.ResponseWriter, name, digest, media string) {

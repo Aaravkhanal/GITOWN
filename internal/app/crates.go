@@ -17,6 +17,19 @@ import (
 var crateNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,60}$`)
 var crateVersionPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,40}$`)
 
+// crateEcosystem reads the ecosystem a generic crates-API request applies to.
+// The npm and OCI push/pull protocols each have their own fixed routes and
+// never call this; it is only for the generic /crates API, which manages
+// records for both ecosystems (so an OCI image namespace pushed via /v2 can
+// still be listed, described, and have its visibility changed here).
+func crateEcosystem(r *http.Request) (string, bool) {
+	eco := r.URL.Query().Get("ecosystem")
+	if eco == "" {
+		eco = "npm"
+	}
+	return eco, eco == "npm" || eco == "oci"
+}
+
 func containsSecretMarker(value string) bool {
 	markers := []string{
 		"-----BEGIN PRIVATE KEY-----",
@@ -71,7 +84,12 @@ func (a *App) crates(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT c.name,c.description,c.visibility,c.retention,c.created_at,u.username FROM crates c JOIN users u ON u.id=c.owner_id WHERE c.ecosystem='npm' AND (c.visibility='public' OR c.owner_id=$1) ORDER BY c.created_at DESC LIMIT 50`, u.ID)
+	eco, ok := crateEcosystem(r)
+	if !ok {
+		fail(w, 422, "validation_failed", "Ecosystem must be npm or oci.")
+		return
+	}
+	rows, err := a.db.Query(r.Context(), `SELECT c.name,c.description,c.visibility,c.retention,c.created_at,u.username FROM crates c JOIN users u ON u.id=c.owner_id WHERE c.ecosystem=$2 AND (c.visibility='public' OR c.owner_id=$1) ORDER BY c.created_at DESC LIMIT 50`, u.ID, eco)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -86,7 +104,7 @@ func (a *App) crates(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"name": name, "description": description, "visibility": visibility, "retention": retention, "created_at": created, "owner": owner, "ecosystem": "npm"})
+		items = append(items, map[string]any{"name": name, "description": description, "visibility": visibility, "retention": retention, "created_at": created, "owner": owner, "ecosystem": eco})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
@@ -105,6 +123,7 @@ func (a *App) createCrate(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		Visibility  string `json:"visibility"`
 		Retention   int    `json:"retention"`
+		Ecosystem   string `json:"ecosystem"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -117,15 +136,18 @@ func (a *App) createCrate(w http.ResponseWriter, r *http.Request) {
 	if in.Retention == 0 {
 		in.Retention = 20
 	}
-	if !crateNamePattern.MatchString(in.Name) || len(in.Description) > 500 || (in.Visibility != "public" && in.Visibility != "private") || in.Retention < 1 || in.Retention > 100 {
-		fail(w, 422, "validation_failed", "Use a package name, public or private visibility, and retention from 1 to 100. This is a GITOWN crate record, not an npm registry.")
+	if in.Ecosystem == "" {
+		in.Ecosystem = "npm"
+	}
+	if !crateNamePattern.MatchString(in.Name) || len(in.Description) > 500 || (in.Visibility != "public" && in.Visibility != "private") || in.Retention < 1 || in.Retention > 100 || (in.Ecosystem != "npm" && in.Ecosystem != "oci") {
+		fail(w, 422, "validation_failed", "Use a package name, public or private visibility, retention from 1 to 100, and npm or oci as the ecosystem. This is a GITOWN crate record, not an npm registry.")
 		return
 	}
 	id := auth.ID()
 	var created any
-	err := a.db.QueryRow(r.Context(), `INSERT INTO crates(id,owner_id,name,description,visibility,retention) VALUES($1,$2,$3,$4,$5,$6) RETURNING created_at`, id, u.ID, in.Name, in.Description, in.Visibility, in.Retention).Scan(&created)
+	err := a.db.QueryRow(r.Context(), `INSERT INTO crates(id,owner_id,name,ecosystem,description,visibility,retention) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING created_at`, id, u.ID, in.Name, in.Ecosystem, in.Description, in.Visibility, in.Retention).Scan(&created)
 	if conflict(err) {
-		fail(w, 409, "crate_exists", "A package with that name already exists.")
+		fail(w, 409, "crate_exists", "A package with that name already exists in that ecosystem.")
 		return
 	}
 	if err != nil {
@@ -133,7 +155,7 @@ func (a *App) createCrate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'crate.created',$2)`, u.ID, "crate/"+in.Name)
-	respond(w, 201, map[string]any{"name": in.Name, "description": in.Description, "visibility": in.Visibility, "retention": in.Retention, "ecosystem": "npm", "created_at": created})
+	respond(w, 201, map[string]any{"name": in.Name, "description": in.Description, "visibility": in.Visibility, "retention": in.Retention, "ecosystem": in.Ecosystem, "created_at": created})
 }
 
 func (a *App) loadCrate(w http.ResponseWriter, r *http.Request, write bool) (id, ownerID, name, description, visibility string, retention int, ok bool) {
@@ -141,8 +163,13 @@ func (a *App) loadCrate(w http.ResponseWriter, r *http.Request, write bool) (id,
 	if u == nil {
 		return "", "", "", "", "", 0, false
 	}
+	eco, valid := crateEcosystem(r)
+	if !valid {
+		fail(w, 422, "validation_failed", "Ecosystem must be npm or oci.")
+		return "", "", "", "", "", 0, false
+	}
 	name = strings.ToLower(r.PathValue("name"))
-	err := a.db.QueryRow(r.Context(), `SELECT id::text,owner_id::text,description,visibility,retention FROM crates WHERE ecosystem='npm' AND name=$1`, name).Scan(&id, &ownerID, &description, &visibility, &retention)
+	err := a.db.QueryRow(r.Context(), `SELECT id::text,owner_id::text,description,visibility,retention FROM crates WHERE ecosystem=$2 AND name=$1`, name, eco).Scan(&id, &ownerID, &description, &visibility, &retention)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && visibility == "private" && ownerID != u.ID) {
 		fail(w, 404, "not_found", "Package not found.")
 		return "", "", "", "", "", 0, false
@@ -152,7 +179,7 @@ func (a *App) loadCrate(w http.ResponseWriter, r *http.Request, write bool) (id,
 		return "", "", "", "", "", 0, false
 	}
 	if write && ownerID != u.ID {
-		fail(w, 403, "forbidden", "Only the package owner can publish or delete versions.")
+		fail(w, 403, "forbidden", "Only the package owner can change this record.")
 		return "", "", "", "", "", 0, false
 	}
 	return id, ownerID, name, description, visibility, retention, true
@@ -163,7 +190,8 @@ func (a *App) crate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT version,sha256,size_bytes,created_at FROM crate_versions WHERE crate_id=$1 ORDER BY created_at DESC LIMIT 100`, id)
+	eco, _ := crateEcosystem(r)
+	rows, err := a.db.Query(r.Context(), `SELECT version,metadata,sha256,size_bytes,created_at FROM crate_versions WHERE crate_id=$1 ORDER BY created_at DESC LIMIT 100`, id)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -171,20 +199,55 @@ func (a *App) crate(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	versions := []map[string]any{}
 	for rows.Next() {
-		var version, sum string
+		var version, metadata, sum string
 		var size int64
 		var created any
-		if err = rows.Scan(&version, &sum, &size, &created); err != nil {
+		if err = rows.Scan(&version, &metadata, &sum, &size, &created); err != nil {
 			serverError(w, err)
 			return
 		}
-		versions = append(versions, map[string]any{"version": version, "sha256": sum, "size_bytes": size, "created_at": created})
+		versions = append(versions, map[string]any{"version": version, "metadata": metadata, "sha256": sum, "size_bytes": size, "created_at": created})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"name": name, "description": description, "visibility": visibility, "retention": retention, "ecosystem": "npm", "versions": versions})
+	respond(w, 200, map[string]any{"name": name, "description": description, "visibility": visibility, "retention": retention, "ecosystem": eco, "versions": versions})
+}
+
+func (a *App) updateCrate(w http.ResponseWriter, r *http.Request) {
+	id, _, name, description, visibility, retention, ok := a.loadCrate(w, r, true)
+	if !ok {
+		return
+	}
+	var in struct {
+		Description *string `json:"description"`
+		Visibility  *string `json:"visibility"`
+		Retention   *int    `json:"retention"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Description != nil {
+		description = strings.TrimSpace(*in.Description)
+	}
+	if in.Visibility != nil {
+		visibility = *in.Visibility
+	}
+	if in.Retention != nil {
+		retention = *in.Retention
+	}
+	if len(description) > 500 || (visibility != "public" && visibility != "private") || retention < 1 || retention > 100 {
+		fail(w, 422, "validation_failed", "Use a description up to 500 characters, public or private visibility, and retention from 1 to 100.")
+		return
+	}
+	if _, err := a.db.Exec(r.Context(), `UPDATE crates SET description=$1,visibility=$2,retention=$3 WHERE id=$4`, description, visibility, retention, id); err != nil {
+		serverError(w, err)
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'crate.updated',$2)`, a.user(r).ID, "crate/"+name)
+	eco, _ := crateEcosystem(r)
+	respond(w, 200, map[string]any{"name": name, "description": description, "visibility": visibility, "retention": retention, "ecosystem": eco})
 }
 
 func (a *App) deleteCrate(w http.ResponseWriter, r *http.Request) {

@@ -157,6 +157,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/crates", a.crates)
 	mux.HandleFunc("POST /api/v1/crates", a.createCrate)
 	mux.HandleFunc("GET /api/v1/crates/{name}", a.crate)
+	mux.HandleFunc("PATCH /api/v1/crates/{name}", a.updateCrate)
 	mux.HandleFunc("DELETE /api/v1/crates/{name}", a.deleteCrate)
 	mux.HandleFunc("POST /api/v1/crates/{name}/versions", a.publishCrateVersion)
 	mux.HandleFunc("DELETE /api/v1/crates/{name}/versions/{version}", a.deleteCrateVersion)

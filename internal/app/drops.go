@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -92,6 +93,10 @@ func (a *App) drops(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	items := []map[string]any{}
+	// The listing is already ordered newest-first, so the first row that is
+	// neither a draft nor a prerelease is, by construction, the most recent
+	// full release — no separate query or semver comparison needed.
+	latest := ""
 	for rows.Next() {
 		var tag, title, author string
 		var draft, prerelease bool
@@ -101,12 +106,15 @@ func (a *App) drops(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"tag": tag, "title": title, "draft": draft, "prerelease": prerelease, "created_at": created, "author": author})
+		if latest == "" && !draft && !prerelease {
+			latest = tag
+		}
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"items": items})
+	respond(w, 200, map[string]any{"items": items, "latest": latest})
 }
 
 func (a *App) createDrop(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +263,7 @@ func (a *App) drop(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT a.name,a.size_bytes,a.sha256,a.download_count FROM drop_assets a JOIN drops d ON d.id=a.drop_id WHERE d.repository_id=$1 AND d.tag=$2 ORDER BY a.name`, repo.ID, tag)
+	rows, err := a.db.Query(r.Context(), `SELECT a.name,a.size_bytes,a.sha256,a.download_count,a.content_type FROM drop_assets a JOIN drops d ON d.id=a.drop_id WHERE d.repository_id=$1 AND d.tag=$2 ORDER BY a.name`, repo.ID, tag)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -263,14 +271,14 @@ func (a *App) drop(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	assets := []map[string]any{}
 	for rows.Next() {
-		var name, sum string
+		var name, sum, contentType string
 		var size int64
 		var downloads int
-		if err = rows.Scan(&name, &size, &sum, &downloads); err != nil {
+		if err = rows.Scan(&name, &size, &sum, &downloads, &contentType); err != nil {
 			serverError(w, err)
 			return
 		}
-		assets = append(assets, map[string]any{"name": name, "size_bytes": size, "sha256": sum, "download_count": downloads})
+		assets = append(assets, map[string]any{"name": name, "size_bytes": size, "sha256": sum, "download_count": downloads, "content_type": contentType})
 	}
 	if err = rows.Err(); err != nil {
 		serverError(w, err)
@@ -279,7 +287,19 @@ func (a *App) drop(w http.ResponseWriter, r *http.Request) {
 	sha, _ := a.git.ResolveTag(r.Context(), repo.ID, tag)
 	var verified bool
 	_ = a.db.QueryRow(r.Context(), `SELECT provenance_verified FROM drops WHERE repository_id=$1 AND tag=$2`, repo.ID, tag).Scan(&verified)
-	respond(w, 200, map[string]any{"tag": tag, "title": title, "body": body, "provenance": provenance, "provenance_verified": verified, "draft": draft, "prerelease": prerelease, "sha": sha, "changelog": a.generatedChangelog(r, repo.ID, tag, sha), "assets": assets})
+	// Two distinct, separately-meaningful claims, reported as two fields so
+	// neither is mistaken for covering the other: tag_signed is a real
+	// cryptographic verification of the Git tag object itself (git tag -v
+	// against this account's registered signing keys); provenance_verified
+	// is a verification of a client-supplied note about the release
+	// artifacts, signed separately by the publisher. A Drop can have either,
+	// both, or neither — they do not have to agree.
+	tagSigned, tagErr := a.verifiedTagSignature(r.Context(), repo.ID, tag)
+	if tagErr != nil {
+		serverError(w, tagErr)
+		return
+	}
+	respond(w, 200, map[string]any{"tag": tag, "title": title, "body": body, "provenance": provenance, "provenance_verified": verified, "tag_signed": tagSigned, "draft": draft, "prerelease": prerelease, "sha": sha, "changelog": a.generatedChangelog(r, repo.ID, tag, sha), "assets": assets})
 }
 
 func (a *App) updateDrop(w http.ResponseWriter, r *http.Request) {
@@ -385,12 +405,15 @@ func (a *App) uploadDropAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(content)
 	digest := hex.EncodeToString(sum[:])
+	// Sniffed from the actual bytes rather than trusted from a client header,
+	// so a download can't be tricked into announcing a type the file isn't.
+	contentType := http.DetectContentType(content)
 	id := auth.ID()
 	if err := writePrivateFile(filepath.Join(a.extraRoot(), "drops", dropID, id), content); err != nil {
 		serverError(w, err)
 		return
 	}
-	_, err := a.db.Exec(r.Context(), `INSERT INTO drop_assets(id,drop_id,name,size_bytes,sha256) VALUES($1,$2,$3,$4,$5)`, id, dropID, name, len(content), digest)
+	_, err := a.db.Exec(r.Context(), `INSERT INTO drop_assets(id,drop_id,name,size_bytes,sha256,content_type) VALUES($1,$2,$3,$4,$5,$6)`, id, dropID, name, len(content), digest, contentType)
 	if err != nil {
 		_ = os.Remove(filepath.Join(a.extraRoot(), "drops", dropID, id))
 		if conflict(err) {
@@ -401,18 +424,18 @@ func (a *App) uploadDropAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'drop.asset_added',$2)`, a.user(r).ID, repo.Owner+"/"+repo.Name+":"+tag+":"+name)
-	respond(w, 201, map[string]any{"name": name, "size_bytes": len(content), "sha256": digest})
+	respond(w, 201, map[string]any{"name": name, "size_bytes": len(content), "sha256": digest, "content_type": contentType})
 }
 
 func (a *App) downloadDropAsset(w http.ResponseWriter, r *http.Request) {
-	repo, dropID, _, _, _, _, draft, _, ok := a.loadDrop(w, r, false)
+	_, dropID, _, _, _, _, _, _, ok := a.loadDrop(w, r, false)
 	if !ok {
 		return
 	}
 	name := r.PathValue("name")
-	var id, digest string
+	var id, digest, contentType string
 	var size int64
-	err := a.db.QueryRow(r.Context(), `SELECT id::text,sha256,size_bytes FROM drop_assets WHERE drop_id=$1 AND name=$2`, dropID, name).Scan(&id, &digest, &size)
+	err := a.db.QueryRow(r.Context(), `SELECT id::text,sha256,size_bytes,content_type FROM drop_assets WHERE drop_id=$1 AND name=$2`, dropID, name).Scan(&id, &digest, &size, &contentType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, 404, "not_found", "Asset not found.")
 		return
@@ -427,14 +450,35 @@ func (a *App) downloadDropAsset(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if repo.Visibility == "public" && !draft {
-		_, _ = a.db.Exec(r.Context(), `UPDATE drop_assets SET download_count=download_count+1 WHERE id=$1`, id)
+	a.countAssetDownload(r, id)
+	if contentType == "" {
+		contentType = "application/octet-stream"
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Type", contentType)
+	// Always served as an attachment, regardless of the sniffed type, so an
+	// uploaded HTML or SVG file is downloaded rather than rendered inline by
+	// the browser in the app's own origin.
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("ETag", `"`+digest+`"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
+}
+
+// countAssetDownload increments an asset's counter at most once per identity
+// (the signed-in user, or the caller's IP when anonymous) per hour, so
+// refreshing a download link repeatedly no longer inflates the count
+// unboundedly. It counts downloads of private and internal repository
+// assets too — previously only public, non-draft assets were counted at all.
+func (a *App) countAssetDownload(r *http.Request, assetID string) {
+	identity := "ip:" + clientIP(r)
+	if u := a.user(r); u != nil {
+		identity = "user:" + u.ID
+	}
+	result, err := a.db.Exec(r.Context(), `INSERT INTO drop_asset_downloads(asset_id,identity,bucket) VALUES($1,$2,date_trunc('hour',now())) ON CONFLICT DO NOTHING`, assetID, identity)
+	if err != nil || result.RowsAffected() == 0 {
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `UPDATE drop_assets SET download_count=download_count+1 WHERE id=$1`, assetID)
 }
 
 func (a *App) deleteDropAsset(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +498,13 @@ func (a *App) deleteDropAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = os.Remove(filepath.Join(a.extraRoot(), "drops", dropID, id))
 	respond(w, 200, map[string]bool{"removed": true})
+}
+
+func clientIP(r *http.Request) string {
+	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return ip
+	}
+	return r.RemoteAddr
 }
 
 func writePrivateFile(path string, data []byte) error {
