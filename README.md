@@ -7,6 +7,7 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
+The early workflow-planning preview is documented in [Routes](docs/ROUTES.md); it does not execute repository-authored commands.
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works

@@ -96,9 +96,14 @@ Slack and Discord integrations reuse the webhook delivery infrastructure directl
 
 External CI integration is now a complete, real path rather than a status-only workaround: a CI system subscribes to `push`/`pull.*` webhook events to learn when to run, and reports back through the existing commit-status API from Phase 3 — no polling required on either side.
 
-## Later phases (planned)
+## Phase 11 — Routes (partial)
 
-11. Routes: sandboxed automation runners, workflow definitions, logs, artifacts, cancellation, and check integration.
-12. Extended ecosystem: wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, card billing, and high availability. SAML/OIDC and IP restrictions stay later as well.
+Shipped preview: bounded workflow YAML parsing, push/opened-Unite/manual run planning, local reusable workflow and matrix expansion, dependency and protected-environment approval gates, a repository Routes tab, queued-run cancellation and expiry, a planning log, and a pending commit status. [Routes documentation](ROUTES.md) states the exact limits.
+
+Remaining gate: a reviewed sandboxed executor, immutable checkout, ephemeral credentials and secrets, process and network isolation, quotas, actual step logs and artifacts, cancellation of running jobs, terminal check statuses, schedule catch-up/retry, and runner operations. **No workflow command executes in this preview.**
+
+## Phase 12 — Extended ecosystem (planned)
+
+Wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, card billing, and high availability are the proposed scope. SAML/OIDC and IP restrictions remain later too. Each product needs its own security, authorization, migration, export, and operational gate before being called complete.
 
 The naming contract is defined in [NAMING.md](NAMING.md). Standard Git protocol and commands remain compatible even when GITOWN presents friendlier names in its UI and CLI.

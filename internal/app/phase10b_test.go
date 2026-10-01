@@ -238,8 +238,8 @@ func TestPhase10GitownAppInstallation(t *testing.T) {
 	owner.request("POST", "/repos/"+repoA.Owner+"/"+repoA.Name+"/gitown-apps", map[string]string{"client_id": gitownApp.ID, "scope": "repo:write"}, 422, nil)
 
 	var install struct {
-		ID                 string `json:"id"`
-		InstallationToken  string `json:"installation_token"`
+		ID                string `json:"id"`
+		InstallationToken string `json:"installation_token"`
 	}
 	owner.request("POST", "/repos/"+repoA.Owner+"/"+repoA.Name+"/gitown-apps", map[string]string{"client_id": gitownApp.ID, "scope": "repo:read"}, 201, &install)
 	if install.InstallationToken == "" {
