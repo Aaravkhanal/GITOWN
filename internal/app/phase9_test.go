@@ -129,7 +129,7 @@ func TestPhase9DropDownloadsAndReleases(t *testing.T) {
 	for _, repo := range []string{"pub", "priv"} {
 		owner.request("POST", "/repos/owner/"+repo+"/drops", map[string]any{"tag": "v1.0.0", "title": "First", "create_tag": true}, 201, nil)
 		owner.request("POST", "/repos/owner/"+repo+"/drops/v1.0.0/assets", map[string]string{
-			"name":            "note.txt",
+			"name":           "note.txt",
 			"content_base64": base64.StdEncoding.EncodeToString([]byte("hello asset\n")),
 		}, 201, nil)
 		for i := 0; i < 3; i++ {

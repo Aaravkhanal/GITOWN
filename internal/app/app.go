@@ -51,6 +51,7 @@ type App struct {
 // scrape or abuse loop would want while covering that real usage. This is
 // separate from authLimit, which is a much tighter, login-specific limit.
 const apiRateLimitPerMinute = 1200
+
 type rateWindow struct {
 	count int
 	until time.Time
@@ -314,6 +315,14 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/webhooks/{id}", a.deleteRepoWebhook)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries", a.repoWebhookDeliveries)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries/{deliveryId}/replay", a.replayRepoWebhookDelivery)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/workflows", a.routesWorkflows)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/runs", a.routesRuns)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/runs/{id}", a.routesRunDetail)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/dispatch", a.dispatchRoute)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/runs/{id}/cancel", a.cancelRouteRun)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/jobs/{id}/approve", a.approveRouteJob)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/environments", a.routeEnvironments)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/routes/environments/{name}", a.updateRouteEnvironment)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/maintenance", a.maintainRepository)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/district", a.updateRepositoryDistrict)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/refs", a.refEvents)

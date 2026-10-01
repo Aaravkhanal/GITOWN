@@ -36,8 +36,10 @@ import {
   Terminal,
   Trash2,
   Users,
+  Workflow,
 } from "lucide-react";
 import { DropsPanel } from "@/components/ecosystem";
+import { RouteEnvironmentSettings, RoutesPanel } from "@/components/routes";
 import {
   api,
   patch,
@@ -265,6 +267,12 @@ export function RepositoryPage({
             label: "Drops",
             href: `${basePath}/drops`,
           },
+          {
+            key: "routes",
+            icon: Workflow,
+            label: "Routes",
+            href: `${basePath}/routes`,
+          },
           ...(r.can_manage || r.can_maintain
             ? [
                 {
@@ -336,6 +344,8 @@ export function RepositoryPage({
         <RefActivity endpoint={endpoint} />
       ) : tab === "drops" ? (
         <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
+      ) : tab === "routes" ? (
+        <RoutesPanel endpoint={endpoint} repo={r} />
       ) : tab === "issues" && number ? (
         <IssueDetail endpoint={endpoint} repo={r} number={number} />
       ) : tab === "issues" ? (
@@ -1224,6 +1234,9 @@ function RepositorySettings({
           endpoint={endpoint}
           description="Send a signed HTTP POST to another service whenever something happens in this repository."
         />
+      )}
+      {(repo.can_manage || repo.can_maintain) && (
+        <RouteEnvironmentSettings endpoint={endpoint} />
       )}
       {repo.can_manage && (
         <RepositoryMaintenance

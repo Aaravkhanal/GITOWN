@@ -184,6 +184,12 @@ func (a *App) finishReceive(ctx context.Context, repo *Repository, actorID strin
 			slog.Error("webhook enqueue failed", "error", err, "kind", "push")
 		}
 	}
+	zeroSHA := strings.Repeat("0", 40)
+	for _, update := range updates {
+		if branch, ok := strings.CutPrefix(update.Ref, "refs/heads/"); ok && update.New != "" && update.New != zeroSHA {
+			a.evaluateRouteTriggers(ctx, repo, actorID, branch, update.New, "push", "push via "+via)
+		}
+	}
 	_ = a.noteRepositoryFacts(ctx, repo)
 }
 

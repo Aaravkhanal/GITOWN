@@ -458,6 +458,9 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if headSHA, resolveErr := a.git.Resolve(r.Context(), repo.ID, p.Head); resolveErr == nil {
+		a.evaluateRouteTriggers(r.Context(), repo, u.ID, p.Head, headSHA, "pull_request", fmt.Sprintf("pull #%d opened", p.Number))
+	}
 	respond(w, 201, p)
 }
 

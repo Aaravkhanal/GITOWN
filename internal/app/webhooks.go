@@ -39,20 +39,22 @@ const (
 // used at each firing site (e.g. "issue.opened") so the two logs read the
 // same way.
 var webhookEventKinds = map[string]bool{
-	"push":            true,
-	"issue.opened":    true,
-	"issue.closed":    true,
-	"issue.reopened":  true,
-	"issue.commented": true,
-	"pull.opened":     true,
-	"pull.closed":     true,
-	"pull.reopened":   true,
-	"pull.merged":     true,
-	"pull.reviewed":   true,
-	"pull.commented":  true,
-	"drop.published":  true,
-	"app.installed":   true,
-	"app.uninstalled": true,
+	"push":                true,
+	"issue.opened":        true,
+	"issue.closed":        true,
+	"issue.reopened":      true,
+	"issue.commented":     true,
+	"pull.opened":         true,
+	"pull.closed":         true,
+	"pull.reopened":       true,
+	"pull.merged":         true,
+	"pull.reviewed":       true,
+	"pull.commented":      true,
+	"drop.published":      true,
+	"app.installed":       true,
+	"app.uninstalled":     true,
+	"route.run_queued":    true,
+	"route.run_cancelled": true,
 }
 
 // execer is satisfied by both *pgxpool.Pool and pgx.Tx, so fireWebhook can
@@ -247,8 +249,8 @@ func (a *App) startWebhookWorker(ctx context.Context) {
 
 type queuedWebhookDelivery struct {
 	id, webhookID, event string
-	payload               []byte
-	attempts              int
+	payload              []byte
+	attempts             int
 }
 
 func (a *App) claimWebhookDeliveries(ctx context.Context) ([]queuedWebhookDelivery, error) {
