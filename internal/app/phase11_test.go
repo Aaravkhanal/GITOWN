@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/cookiejar"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,9 +13,6 @@ import (
 	"time"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
-	"github.com/Aaravkhanal/GITOWN/internal/config"
-	"github.com/Aaravkhanal/GITOWN/migrations"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestPhase11NoExecutionOfWorkflowContent is a safety-net test proving no
@@ -223,21 +219,9 @@ func TestPhase11PushTriggerCreatesRun(t *testing.T) {
 		t.Skip("set TEST_DATABASE_URL to run PostgreSQL and real Git integration tests")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if err = migrations.Apply(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	storage := t.TempDir()
-	application, err := New(config.Config{DataDir: storage, Origin: "http://localhost:3000", GitURL: "http://localhost/git", Signup: true}, pool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(application.Handler())
-	defer server.Close()
+	server, application, closeServer := newPhase9Server(t, databaseURL)
+	defer closeServer()
+	pool := application.db
 	jar, _ := cookiejar.New(nil)
 	owner := testClient{t, server.URL, &http.Client{Jar: jar}}
 	owner.request("POST", "/auth/register", map[string]string{"username": "routeowner", "email": "routeowner@example.test", "password": "route-owner-password"}, 201, nil)
@@ -273,6 +257,8 @@ func TestPhase11PushTriggerCreatesRun(t *testing.T) {
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: "* * * * *"
   workflow_dispatch: {}
 jobs:
   build:
@@ -308,6 +294,25 @@ jobs:
 	if runs.Items[0].Status != "queued" {
 		t.Fatalf("expected the run to be queued (no executor exists), got %q", runs.Items[0].Status)
 	}
+	pushRunID := runs.Items[0].ID
+	var registeredCron string
+	if err := pool.QueryRow(ctx, `SELECT cron FROM route_schedules WHERE repository_id=(SELECT id FROM repositories WHERE name='ciproj' AND owner_id=(SELECT id FROM users WHERE username='routeowner')) AND workflow_path='.gitown/workflows/ci.yml'`).Scan(&registeredCron); err != nil || registeredCron != "* * * * *" {
+		t.Fatalf("pushed workflow schedule was not registered: cron=%q err=%v", registeredCron, err)
+	}
+	if err := application.fireDueRouteSchedules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner.request("GET", "/repos/routeowner/ciproj/routes/runs", nil, 200, &runs)
+	if len(runs.Items) != 2 {
+		t.Fatalf("one due schedule should queue one more run, got %+v", runs.Items)
+	}
+	if err := application.fireDueRouteSchedules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner.request("GET", "/repos/routeowner/ciproj/routes/runs", nil, 200, &runs)
+	if len(runs.Items) != 2 {
+		t.Fatalf("schedule fired twice in one minute: %+v", runs.Items)
+	}
 
 	var detail struct {
 		Jobs []struct {
@@ -317,7 +322,7 @@ jobs:
 			Environment string   `json:"environment"`
 		} `json:"jobs"`
 	}
-	owner.request("GET", "/repos/routeowner/ciproj/routes/runs/"+runs.Items[0].ID, nil, 200, &detail)
+	owner.request("GET", "/repos/routeowner/ciproj/routes/runs/"+pushRunID, nil, 200, &detail)
 	if len(detail.Jobs) != 2 {
 		t.Fatalf("expected 2 resolved jobs (build, deploy), got %d", len(detail.Jobs))
 	}
@@ -343,10 +348,14 @@ jobs:
 	}
 
 	// Cancel the run and confirm it and its jobs move to 'cancelled'.
-	owner.request("POST", "/repos/routeowner/ciproj/routes/runs/"+runs.Items[0].ID+"/cancel", nil, 200, nil)
+	owner.request("POST", "/repos/routeowner/ciproj/routes/runs/"+pushRunID+"/cancel", nil, 200, nil)
 	owner.request("GET", "/repos/routeowner/ciproj/routes/runs", nil, 200, &runs)
-	if runs.Items[0].Status != "cancelled" {
-		t.Fatalf("expected the run to be cancelled, got %q", runs.Items[0].Status)
+	cancelled := false
+	for _, run := range runs.Items {
+		cancelled = cancelled || run.ID == pushRunID && run.Status == "cancelled"
+	}
+	if !cancelled {
+		t.Fatalf("expected the push-triggered run to be cancelled: %+v", runs.Items)
 	}
 }
 
@@ -359,21 +368,9 @@ func TestPhase11EnvironmentApprovalGatesJob(t *testing.T) {
 		t.Skip("set TEST_DATABASE_URL to run PostgreSQL and real Git integration tests")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if err = migrations.Apply(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	storage := t.TempDir()
-	application, err := New(config.Config{DataDir: storage, Origin: "http://localhost:3000", GitURL: "http://localhost/git", Signup: true}, pool)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(application.Handler())
-	defer server.Close()
+	server, application, closeServer := newPhase9Server(t, databaseURL)
+	defer closeServer()
+	pool := application.db
 	jarOwner, _ := cookiejar.New(nil)
 	owner := testClient{t, server.URL, &http.Client{Jar: jarOwner}}
 	jarApprover, _ := cookiejar.New(nil)

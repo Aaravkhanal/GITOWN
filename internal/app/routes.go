@@ -183,12 +183,63 @@ func parseRoutesFile(data []byte) (*routesFile, error) {
 	if cycle := routesDetectCycle(f.Jobs); cycle != "" {
 		return nil, fmt.Errorf("the job graph has a cycle at %q", cycle)
 	}
+	if len(f.On.Schedule) > 1 {
+		return nil, errors.New("a workflow can declare at most one schedule")
+	}
 	for _, item := range f.On.Schedule {
 		if _, err := parseRoutesCron(item.Cron); err != nil {
 			return nil, err
 		}
 	}
 	return &f, nil
+}
+
+// syncRouteSchedules follows the repository's current default branch. It
+// replaces the registry only after every candidate workflow has been read,
+// so a transient Git error cannot erase a previously registered schedule.
+func (a *App) syncRouteSchedules(ctx context.Context, repo *Repository) error {
+	tree, err := a.git.Browse(ctx, repo.ID, repo.DefaultBranch, routesDir)
+	if err != nil && !errors.Is(err, gitstore.ErrNotFound) {
+		return err
+	}
+	schedules := map[string]string{}
+	if err == nil {
+		load := a.routesGitLoader(repo.ID, repo.DefaultBranch)
+		for _, entry := range tree.Entries {
+			if entry.Type != "blob" || !(strings.HasSuffix(entry.Name, ".yml") || strings.HasSuffix(entry.Name, ".yaml")) {
+				continue
+			}
+			path := routesDir + "/" + entry.Name
+			data, readErr := load(ctx, path)
+			if readErr != nil {
+				return readErr
+			}
+			file, parseErr := parseRoutesFile(data)
+			if parseErr == nil && len(file.On.Schedule) == 1 {
+				schedules[path] = file.On.Schedule[0].Cron
+			}
+		}
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	paths := make([]string, 0, len(schedules))
+	for path := range schedules {
+		paths = append(paths, path)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM route_schedules WHERE repository_id=$1 AND NOT (workflow_path=ANY($2::text[]))`, repo.ID, paths); err != nil {
+		return err
+	}
+	for path, cron := range schedules {
+		if _, err = tx.Exec(ctx, `INSERT INTO route_schedules(id,repository_id,workflow_path,cron) VALUES($1,$2,$3,$4)
+			ON CONFLICT(repository_id,workflow_path) DO UPDATE SET cron=excluded.cron,
+			last_fired_minute=CASE WHEN route_schedules.cron=excluded.cron THEN route_schedules.last_fired_minute ELSE NULL END`, auth.ID(), repo.ID, path, cron); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func routesDetectCycle(jobs map[string]routesJobDef) string {
@@ -1121,11 +1172,23 @@ func (a *App) fireDueRouteSchedules(ctx context.Context) error {
 		}
 		sha, _ := a.git.Resolve(ctx, repo.ID, repo.DefaultBranch)
 		load := a.routesGitLoader(repo.ID, repo.DefaultBranch)
+		registered := false
+		for _, item := range file.On.Schedule {
+			registered = registered || item.Cron == d.cron
+		}
+		if !registered {
+			continue
+		}
+		tag, err := a.db.Exec(ctx, `UPDATE route_schedules SET last_fired_minute=$1 WHERE id=$2 AND (last_fired_minute IS NULL OR last_fired_minute<$1)`, minuteStart, d.id)
+		if err != nil {
+			slog.Error("route schedule claim failed", "error", err)
+			continue
+		}
+		if tag.RowsAffected() == 0 {
+			continue
+		}
 		if err := a.createRouteRun(ctx, repo, d.path, file, load, repo.DefaultBranch, sha, "schedule", "", "scheduled run"); err != nil {
 			slog.Error("scheduled route run failed", "error", err, "path", d.path)
-		}
-		if _, err = a.db.Exec(ctx, `UPDATE route_schedules SET last_fired_minute=$1 WHERE id=$2`, minuteStart, d.id); err != nil {
-			slog.Error("route schedule update failed", "error", err)
 		}
 	}
 	return nil

@@ -100,7 +100,7 @@ External CI integration is now a complete, real path rather than a status-only w
 
 Shipped preview: bounded workflow YAML parsing, push/opened-Unite/manual run planning, local reusable workflow and matrix expansion, dependency and protected-environment approval gates, a repository Routes tab, queued-run cancellation and expiry, a planning log, and a pending commit status. [Routes documentation](ROUTES.md) states the exact limits.
 
-Remaining gate: a reviewed sandboxed executor, immutable checkout, ephemeral credentials and secrets, process and network isolation, quotas, actual step logs and artifacts, cancellation of running jobs, terminal check statuses, reliable scheduled-trigger registration, and runner operations. **No workflow command executes in this preview.**
+Remaining gate: a reviewed sandboxed executor, immutable checkout, ephemeral credentials and secrets, process and network isolation, quotas, actual step logs and artifacts, cancellation of running jobs, terminal check statuses, schedule catch-up/retry, and runner operations. **No workflow command executes in this preview.**
 
 ## Phase 12 — Extended ecosystem (planned)
 

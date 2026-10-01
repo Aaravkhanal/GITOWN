@@ -185,9 +185,16 @@ func (a *App) finishReceive(ctx context.Context, repo *Repository, actorID strin
 		}
 	}
 	zeroSHA := strings.Repeat("0", 40)
+	defaultBranchUpdated := false
 	for _, update := range updates {
 		if branch, ok := strings.CutPrefix(update.Ref, "refs/heads/"); ok && update.New != "" && update.New != zeroSHA {
 			a.evaluateRouteTriggers(ctx, repo, actorID, branch, update.New, "push", "push via "+via)
+			defaultBranchUpdated = defaultBranchUpdated || branch == repo.DefaultBranch
+		}
+	}
+	if defaultBranchUpdated {
+		if err := a.syncRouteSchedules(ctx, repo); err != nil {
+			slog.Error("route schedule sync failed", "error", err, "repository", repo.Owner+"/"+repo.Name)
 		}
 	}
 	_ = a.noteRepositoryFacts(ctx, repo)
