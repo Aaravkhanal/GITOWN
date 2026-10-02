@@ -40,6 +40,75 @@ servers:
 security:
   - session: []
 paths:
+  /repos/{owner}/{repo}/wiki:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    get:
+      security: []
+      summary: List Git-backed wiki page slugs on the default branch
+      responses:
+        "200":
+          description: Visible page slugs and the current branch head SHA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages: { type: array, items: { type: string } }
+                  head_sha: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/wiki/{slug}:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - {
+          name: slug,
+          in: path,
+          required: true,
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,79}$" },
+        }
+    get:
+      security: []
+      summary: Read a UTF-8 wiki page from the default branch
+      responses:
+        "200":
+          description: Markdown source and current branch head SHA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug: { type: string }
+                  content: { type: string }
+                  head_sha: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Create or edit a wiki page as a Git commit, with stale-head and branch-rule protection
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, expected_head]
+              properties:
+                content: { type: string, maxLength: 131072 }
+                expected_head: { type: string, pattern: "^[0-9a-f]{40}$" }
+      responses:
+        "201":
+          description: Saved wiki commit
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug: { type: string }
+                  sha: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /search/builders:
     get:
       security: []

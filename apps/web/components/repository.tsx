@@ -37,9 +37,11 @@ import {
   Trash2,
   Users,
   Workflow,
+  BookOpenText,
 } from "lucide-react";
 import { DropsPanel } from "@/components/ecosystem";
 import { RouteEnvironmentSettings, RoutesPanel } from "@/components/routes";
+import { WikiPanel } from "@/components/wiki";
 import {
   api,
   patch,
@@ -273,6 +275,12 @@ export function RepositoryPage({
             label: "Routes",
             href: `${basePath}/routes`,
           },
+          {
+            key: "wiki",
+            icon: BookOpenText,
+            label: "Wiki",
+            href: `${basePath}/wiki`,
+          },
           ...(r.can_manage || r.can_maintain
             ? [
                 {
@@ -346,6 +354,8 @@ export function RepositoryPage({
         <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
       ) : tab === "routes" ? (
         <RoutesPanel endpoint={endpoint} repo={r} />
+      ) : tab === "wiki" ? (
+        <WikiPanel endpoint={endpoint} repo={r} pageSlug={number} />
       ) : tab === "issues" && number ? (
         <IssueDetail endpoint={endpoint} repo={r} number={number} />
       ) : tab === "issues" ? (

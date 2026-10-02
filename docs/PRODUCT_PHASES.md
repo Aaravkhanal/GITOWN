@@ -102,8 +102,10 @@ Shipped preview: bounded workflow YAML parsing, push/opened-Unite/manual run pla
 
 Remaining gate: a reviewed sandboxed executor, immutable checkout, ephemeral credentials and secrets, process and network isolation, quotas, actual step logs and artifacts, cancellation of running jobs, terminal check statuses, schedule catch-up/retry, and runner operations. **No workflow command executes in this preview.**
 
-## Phase 12 — Extended ecosystem (planned)
+## Phase 12 — Extended ecosystem (partial)
 
-Wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, card billing, and high availability are the proposed scope. SAML/OIDC and IP restrictions remain later too. Each product needs its own security, authorization, migration, export, and operational gate before being called complete.
+Shipped foundation: a [Git-backed repository Wiki](WIKI.md) with safe Markdown display, default-branch page history, browser creation/editing with stale-head rejection and branch-rule enforcement, and ordinary Git exportability.
+
+Remaining gate: wiki attachments and search, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, real card billing, and high availability. SAML/OIDC and IP restrictions remain later too. Each product needs its own security, authorization, migration, export, and operational gate before being called complete.
 
 The naming contract is defined in [NAMING.md](NAMING.md). Standard Git protocol and commands remain compatible even when GITOWN presents friendlier names in its UI and CLI.

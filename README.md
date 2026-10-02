@@ -8,6 +8,7 @@ This is a **local development alpha**, not the finished GitHub-equivalent MVP. S
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
 The early workflow-planning preview is documented in [Routes](docs/ROUTES.md); it does not execute repository-authored commands.
+The Phase 12 [Wiki preview](docs/WIKI.md) stores pages as Markdown in each repository's Git history.
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works

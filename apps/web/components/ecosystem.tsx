@@ -105,11 +105,11 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   return nodes;
 }
 
-/** A minimal, safe Markdown renderer for release notes: headings, bold,
+/** A minimal, safe Markdown renderer for release notes and wiki pages: headings, bold,
  * italic, inline code, fenced code blocks, links, and lists. Everything is
  * built as React elements, never as raw HTML, so there is no injection risk
  * regardless of what a release note contains. */
-function ReleaseNotes({ text }: { text: string }) {
+export function SafeMarkdown({ text }: { text: string }) {
   const lines = text.split("\n");
   const blocks: React.ReactNode[] = [];
   let i = 0;
@@ -2087,7 +2087,7 @@ export function DropsPanel({
               : "unverified — no signed note was attached to this release."}
           </p>
           {detail.data.provenance && <p>{detail.data.provenance}</p>}
-          <ReleaseNotes text={detail.data.body} />
+          <SafeMarkdown text={detail.data.body} />
           <ul>
             {(detail.data.assets || []).map((asset) => (
               <li key={asset.name}>
