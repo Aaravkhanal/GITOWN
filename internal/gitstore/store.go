@@ -344,10 +344,8 @@ func (s *Store) Init(ctx context.Context, id, name, username, email string, read
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	for _, kv := range [][2]string{{"http.receivepack", "true"}, {"receive.fsckObjects", "true"}, {"transfer.fsckObjects", "true"}, {"receive.denyNonFastForwards", "true"}, {"receive.denyDeletes", "true"}, {"receive.maxInputSize", "104857600"}} {
-		if _, err := s.Run(ctx, id, nil, "config", kv[0], kv[1]); err != nil {
-			return err
-		}
+	if err := s.applyHostConfigs(ctx, id); err != nil {
+		return err
 	}
 	if !readme {
 		return nil

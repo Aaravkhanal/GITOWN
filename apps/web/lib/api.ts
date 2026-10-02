@@ -392,6 +392,8 @@ export type Pull = Issue & {
   merge_method?: string;
   branch_deleted?: boolean;
   branch_delete_error?: string;
+  head_owner?: string;
+  head_repository?: string;
 };
 export type PullDetail = {
   pull: Pull;

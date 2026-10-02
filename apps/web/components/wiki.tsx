@@ -30,12 +30,18 @@ export function WikiPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [search, setSearch] = useState("");
+  const [submitted, setSubmitted] = useState("");
   const slug = pageSlug || "home";
   const basePath = `${repoPath(repo)}/wiki`;
   const index = useData<WikiIndex>(`${endpoint}/wiki`, version);
   const exists = index.data?.pages.includes(slug) ?? false;
   const page = useData<WikiPage>(
     exists ? `${endpoint}/wiki/${encodeURIComponent(slug)}` : null,
+    version,
+  );
+  const found = useData<{ items: { slug: string; line: string; text: string }[] }>(
+    submitted ? `${endpoint}/wiki-search?q=${encodeURIComponent(submitted)}` : null,
     version,
   );
   const history = useData<Commit[]>(
@@ -65,6 +71,38 @@ export function WikiPanel({
           Versioned Markdown pages on {repo.default_branch}.
         </p>
         <ErrorMessage error={index.error} />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            setSubmitted(search.trim());
+          }}
+        >
+          <label htmlFor="wiki-search">Search pages</label>
+          <input
+            id="wiki-search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search the wiki"
+            maxLength={80}
+          />
+          <button className="button small-button" type="submit">
+            Search
+          </button>
+        </form>
+        <ErrorMessage error={found.error} />
+        {found.data && (
+          <ul>
+            {found.data.items.map((item) => (
+              <li key={`${item.slug}:${item.line}`}>
+                <Link href={`${basePath}/${encodeURIComponent(item.slug)}`}>
+                  {item.slug}:{item.line}
+                </Link>{" "}
+                {item.text}
+              </li>
+            ))}
+            {found.data.items.length === 0 && <li>No matching pages.</li>}
+          </ul>
+        )}
         <nav aria-label="Wiki pages">
           {index.data?.pages.map((item) => (
             <Link

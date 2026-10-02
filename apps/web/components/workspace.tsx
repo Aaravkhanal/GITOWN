@@ -76,6 +76,7 @@ import { Inbox, useUnreadCount } from "./inbox";
 import { ProjectShowcase, UnsubscribePage } from "./showcase";
 import { DeveloperAppsPage, OAuthAuthorizePage } from "./oauth";
 import { FollowingFeed } from "./feed";
+import { SnippetsPage } from "./phase12";
 
 type Session = {
   user: User | null;
@@ -292,6 +293,12 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <Hash size={17} /> Topics
               </Link>
               <Link
+                className={section === "snippets" ? "selected" : ""}
+                href="/snippets"
+              >
+                <Code2 size={17} /> Snippets
+              </Link>
+              <Link
                 className={
                   section === "settings" && segments[1] === "tokens"
                     ? "selected"
@@ -462,6 +469,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             ) : (
               <SignInPrompt />
             )
+          ) : section === "snippets" ? (
+            <SnippetsPage />
           ) : section === "crates" ? (
             user ? (
               <CratesPage />
@@ -1407,6 +1416,70 @@ function NewRepository() {
             {busy ? "Creating repository…" : "Create repository"}
           </button>
         </div>
+      </form>
+      <form
+        className="panel form-panel"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          const data = new FormData(event.currentTarget);
+          try {
+            const repo = await post<Repo>("/imports", {
+              source: data.get("source"),
+              url: data.get("url"),
+              name: String(data.get("import_name") || "").toLowerCase(),
+              visibility: data.get("import_visibility"),
+            });
+            router.push(repoPath(repo));
+          } catch (importError) {
+            setError((importError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <h2>Import a public repository</h2>
+        <p className="muted small-text">
+          GitHub, GitLab, and Bitbucket public HTTPS URLs only. GITOWN does not
+          accept a personal access token or any other forge credential.
+        </p>
+        <label>
+          Forge
+          <select name="source" defaultValue="github">
+            <option value="github">GitHub</option>
+            <option value="gitlab">GitLab</option>
+            <option value="bitbucket">Bitbucket</option>
+          </select>
+        </label>
+        <label>
+          Public URL
+          <input
+            name="url"
+            type="url"
+            required
+            placeholder="https://github.com/owner/name"
+          />
+        </label>
+        <label>
+          Name on GITOWN
+          <input
+            name="import_name"
+            required
+            pattern="[a-z0-9][a-z0-9._-]{0,99}"
+            placeholder="imported-name"
+          />
+        </label>
+        <label>
+          Visibility
+          <select name="import_visibility" defaultValue="private">
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        <button className="button" disabled={busy} type="submit">
+          Import repository
+        </button>
       </form>
     </div>
   );

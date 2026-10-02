@@ -3769,6 +3769,144 @@ paths:
       responses:
         "200": { description: Uninstalled }
         "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/routes/secrets:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List route secret names. Values are never returned.
+      responses:
+        "200": { description: Secret names and execution_enabled false }
+  /repos/{owner}/{repo}/routes/secrets/{name}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: name, in: path, required: true, schema: { type: string } },
+      ]
+    put:
+      summary: Store an encrypted route secret. The value is not returned.
+      responses:
+        "200": { description: Stored }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a route secret
+      responses:
+        "200": { description: Deleted }
+  /repos/{owner}/{repo}/routes/runners:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: >-
+        List runners. Includes a synthetic hosted runner that is offline.
+        execution_enabled is false.
+      responses:
+        "200": { description: Runners }
+    post:
+      summary: >-
+        Register a self-hosted runner. Returns a one-time token and does not
+        dispatch workflow steps.
+      responses:
+        "201": { description: Runner token, shown once }
+  /routes/runners/heartbeat:
+    post:
+      summary: >-
+        Record a runner heartbeat. The response jobs list is empty because
+        untrusted execution is disabled.
+      responses:
+        "200": { description: execution_enabled false and jobs [] }
+        "401": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/remix:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Remix a visible repository into one the caller owns
+      responses:
+        "201": { description: Remix created }
+  /imports:
+    post:
+      summary: >-
+        Import a public GitHub, GitLab, or Bitbucket HTTPS repository. No
+        forge credential is accepted.
+      responses:
+        "201": { description: Repository imported }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/discussions:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List Town Hall discussions
+      responses:
+        "200": { description: Discussions }
+    post:
+      summary: Start a Town Hall discussion
+      responses:
+        "201": { description: Discussion created }
+  /repos/{owner}/{repo}/merge-queue:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List waiting merge-queue entries
+      responses:
+        "200": { description: Queue }
+    post:
+      summary: Enqueue an open Unite request
+      responses:
+        "201": { description: Enqueued }
+  /repos/{owner}/{repo}/wiki-search:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: Fixed-string search of wiki Markdown on the default branch
+      responses:
+        "200": { description: Matching lines }
+  /snippets:
+    get:
+      summary: List public snippets, plus the caller's own
+      responses:
+        "200": { description: Snippets }
+    post:
+      summary: Save a public or private snippet
+      responses:
+        "201": { description: Snippet created }
+  /users/{username}/sponsorships:
+    parameters:
+      [{ name: username, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: List public pledges. charges is false.
+      responses:
+        "200": { description: Pledges }
+    post:
+      summary: Record a pledge. No card is charged.
+      responses:
+        "201": { description: Pledge recorded with charges false }
+  /user/devices:
+    post:
+      summary: Register a device token for a pull notification feed
+      responses:
+        "201": { description: Device token, shown once }
+  /mobile/feed:
+    get:
+      summary: Unread inbox rows for a device token. Delivery is pull.
+      responses:
+        "200": { description: Feed }
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }

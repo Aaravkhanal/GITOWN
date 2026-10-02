@@ -8,6 +8,43 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 )
 
+func TestCloneLocalAndCopyCommit(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	source := auth.ID()
+	if err = s.Init(ctx, source, "source", "Owner", "owner@example.test", true); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := s.Resolve(ctx, source, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := auth.ID()
+	if err = s.CloneLocal(ctx, dest, source); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := s.Resolve(ctx, dest, "main")
+	if err != nil || copied != sha {
+		t.Fatalf("local clone did not preserve main: %v %s", err, copied)
+	}
+	other := auth.ID()
+	if err = s.Init(ctx, other, "other", "Owner", "owner@example.test", false); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CopyCommit(ctx, other, source, sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Run(ctx, other, nil, "cat-file", "-e", sha); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CloneHTTPS(ctx, auth.ID(), "file:///tmp/not-allowed"); err == nil {
+		t.Fatal("https clone accepted a file URL")
+	}
+}
+
 func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	s, err := New(t.TempDir())
 	if err != nil {

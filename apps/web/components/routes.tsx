@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { date, post, put, type Repo } from "@/lib/api";
 import { Badge, ErrorMessage, Loading, useData } from "@/components/ui";
+import { RouteDesk } from "@/components/phase12";
 
 type WorkflowSummary = {
   path: string;
@@ -165,6 +166,7 @@ export function RoutesPanel({
           pull request, schedule, or manual run.
         </div>
       )}
+      <RouteDesk endpoint={endpoint} canManage={!!canManage} />
     </div>
   );
 }

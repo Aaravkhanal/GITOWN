@@ -7,8 +7,8 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
-The early workflow-planning preview is documented in [Routes](docs/ROUTES.md); it does not execute repository-authored commands.
-The Phase 12 [Wiki preview](docs/WIKI.md) stores pages as Markdown in each repository's Git history.
+The Routes control plane is documented in [Routes](docs/ROUTES.md). It plans runs and stores quotas, secrets, artifacts, and runner registrations. It does not execute repository-authored commands.
+The Phase 12 [Wiki](docs/WIKI.md) stores pages as Markdown in each repository's Git history. Remixes, Town Hall, Showcase pages, snippets, supply-chain notes, the merge queue, pledges, and public forge import are described in [the ecosystem note](docs/ECOSYSTEM.md). None of those start a container, bill a card, or accept a forge credential.
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works
@@ -19,7 +19,7 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS), including a shallow clone. User SSH keys and deploy keys work through a forced-command gateway when sshd is configured separately. The gateway trusts the fingerprint that command supplies. Git LFS batch upload, download, and path locks are included. A pack that unpacks over the repository or account quota is rolled back before the client is told it succeeded.
 - Role-gated read/triage/write/maintain access, private-repository enforcement, force-push/deletion rejection, and bounded Git operations.
 - Branch selection, file/directory browsing, raw downloads, file-specific history, browser file creation/editing/deletion with race-safe Git commits, text previews, README text, and commit history.
-- Same-repository Unite requests with drafts, close/reopen, discussions, inline line comments, requested reviewers, formal approve/request-changes reviews tied to exact head commits, review dismissal, owner-configured Merge Guards, squash/rebase/merge, optional source-branch deletion, actual Git diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery.
+- Unite requests in one repository, plus a remix of that repository. Reviews follow the head commit, including a head that lives only on the remix. A merge queue, when it has waiting entries, allows only the front request to merge. Drafts, discussions, inline comments, requested reviewers, review dismissal, Merge Guards, squash/rebase/merge, optional source-branch deletion, diffs, conflict detection, stale-SHA rejection, and interrupted-merge recovery are included.
 - Repository invitations, ownership-transfer confirmation, and a durable email outbox: a background worker sends each notification with retries and backoff, bundles digest readers' updates into one email per interval, adds per-message unsubscribe links with one-click support, and records mail as suppressed when SMTP is not configured.
 - Issue planning with priority, iteration, estimates, due dates, duplicates, comment editing, and board, table, and roadmap views.
 - Explore search across public issues and Unite requests, and builder search by skills, location, and availability.

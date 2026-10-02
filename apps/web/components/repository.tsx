@@ -27,6 +27,8 @@ import {
   LayoutGrid,
   LockKeyhole,
   MessageSquarePlus,
+  MessagesSquare,
+  Shield,
   Package,
   Plus,
   RefreshCw,
@@ -40,6 +42,7 @@ import {
   BookOpenText,
 } from "lucide-react";
 import { DropsPanel } from "@/components/ecosystem";
+import { MergeQueuePanel, SupplyPanel, TownHallPanel } from "@/components/phase12";
 import { RouteEnvironmentSettings, RoutesPanel } from "@/components/routes";
 import { WikiPanel } from "@/components/wiki";
 import {
@@ -192,6 +195,12 @@ export function RepositoryPage({
             <Terminal size={16} />
             Clone repository
           </button>
+          {!r.archived && <RemixButton endpoint={endpoint} />}
+          {r.visibility === "public" && (
+            <a className="button" href={`/sites/${owner}/${name}/`}>
+              Showcase site
+            </a>
+          )}
         </div>
       </div>
       {r.archived && (
@@ -281,6 +290,18 @@ export function RepositoryPage({
             label: "Wiki",
             href: `${basePath}/wiki`,
           },
+          {
+            key: "hall",
+            icon: MessagesSquare,
+            label: "Town Hall",
+            href: `${basePath}/hall`,
+          },
+          {
+            key: "supply",
+            icon: Shield,
+            label: "Supply",
+            href: `${basePath}/supply`,
+          },
           ...(r.can_manage || r.can_maintain
             ? [
                 {
@@ -356,6 +377,10 @@ export function RepositoryPage({
         <RoutesPanel endpoint={endpoint} repo={r} />
       ) : tab === "wiki" ? (
         <WikiPanel endpoint={endpoint} repo={r} pageSlug={number} />
+      ) : tab === "hall" ? (
+        <TownHallPanel endpoint={endpoint} repo={r} />
+      ) : tab === "supply" ? (
+        <SupplyPanel endpoint={endpoint} repo={r} />
       ) : tab === "issues" && number ? (
         <IssueDetail endpoint={endpoint} repo={r} number={number} />
       ) : tab === "issues" ? (
@@ -374,11 +399,17 @@ export function RepositoryPage({
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (
-        <PullRequestList
-          endpoint={endpoint}
-          repo={r}
-          branches={repo.data.branches}
-        />
+        <>
+          <MergeQueuePanel endpoint={endpoint} repo={r} />
+          <PullRequestList
+            endpoint={endpoint}
+            repo={r}
+            branches={repo.data.branches}
+          />
+          {!r.archived && (
+            <RemixUniteForm endpoint={endpoint} repo={r} />
+          )}
+        </>
       ) : tab === "settings" && (r.can_manage || r.can_maintain) ? (
         <RepositorySettings
           endpoint={endpoint}
@@ -392,6 +423,127 @@ export function RepositoryPage({
         </div>
       )}
     </>
+  );
+}
+
+function RemixButton({ endpoint }: { endpoint: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div>
+      <button className="button" type="button" onClick={() => setOpen(!open)}>
+        Remix
+      </button>
+      {open && (
+        <form
+          className="panel inline-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            setBusy(true);
+            setError("");
+            try {
+              const created = await post<Repo>(`${endpoint}/remix`, {
+                name: data.get("name"),
+                visibility: data.get("visibility"),
+              });
+              router.push(repoPath(created));
+            } catch (saveError) {
+              setError((saveError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <ErrorMessage error={error} />
+          <label>
+            Remix name
+            <input name="name" required />
+          </label>
+          <label>
+            Visibility
+            <select name="visibility" defaultValue="private">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </label>
+          <button className="button primary small-button" disabled={busy}>
+            {busy ? "Remixing…" : "Create remix"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function RemixUniteForm({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="panel inline-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        setBusy(true);
+        setError("");
+        try {
+          const pull = await post<Pull>(`${endpoint}/pulls`, {
+            title: data.get("title"),
+            body: data.get("body") || "",
+            base_branch: data.get("base_branch"),
+            head_branch: data.get("head_branch"),
+            head_owner: data.get("head_owner"),
+            head_repository: data.get("head_repository"),
+          });
+          router.push(`${repoPath(repo)}/pulls/${pull.number}`);
+        } catch (saveError) {
+          setError((saveError as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3>Unite from a remix</h3>
+      <p className="muted small-text">
+        Open a request from a remix you can write to. The base repository does not need to grant you write access.
+      </p>
+      <ErrorMessage error={error} />
+      <div className="two-fields">
+        <label>
+          Head owner
+          <input name="head_owner" required />
+        </label>
+        <label>
+          Head repository
+          <input name="head_repository" required />
+        </label>
+      </div>
+      <div className="two-fields">
+        <label>
+          Base branch
+          <input name="base_branch" defaultValue={repo.default_branch} required />
+        </label>
+        <label>
+          Head branch
+          <input name="head_branch" defaultValue={repo.default_branch} required />
+        </label>
+      </div>
+      <label>
+        Title
+        <input name="title" required maxLength={200} />
+      </label>
+      <label>
+        Description
+        <textarea name="body" rows={3} />
+      </label>
+      <button className="button primary" disabled={busy}>
+        {busy ? "Opening…" : "Open cross-project unite request"}
+      </button>
+    </form>
   );
 }
 
@@ -3395,7 +3547,11 @@ function PullRequestList({
               <div>
                 <strong>{pull.title}</strong>
                 <p>
-                  #{pull.number} · {pull.head_branch} → {pull.base_branch} ·{" "}
+                  #{pull.number} ·{" "}
+                  {pull.head_owner
+                    ? `${pull.head_owner}/${pull.head_repository}:`
+                    : ""}
+                  {pull.head_branch} → {pull.base_branch} ·{" "}
                   {date(pull.created_at)}
                 </p>
               </div>
