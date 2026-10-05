@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
@@ -39,6 +40,48 @@ type App struct {
 	// client whose dialer refuses private/loopback addresses; tests swap it
 	// for one pointed at a local receiver rather than weakening that dialer.
 	webhookClient *http.Client
+	metrics       httpMetrics
+}
+
+type httpMetrics struct {
+	requests atomic.Uint64
+	duration atomic.Uint64
+	inFlight atomic.Int64
+	status   [6]atomic.Uint64
+}
+
+type metricResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *metricResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *metricResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (m *httpMetrics) record(status int, elapsed time.Duration) {
+	m.requests.Add(1)
+	if status == 0 {
+		status = http.StatusOK
+	}
+	class := status / 100
+	if class >= 1 && class <= 5 {
+		m.status[class].Add(1)
+	}
+	if elapsed > 0 {
+		m.duration.Add(uint64(elapsed))
+	}
 }
 
 // apiRateLimitPerMinute bounds the general /api/ surface per authenticated
@@ -79,7 +122,7 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+	ready := func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
 		if err := a.db.Ping(ctx); err != nil {
@@ -87,7 +130,13 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		respond(w, 200, map[string]string{"status": "ok", "version": version.Version})
+	}
+	mux.HandleFunc("GET /healthz", ready)
+	mux.HandleFunc("GET /readyz", ready)
+	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
+		respond(w, 200, map[string]string{"status": "alive"})
 	})
+	mux.HandleFunc("GET /metrics", a.metricsHandler)
 	mux.HandleFunc("POST /api/v1/auth/register", a.register)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
 	mux.HandleFunc("POST /api/v1/auth/password/forgot", a.requestPasswordReset)
@@ -412,6 +461,16 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writer := &metricResponseWriter{ResponseWriter: w}
+			w = writer
+			started := time.Now()
+			a.metrics.inFlight.Add(1)
+			defer func() {
+				a.metrics.inFlight.Add(-1)
+				a.metrics.record(writer.status, time.Since(started))
+			}()
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			// GITOWN-API-Version is a real, checkable signal for whenever a
 			// future breaking version ships; /api/v1/ is the only version
