@@ -234,6 +234,9 @@ func (a *App) startWebhookWorker(ctx context.Context) {
 				return
 			case <-ticker.C:
 			}
+			if err := a.recoverStaleWebhookClaims(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("webhook lease recovery failed", "error", err)
+			}
 			for {
 				sent, err := a.deliverWebhooks(ctx)
 				if err != nil && ctx.Err() == nil {
@@ -282,7 +285,7 @@ func (a *App) claimWebhookDeliveries(ctx context.Context) ([]queuedWebhookDelive
 		ids[i] = item.id
 	}
 	if len(ids) > 0 {
-		if _, err = tx.Exec(ctx, `UPDATE webhook_deliveries SET status='sending' WHERE id=ANY($1)`, ids); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE webhook_deliveries SET status='sending',claimed_at=now() WHERE id=ANY($1)`, ids); err != nil {
 			return nil, err
 		}
 	}
@@ -302,9 +305,10 @@ func (a *App) deliverWebhooks(ctx context.Context) (int, error) {
 		err = a.db.QueryRow(ctx, `SELECT url,secret_ciphertext,secret_nonce,kind FROM webhooks WHERE id=$1`, item.webhookID).Scan(&targetURL, &secretCiphertext, &secretNonce, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The subscription was deleted after this delivery was queued.
-			if _, delErr := a.db.Exec(ctx, `UPDATE webhook_deliveries SET status='failed',last_error='webhook was deleted' WHERE id=$1`, item.id); delErr != nil {
+			if _, delErr := a.db.Exec(ctx, `UPDATE webhook_deliveries SET status='failed',last_error='webhook was deleted',claimed_at=NULL WHERE id=$1`, item.id); delErr != nil {
 				return 0, delErr
 			}
+			a.workers.webhookFailures.Add(1)
 			continue
 		}
 		if err != nil {
@@ -328,7 +332,7 @@ func (a *App) deliverWebhooks(ctx context.Context) (int, error) {
 			statusArg, bodyArg = responseStatus, responseBody
 		}
 		if sendErr == nil && ok {
-			_, err = a.db.Exec(ctx, `UPDATE webhook_deliveries SET status='success',attempts=$2,response_status=$3,response_body=$4,delivered_at=now(),last_error='' WHERE id=$1`,
+			_, err = a.db.Exec(ctx, `UPDATE webhook_deliveries SET status='success',attempts=$2,response_status=$3,response_body=$4,delivered_at=now(),last_error='',claimed_at=NULL WHERE id=$1`,
 				item.id, attempts, statusArg, bodyArg)
 		} else {
 			failStatus := "pending"
@@ -343,12 +347,18 @@ func (a *App) deliverWebhooks(ctx context.Context) (int, error) {
 			}
 			delay := time.Minute << min(attempts-1, 8)
 			delay = min(delay, 6*time.Hour)
-			_, err = a.db.Exec(ctx, `UPDATE webhook_deliveries SET status=$2,attempts=$3,response_status=$4,response_body=$5,last_error=$6,next_attempt_at=now()+make_interval(secs => $7) WHERE id=$1`,
+			_, err = a.db.Exec(ctx, `UPDATE webhook_deliveries SET status=$2,attempts=$3,response_status=$4,response_body=$5,last_error=$6,next_attempt_at=now()+make_interval(secs => $7),claimed_at=NULL WHERE id=$1`,
 				item.id, failStatus, attempts, statusArg, bodyArg, cleanHeader(errText, 500), delay.Seconds())
 			slog.Warn("webhook delivery attempt failed", "delivery_id", item.id, "attempts", attempts, "error", errText)
 		}
 		if err != nil {
 			return 0, err
+		}
+		a.workers.webhookAttempts.Add(1)
+		if sendErr == nil && ok {
+			a.workers.webhookSuccess.Add(1)
+		} else {
+			a.workers.webhookFailures.Add(1)
 		}
 	}
 	return len(batch), nil

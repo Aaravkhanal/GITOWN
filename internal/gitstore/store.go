@@ -131,6 +131,33 @@ func (s *Store) Command(ctx context.Context, timeout time.Duration, id string, a
 	return nil, -1, err
 }
 
+// ExportBundle streams a complete, portable Git bundle without buffering the
+// repository in application memory. The caller controls authorization and the
+// HTTP response; no user-supplied Git arguments are accepted.
+func (s *Store) ExportBundle(ctx context.Context, id string, dst io.Writer) error {
+	if !identifier.MatchString(id) {
+		return ErrNotFound
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	cmd := exec.CommandContext(ctx, s.Binary, "--git-dir="+s.Path(id), "bundle", "create", "-", "--all")
+	cmd.Env = Environment()
+	cmd.Stdout = dst
+	var stderr boundedBuffer
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git bundle export: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 func (s *Store) Grep(ctx context.Context, id, rev, query string) (string, error) {
 	if rev == "" || strings.ContainsAny(rev, "\x00\r\n ") || query == "" || strings.HasPrefix(query, "-") || strings.ContainsAny(query, "\x00\r\n") || len(query) > 80 {
 		return "", ErrNotFound

@@ -7,7 +7,9 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
+Phase 2 repository imports, Git bundle exports, tag browsing, operator storage recovery, CLI installation/completions, and the SSH deployment decision are documented in [Repository operations](docs/REPOSITORY_OPERATIONS.md).
 The Routes control plane is documented in [Routes](docs/ROUTES.md). It plans runs and stores quotas, secrets, artifacts, and runner registrations. It does not execute repository-authored commands.
+Worker metrics, traces, dashboards, alert rules, queue recovery, and response guidance are documented in [Observability](docs/OBSERVABILITY.md) and the [operations runbook](docs/OPERATIONS.md).
 The Phase 12 [Wiki](docs/WIKI.md) stores pages as Markdown in each repository's Git history. Remixes, Town Hall, Showcase pages, snippets, supply-chain notes, the merge queue, pledges, and public forge import are described in [the ecosystem note](docs/ECOSYSTEM.md). None of those start a container, bill a card, or accept a forge credential.
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
@@ -41,6 +43,8 @@ User-facing terminology follows the compatibility-first [GITOWN naming system](d
 - Issue following with an in-app inbox for comments and close/reopen updates.
 - Responsive dashboard, repository filtering, repository settings, access-token settings, and empty/error states.
 - A compatible `gitown` CLI with friendly commands such as `bring`, `track`, `save`, `send`, `sync`, and `unite`.
+- Browser import of public GitHub/GitLab/Bitbucket repositories, all-ref Git bundle export, tag browsing with verified-signature status, and operator-only dry-run/recoverable orphan-storage quarantine.
+- Linux/macOS amd64/arm64 `gitown` releases use a Sigstore-signed checksum manifest; `scripts/install-gitown.sh` verifies it before installing. Bash, zsh, and fish completions are available via `gitown completion <shell>`.
 
 No other forge was cloned or copied. Standard dependencies keep their own licenses and attribution; they do not become contributors to GITOWN's Git history.
 
@@ -68,6 +72,8 @@ GITOWN_WEB_PORT=3100 GITOWN_API_PORT=8180 npm run dev
 ```
 
 To send email, export `GITOWN_SMTP_ADDR` (host:port) and `GITOWN_SMTP_FROM`, plus `GITOWN_SMTP_USER` and `GITOWN_SMTP_PASSWORD` if your server requires authentication. STARTTLS is used whenever the server offers it. `GITOWN_DIGEST_INTERVAL` (default `60m`) controls how often digest emails are sent. Without SMTP, GITOWN keeps an honest delivery record and marks messages as suppressed.
+
+External OSV advisory lookup is off by default because it sends exact dependency names and versions—including those from private repositories—to `api.osv.dev`. Set `GITOWN_OSV_ENABLED=true` only after reviewing the privacy implications; local dependency scanning does not require it. See [Phase 12 ecosystem](docs/PHASE12_ECOSYSTEM.md).
 
 For production account security, set a stable private `GITOWN_SECRET_KEY`, configure `GITOWN_OPERATORS` to the smallest operator username allowlist, and—when behind a reverse proxy—set `GITOWN_TRUSTED_PROXIES` to its exact IPs/CIDRs. Review the [account-security deployment checklist](docs/ACCOUNT_SECURITY.md) before enabling verified-email enforcement.
 

@@ -1,6 +1,7 @@
 package gitstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -42,6 +43,25 @@ func TestCloneLocalAndCopyCommit(t *testing.T) {
 	}
 	if err = s.CloneHTTPS(ctx, auth.ID(), "file:///tmp/not-allowed"); err == nil {
 		t.Fatal("https clone accepted a file URL")
+	}
+}
+
+func TestExportBundleContainsAllRefs(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := auth.ID()
+	ctx := context.Background()
+	if err = s.Init(ctx, id, "export", "Owner", "owner@example.test", true); err != nil {
+		t.Fatal(err)
+	}
+	var bundle bytes.Buffer
+	if err = s.ExportBundle(ctx, id, &bundle); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(bundle.Bytes(), []byte("# v2 git bundle")) {
+		t.Fatalf("export is not a Git bundle: %q", bundle.Bytes()[:min(bundle.Len(), 40)])
 	}
 }
 

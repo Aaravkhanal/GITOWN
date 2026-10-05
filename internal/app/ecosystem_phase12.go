@@ -729,9 +729,9 @@ func (a *App) advisories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet {
-		query := `SELECT id::text,code,severity,summary,package_name,ecosystem,patched_version,state,created_at FROM security_advisories WHERE repository_id=$1 AND state='published' ORDER BY created_at DESC`
+		query := `SELECT id::text,code,severity,summary,package_name,ecosystem,patched_version,state,created_at,external_source,external_url FROM security_advisories WHERE repository_id=$1 AND state='published' ORDER BY created_at DESC`
 		if repo.CanMaintain {
-			query = `SELECT id::text,code,severity,summary,package_name,ecosystem,patched_version,state,created_at FROM security_advisories WHERE repository_id=$1 ORDER BY created_at DESC`
+			query = `SELECT id::text,code,severity,summary,package_name,ecosystem,patched_version,state,created_at,external_source,external_url FROM security_advisories WHERE repository_id=$1 ORDER BY created_at DESC`
 		}
 		rows, err := a.db.Query(r.Context(), query, repo.ID)
 		if err != nil {
@@ -741,13 +741,13 @@ func (a *App) advisories(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		items := []map[string]any{}
 		for rows.Next() {
-			var id, code, severity, summary, pkg, ecosystem, patched, state string
+			var id, code, severity, summary, pkg, ecosystem, patched, state, source, sourceURL string
 			var created time.Time
-			if err = rows.Scan(&id, &code, &severity, &summary, &pkg, &ecosystem, &patched, &state, &created); err != nil {
+			if err = rows.Scan(&id, &code, &severity, &summary, &pkg, &ecosystem, &patched, &state, &created, &source, &sourceURL); err != nil {
 				serverError(w, err)
 				return
 			}
-			items = append(items, map[string]any{"id": id, "code": code, "severity": severity, "summary": summary, "package_name": pkg, "ecosystem": ecosystem, "patched_version": patched, "state": state, "created_at": created})
+			items = append(items, map[string]any{"id": id, "code": code, "severity": severity, "summary": summary, "package_name": pkg, "ecosystem": ecosystem, "patched_version": patched, "state": state, "created_at": created, "source": source, "source_url": sourceURL})
 		}
 		respond(w, 200, map[string]any{"items": items})
 		return
@@ -838,7 +838,12 @@ func (a *App) scanSupplyChain(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"secret_findings": findings, "vulnerability_alerts": alerts, "dependency_issues": issues})
+	externalCount, externalStatus, externalErr := a.refreshExternalAdvisories(r.Context(), repo)
+	if externalErr != nil {
+		serverError(w, externalErr)
+		return
+	}
+	respond(w, 200, map[string]any{"secret_findings": findings, "vulnerability_alerts": alerts, "dependency_issues": issues, "external_advisories": externalCount, "external_advisory_status": externalStatus})
 }
 
 func (a *App) refreshSupplyChain(ctx context.Context, repo *Repository, actor *User) (int, int, int, error) {

@@ -205,6 +205,42 @@ func TestPhase10WebhookRetryBackoff(t *testing.T) {
 	if sent != 0 {
 		t.Fatalf("expected no deliveries due yet (backoff in effect), sent %d", sent)
 	}
+	deliveryID, _ := item["id"].(string)
+	if deliveryID == "" {
+		t.Fatal("webhook delivery omitted its ID")
+	}
+	if _, err = application.db.Exec(context.Background(), `UPDATE webhook_deliveries SET status='sending',attempts=$2,claimed_at=now()-interval '4 minutes' WHERE id=$1`, deliveryID, webhookMaxAttempts-1); err != nil {
+		t.Fatal(err)
+	}
+	if err = application.recoverStaleWebhookClaims(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var recoveredStatus string
+	var recoveredAttempts int
+	if err = application.db.QueryRow(context.Background(), `SELECT status,attempts FROM webhook_deliveries WHERE id=$1`, deliveryID).Scan(&recoveredStatus, &recoveredAttempts); err != nil || recoveredStatus != "failed" || recoveredAttempts != webhookMaxAttempts {
+		t.Fatalf("expired webhook lease was not dead-lettered: %q %d %v", recoveredStatus, recoveredAttempts, err)
+	}
+	t.Setenv("GITOWN_OPERATORS", "retryowner")
+	var queues struct {
+		DeadLetters map[string][]map[string]any `json:"dead_letters"`
+	}
+	owner.request("GET", "/operator/queues", nil, 200, &queues)
+	if len(queues.DeadLetters["webhooks"]) == 0 || queues.DeadLetters["webhooks"][0]["id"] != deliveryID {
+		t.Fatalf("operator queue view omitted the webhook dead letter: %+v", queues.DeadLetters)
+	}
+	owner.request("POST", "/operator/queues/webhooks/"+deliveryID+"/retry", nil, 200, nil)
+	successReceiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer successReceiver.Close()
+	if _, err = application.db.Exec(context.Background(), `UPDATE webhooks SET url=$1 WHERE id=$2`, successReceiver.URL, hookID); err != nil {
+		t.Fatal(err)
+	}
+	application.webhookClient = successReceiver.Client()
+	if _, err = application.deliverWebhooks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err = application.db.QueryRow(context.Background(), `SELECT status FROM webhook_deliveries WHERE id=$1`, deliveryID).Scan(&recoveredStatus); err != nil || recoveredStatus != "success" {
+		t.Fatalf("operator retry did not deliver webhook: %q %v", recoveredStatus, err)
+	}
 }
 
 // TestPhase10WebhookSSRFGuard proves a webhook URL pointing at a private or

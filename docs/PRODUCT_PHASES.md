@@ -10,11 +10,15 @@ Shipped: registration and login, Argon2id passwords, one-time email verification
 
 Deployment gate: verify SMTP delivery and incident procedures in the production environment before requiring verified email or relying on recovery. Configure `GITOWN_OPERATORS` for abuse-event visibility. Email and MFA setup, operational requirements, and limitations are documented in [Account security](ACCOUNT_SECURITY.md).
 
-## Phase 2 — Everyday repository work (partial)
+## Phase 2 — Everyday repository work (complete for documented alpha scope)
 
 Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection. The browser also supports text upload and rename, safe Markdown rendering, lightweight syntax colors, blame, branch comparison, and paged commit history.
 
-Remaining gate: repository import/export UX, orphan reconciliation, a complete Git tags UI, and an embedded SSH server. Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
+The browser now has public HTTPS import, an all-refs Git bundle export, and a tags page with signature status. Operators can dry-run orphan reconciliation, move unregistered repositories into recoverable quarantine, and restore them; reconciliation never deletes Git data. The CLI includes bash/zsh/fish completions and signed Linux/macOS release archives with a signature-verifying installer.
+
+SSH decision: do not embed sshd for the current product scope. The forced-command gateway provides Git SSH transport while keeping shell execution out of the service. Embedding an SSH daemon adds network lifecycle, host-key, privilege-separation, and protocol attack surface without demonstrated user need. Operators must configure a separate sshd/ForceCommand entry point; revisit embedded SSH only if deployment demand justifies this security boundary.
+
+Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. This phase does not imply production readiness or safe public execution of untrusted code.
 
 ## Phase 3 — Collaboration and protected delivery (complete)
 
@@ -98,7 +102,7 @@ External CI integration is now a complete, real path rather than a status-only w
 
 ## Phase 11 — Routes (partial)
 
-Shipped control plane: bounded workflow YAML, triggers for push, opened Unite requests, a restricted schedule, and manual dispatch, job dependencies, matrix expansion, local reusable workflows, a planning log, base64 artifacts and caches with size quotas, encrypted route secrets that are never returned, environment approval plus stored CPU, memory, disk, and network caps, queued-run cancellation, a 24-hour queue expiry, a pending commit status, and runner registration. A synthetic hosted runner is listed as offline. A self-hosted runner can heartbeat and receives an empty job list. [Routes documentation](ROUTES.md) states the exact limits.
+Shipped control plane: bounded workflow YAML, triggers for push, opened Unite requests, a restricted schedule, and manual dispatch, job dependencies, matrix expansion, local reusable workflows, a planning log, base64 artifacts and caches with size quotas, encrypted route secrets that are never returned, environment approval plus stored CPU, memory, disk, and network caps, queued-run cancellation, a 24-hour queue expiry, a pending commit status, and runner registration. A synthetic hosted runner is listed as offline. A self-hosted runner can heartbeat and receives an empty job list. Email/webhook queues now expose metrics and operator dead letters, use leased claims with crash recovery, and have an audited retry path. Prometheus alert rules, a Grafana dashboard, W3C trace-context/log-span correlation, and operations runbooks are included. [Routes documentation](ROUTES.md) and [observability](OBSERVABILITY.md) state the exact limits.
 
 Remaining gate: a reviewed sandbox before any untrusted workflow command runs. That includes an immutable checkout, ephemeral credentials, secret injection with redaction, process and network isolation, enforcement of the stored quotas against a live process, cancellation of a running process tree, terminal check statuses, and schedule catch-up. **No workflow command executes. Network `open` is rejected. Isolation stays `untrusted_execution_disabled`.**
 
@@ -108,19 +112,19 @@ Shipped, with the limits in [the ecosystem note](ECOSYSTEM.md):
 
 - Remixes clone a visible repository locally. A private parent forces a private remix.
 - Cross-project Unite requests are limited to a remix of the same family. The head commit is copied into the base repository so review and merge can see it.
-- A [Git-backed Wiki](WIKI.md), including fixed-string search of `.gitown/wiki`.
+- A [Git-backed Wiki](WIKI.md), including fixed-string search and validated, versioned attachments.
 - Town Hall discussions and comments.
 - Showcase static files for public repositories, served with a script-blocking content security policy.
 - Snippets, public or private.
 - Development-environment requests that stay `pending_sandbox_review`. `.gitown/dev.yml` may not contain a command.
-- A local dependency graph for root `go.mod`, `package.json`, and `requirements.txt`. A published advisory can open an issue. It does not edit files or call an external advisory database.
+- A local dependency graph for root `go.mod`, `package.json`, and `requirements.txt`. A published advisory can open an issue. Optional OSV batch lookups persist linked advisory snapshots; private package metadata is sent externally only when `GITOWN_OSV_ENABLED=true`.
 - Repository security advisories, vulnerability alerts, and secret findings that store a marker name, path, and line — never the secret text.
 - `.gitown/CODEOWNERS` review requests for owners and write or maintain members.
 - A merge queue: while it has waiting entries, only the front Unite request can merge.
-- Mobile device registration with a pull feed. There is no Apple or Google push.
+- Mobile device registration with a pull feed. There is no Apple, Google, or Web Push delivery; see the [Phase 12 ecosystem plan](PHASE12_ECOSYSTEM.md) for provider decision points.
 - Public sponsorship pledges. `charges` is false. No card is billed.
 - Import of a public `github.com`, `gitlab.com`, or `bitbucket.org` HTTPS URL. Credentials, query strings, and custom ports are rejected.
 
-Remaining gate: wiki attachments, a reviewed development-environment sandbox, external advisory feeds, push notification delivery, card billing, private-forge import, and high availability. SAML/OIDC and IP restrictions remain later. Phases 11 and 12 are not complete.
+Remaining gate: richer inline wiki attachment embedding, a reviewed development-environment sandbox, additional advisory feeds and production feed operations, real push delivery, card billing, private-forge import, and high availability. SAML/OIDC and IP restrictions remain later. Phase 12 is not complete; billing, identity, and sandbox execution remain explicit security/product decisions.
 
 The naming contract is defined in [NAMING.md](NAMING.md). Standard Git protocol and commands remain compatible even when GITOWN presents friendlier names in its UI and CLI.

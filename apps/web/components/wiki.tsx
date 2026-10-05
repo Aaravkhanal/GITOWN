@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BookOpenText, History, Plus, Save } from "lucide-react";
-import { date, put, repoPath, type Commit, type Repo } from "@/lib/api";
+import { BookOpenText, History, Plus, Save, Paperclip } from "lucide-react";
+import { date, post, put, repoPath, type Commit, type Repo } from "@/lib/api";
 import { ErrorMessage, Loading, useData } from "@/components/ui";
 import { SafeMarkdown } from "@/components/ecosystem";
 
 type WikiIndex = { pages: string[]; head_sha: string };
 type WikiPage = { slug: string; content: string; head_sha: string };
+type WikiAttachments = { items: { name: string; content_type: string }[] };
 
 const validSlug = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
@@ -38,6 +39,10 @@ export function WikiPanel({
   const exists = index.data?.pages.includes(slug) ?? false;
   const page = useData<WikiPage>(
     exists ? `${endpoint}/wiki/${encodeURIComponent(slug)}` : null,
+    version,
+  );
+  const attachments = useData<WikiAttachments>(
+    exists ? `${endpoint}/wiki/${encodeURIComponent(slug)}/attachments` : null,
     version,
   );
   const found = useData<{
@@ -206,6 +211,75 @@ export function WikiPanel({
         ) : exists && page.data ? (
           <>
             <SafeMarkdown text={page.data.content} />
+            <div className="wiki-history">
+              <h3>
+                <Paperclip size={15} /> Attachments
+              </h3>
+              {attachments.data?.items.map((item) => (
+                <p key={item.name}>
+                  <a
+                    href={`${endpoint}/wiki/${encodeURIComponent(slug)}/attachments/${encodeURIComponent(item.name)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {item.name}
+                  </a>
+                  <span className="muted"> · {item.content_type}</span>
+                </p>
+              ))}
+              {attachments.data?.items.length === 0 && (
+                <p className="muted">No attachments yet.</p>
+              )}
+              <ErrorMessage error={attachments.error} />
+              {canEdit && (
+                <label>
+                  Add an attachment (PNG, JPEG, GIF, WebP, or PDF; up to 512
+                  KiB)
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"
+                    disabled={busy}
+                    onChange={async (event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (!file) return;
+                      setBusy(true);
+                      setError("");
+                      try {
+                        if (file.size > 512 * 1024)
+                          throw new Error(
+                            "Attachments must be no larger than 512 KiB.",
+                          );
+                        const bytes = new Uint8Array(await file.arrayBuffer());
+                        let binary = "";
+                        for (
+                          let offset = 0;
+                          offset < bytes.length;
+                          offset += 0x8000
+                        )
+                          binary += String.fromCharCode(
+                            ...bytes.subarray(offset, offset + 0x8000),
+                          );
+                        await post(
+                          `${endpoint}/wiki/${encodeURIComponent(slug)}/attachments`,
+                          {
+                            name: file.name,
+                            content_base64: btoa(binary),
+                            expected_head:
+                              page.data?.head_sha || index.data?.head_sha,
+                          },
+                        );
+                        setVersion((value) => value + 1);
+                      } catch (uploadError) {
+                        setError((uploadError as Error).message);
+                      } finally {
+                        setBusy(false);
+                        event.currentTarget.value = "";
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
             {canEdit && (
               <button
                 className="button small-button"

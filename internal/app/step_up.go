@@ -42,6 +42,8 @@ func sensitiveRepositoryAction(method, path string) bool {
 		return method == http.MethodPost
 	case "archive", "unarchive":
 		return method == http.MethodPost
+	case "tags":
+		return method == http.MethodPost || method == http.MethodDelete
 	case "members":
 		return method == http.MethodPatch || method == http.MethodDelete
 	case "invitations", "deploy-keys", "gitown-apps":

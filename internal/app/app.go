@@ -38,6 +38,7 @@ type App struct {
 	// for one pointed at a local receiver rather than weakening that dialer.
 	webhookClient *http.Client
 	metrics       httpMetrics
+	workers       workerMetrics
 }
 
 type httpMetrics struct {
@@ -196,6 +197,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/user/mfa/disable", a.disableMFA)
 	mux.HandleFunc("POST /api/v1/user/step-up", a.stepUpAuthentication)
 	mux.HandleFunc("GET /api/v1/operator/security/abuse", a.abuseOverview)
+	mux.HandleFunc("GET /api/v1/operator/queues", a.operatorQueues)
+	mux.HandleFunc("POST /api/v1/operator/queues/{queue}/{id}/retry", a.retryDeadLetter)
 	mux.HandleFunc("GET /api/v1/user/deleted-repositories", a.deletedRepositories)
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)
@@ -380,6 +383,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/workflows", a.routesWorkflows)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki", a.wikiPages)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki-search", a.wikiSearch)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki/{slug}/attachments", a.wikiAttachmentList)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/wiki/{slug}/attachments", a.wikiAttachments)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki/{slug}/attachments/{name}", a.wikiAttachments)
+	mux.HandleFunc("HEAD /api/v1/repos/{owner}/{repo}/wiki/{slug}/attachments/{name}", a.wikiAttachments)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki/{slug}", a.wikiPage)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/wiki/{slug}", a.saveWikiPage)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/remixes", a.remixes)
@@ -438,6 +445,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/district", a.updateRepositoryDistrict)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/refs", a.refEvents)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/tags", a.repositoryTags)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/tags", a.createRepositoryTag)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/tags/{tag}", a.deleteRepositoryTag)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/export", a.exportRepository)
+	mux.HandleFunc("POST /api/v1/operator/storage/reconcile", a.reconcileOrphanStorage)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops", a.drops)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/drops", a.createDrop)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops/{tag}", a.drop)
@@ -457,7 +468,11 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /v2/{name}/blobs/{digest}", a.ociGetBlob)
 	mux.HandleFunc("/git/", a.gitHTTP)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Request-ID", auth.ID())
+		requestID := auth.ID()
+		trace := newTraceContext(r.Header.Get("traceparent"))
+		r = r.WithContext(context.WithValue(r.Context(), traceContextKey{}, trace))
+		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set("traceparent", traceParent(trace))
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Cache-Control", "no-store")
@@ -468,7 +483,11 @@ func (a *App) Handler() http.Handler {
 			a.metrics.inFlight.Add(1)
 			defer func() {
 				a.metrics.inFlight.Add(-1)
-				a.metrics.record(writer.status, time.Since(started))
+				elapsed := time.Since(started)
+				a.metrics.record(writer.status, elapsed)
+				if trace.flags&1 == 1 {
+					slog.Info("http server span", "trace_id", trace.traceID, "span_id", trace.spanID, "request_id", requestID, "method", r.Method, "status", writer.status, "duration_ms", elapsed.Milliseconds())
+				}
 			}()
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -482,8 +501,12 @@ func (a *App) Handler() http.Handler {
 			}
 			limit := int64(1 << 20)
 			asset := r.Method == "POST" && strings.Contains(r.URL.Path, "/drops/") && strings.HasSuffix(r.URL.Path, "/assets")
+			wikiAsset := r.Method == "POST" && strings.Contains(r.URL.Path, "/wiki/") && strings.HasSuffix(r.URL.Path, "/attachments")
 			if asset {
 				limit = 8 << 20
+			}
+			if wikiAsset {
+				limit = 700 << 10
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			// RFC 8058 one-click unsubscribe comes from mail clients: no
@@ -508,7 +531,7 @@ func (a *App) Handler() http.Handler {
 					return
 				}
 				jsonRequired := r.Method != "DELETE"
-				if asset && strings.HasPrefix(r.Header.Get("Content-Type"), "application/octet-stream") {
+				if (asset || wikiAsset) && strings.HasPrefix(r.Header.Get("Content-Type"), "application/octet-stream") {
 					jsonRequired = false
 				}
 				if jsonRequired && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {

@@ -12,6 +12,9 @@ func TestMetricsHandlerReportsAggregateCounters(t *testing.T) {
 	app.metrics.inFlight.Store(2)
 	app.metrics.record(201, 1500*time.Millisecond)
 	app.metrics.record(503, 500*time.Millisecond)
+	app.workers.mailAttempts.Store(4)
+	app.workers.recoveredLeases.Store(2)
+	app.workers.routeExpiryFail.Store(1)
 
 	recorder := httptest.NewRecorder()
 	app.metricsHandler(recorder, httptest.NewRequest("GET", "/metrics", nil))
@@ -22,6 +25,10 @@ func TestMetricsHandlerReportsAggregateCounters(t *testing.T) {
 		"gitown_http_responses_total{status_class=\"5xx\"} 1",
 		"gitown_http_request_duration_seconds_total 2.000000000",
 		"gitown_http_requests_in_flight 2",
+		"gitown_worker_attempts_total{queue=\"email\",outcome=\"attempted\"} 4",
+		"gitown_worker_recovered_claims_total 2",
+		"gitown_queue_metrics_available 0",
+		"gitown_worker_errors_total{worker=\"route_expiry\"} 1",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Errorf("metrics output missing %q", expected)

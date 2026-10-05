@@ -19,6 +19,19 @@ func main() {
 		fmt.Println("gitown", version.Version)
 		return
 	}
+	if args[0] == "completion" {
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: gitown completion <bash|zsh|fish>")
+			os.Exit(2)
+		}
+		script, err := owncli.Completion(args[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "gitown:", err)
+			os.Exit(2)
+		}
+		fmt.Print(script)
+		return
+	}
 	gitArgs, err := owncli.Resolve(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gitown:", err)

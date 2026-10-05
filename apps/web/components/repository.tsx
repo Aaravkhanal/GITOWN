@@ -36,6 +36,7 @@ import {
   Settings,
   Sparkles,
   Terminal,
+  Tag,
   Trash2,
   Users,
   Workflow,
@@ -200,6 +201,9 @@ export function RepositoryPage({
             <Terminal size={16} />
             Clone repository
           </button>
+          <a className="button" href={`/api/v1${endpoint}/export`}>
+            Export bundle
+          </a>
           {!r.archived && <RemixButton endpoint={endpoint} />}
           {r.visibility === "public" && (
             <a className="button" href={`/sites/${owner}/${name}/`}>
@@ -270,6 +274,12 @@ export function RepositoryPage({
             icon: History,
             label: "Commits",
             href: `${basePath}/commits`,
+          },
+          {
+            key: "tags",
+            icon: Tag,
+            label: "Tags",
+            href: `${basePath}/tags`,
           },
           {
             key: "activity",
@@ -375,6 +385,12 @@ export function RepositoryPage({
         )
       ) : tab === "commits" ? (
         <CommitList endpoint={endpoint} branch={branch} />
+      ) : tab === "tags" ? (
+        <RepositoryTags
+          endpoint={endpoint}
+          branches={repo.data.branches}
+          canWrite={r.can_write && !r.archived}
+        />
       ) : tab === "activity" ? (
         <RefActivity endpoint={endpoint} />
       ) : tab === "drops" ? (
@@ -427,6 +443,141 @@ export function RepositoryPage({
         </div>
       )}
     </>
+  );
+}
+
+function RepositoryTags({
+  endpoint,
+  branches,
+  canWrite,
+}: {
+  endpoint: string;
+  branches: string[];
+  canWrite: boolean;
+}) {
+  const [version, setVersion] = useState(0);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const tags = useData<{
+    items: { name: string; sha: string; subject: string; signed: boolean }[];
+  }>(`${endpoint}/tags`, version);
+  if (tags.loading) return <Loading />;
+  if (tags.error) return <ErrorMessage error={tags.error} />;
+  return (
+    <section className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>Repository tags</h2>
+          <p className="muted small-text">
+            Tags are Git refs. Create, move, and delete them with your normal
+            Git client; GITOWN displays up to 40 recent tags.
+          </p>
+        </div>
+        <a className="button" href={`/api/v1${endpoint}/export`}>
+          Export all refs
+        </a>
+      </div>
+      {canWrite && branches.length > 0 && (
+        <form
+          className="inline-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const data = new FormData(form);
+            setBusy(true);
+            setError("");
+            try {
+              await post(`${endpoint}/tags`, {
+                name: data.get("tag_name"),
+                branch: data.get("tag_branch"),
+                message: data.get("tag_message") || "",
+              });
+              form.reset();
+              setVersion((v) => v + 1);
+            } catch (tagError) {
+              setError((tagError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <h3>Create annotated tag</h3>
+          <ErrorMessage error={error} />
+          <div className="two-fields">
+            <label>
+              Tag name
+              <input
+                name="tag_name"
+                required
+                maxLength={61}
+                pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,60}"
+              />
+            </label>
+            <label>
+              Tag this branch
+              <select name="tag_branch" defaultValue={branches[0]}>
+                {branches.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label>
+            Annotation
+            <textarea name="tag_message" rows={3} maxLength={20000} />
+          </label>
+          <button className="button primary" disabled={busy}>
+            {busy ? "Creating tag…" : "Create tag"}
+          </button>
+        </form>
+      )}
+      <ErrorMessage error={error} />
+      {!tags.data?.items.length ? (
+        <div className="empty-state">
+          No tags yet. Create one above or push a tag with Git.
+        </div>
+      ) : (
+        <div className="repo-tag-list">
+          {tags.data.items.map((item) => (
+            <div className="repo-tag-row" key={item.name}>
+              <Tag size={16} />
+              <div className="repo-tag-meta">
+                <strong>{item.name}</strong>
+                <div className="muted small-text">
+                  {item.subject || "No tag message"}
+                </div>
+              </div>
+              {item.signed && <Badge>verified signature</Badge>}
+              <code>{item.sha.slice(0, 10)}</code>
+              {canWrite && (
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (!window.confirm(`Delete tag ${item.name}?`)) return;
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await destroy(
+                        `${endpoint}/tags/${encodeURIComponent(item.name)}`,
+                        { expected_sha: item.sha },
+                      );
+                      setVersion((v) => v + 1);
+                    } catch (tagError) {
+                      setError((tagError as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -74,6 +75,95 @@ func (a *App) repositoryTags(w http.ResponseWriter, r *http.Request) {
 		items = append(items, map[string]any{"name": parts[0], "sha": parts[1], "subject": subject, "signed": signed})
 	}
 	respond(w, 200, map[string]any{"items": items})
+}
+
+func (a *App) createRepositoryTag(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	if repo.Archived {
+		fail(w, 409, "repository_archived", "Unarchive this repository before creating tags.")
+		return
+	}
+	u := a.user(r)
+	var in struct {
+		Name    string `json:"name"`
+		Branch  string `json:"branch"`
+		Message string `json:"message"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	in.Branch = strings.TrimSpace(in.Branch)
+	if !validDropTag(in.Name) || in.Branch == "" || len(in.Message) > 20000 || strings.ContainsAny(in.Branch, "\x00\r\n \\:") {
+		fail(w, 422, "validation_failed", "Choose a valid tag name and branch, and keep the annotated message under 20,000 characters.")
+		return
+	}
+	if _, err := a.git.Run(r.Context(), repo.ID, nil, "check-ref-format", "refs/heads/"+in.Branch); err != nil {
+		fail(w, 422, "validation_failed", "The selected branch name is invalid.")
+		return
+	}
+	out, err := a.git.Run(r.Context(), repo.ID, nil, "rev-parse", "--verify", "--end-of-options", "refs/heads/"+in.Branch)
+	if err != nil {
+		fail(w, 404, "branch_not_found", "The selected branch does not exist.")
+		return
+	}
+	if err = a.git.CreateAnnotatedTag(r.Context(), repo.ID, in.Name, strings.TrimSpace(string(out)), u.DisplayName, u.Username+"@users.gitown.local", in.Message); err != nil {
+		fail(w, 409, "tag_exists", "The tag could not be created; it may already exist or the ref changed.")
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.tag_created',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Name)
+	respond(w, 201, map[string]any{"name": in.Name, "sha": strings.TrimSpace(string(out))})
+}
+
+func (a *App) deleteRepositoryTag(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	if repo.Archived {
+		fail(w, 409, "repository_archived", "Unarchive this repository before deleting tags.")
+		return
+	}
+	u := a.user(r)
+	tag := r.PathValue("tag")
+	if !validDropTag(tag) {
+		fail(w, 404, "not_found", "Tag not found.")
+		return
+	}
+	var in struct {
+		ExpectedSHA string `json:"expected_sha"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.ExpectedSHA) != 40 {
+		fail(w, 422, "validation_failed", "Refresh the tag listing and provide its current object ID.")
+		return
+	}
+	if _, code, err := a.git.Command(r.Context(), 20*1e9, repo.ID, "update-ref", "-d", "refs/tags/"+tag, in.ExpectedSHA); err != nil || code != 0 {
+		fail(w, 409, "tag_changed", "The tag changed or no longer exists. Refresh before trying again.")
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.tag_deleted',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+tag)
+	respond(w, 200, map[string]bool{"deleted": true})
+}
+
+func (a *App) exportRepository(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-git-bundle")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+repo.Owner+"-"+repo.Name+`.bundle"`)
+	w.Header().Set("Cache-Control", "private, no-store")
+	if err := a.git.ExportBundle(r.Context(), repo.ID, w); err != nil {
+		// Headers may already have been sent for a streaming response. Log the
+		// storage error rather than append a misleading JSON body to the bundle.
+		slog.Error("repository bundle export failed", "repository", repo.Owner+"/"+repo.Name, "error", err)
+	}
 }
 
 func (a *App) drops(w http.ResponseWriter, r *http.Request) {

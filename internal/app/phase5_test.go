@@ -404,8 +404,30 @@ func TestPhaseFiveNotificationsAndProfiles(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT status,attempts,next_attempt_at>now() FROM email_messages WHERE recipient_email='third@example.test' ORDER BY created_at DESC LIMIT 1`).Scan(&status, &attempts, &retryLater); err != nil || status != "pending" || attempts != 1 || !retryLater {
 		t.Fatalf("failed delivery should be retried later: %q %d %v %v", status, attempts, retryLater, err)
 	}
+	var deadLetterID string
+	if err = pool.QueryRow(ctx, `UPDATE email_messages SET status='sending',attempts=$1,claimed_at=now()-interval '11 minutes' WHERE id=(SELECT id FROM email_messages WHERE recipient_email='third@example.test' ORDER BY created_at DESC LIMIT 1) RETURNING id::text`, mailMaxAttempts-1).Scan(&deadLetterID); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.recoverStaleMailClaims(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status,attempts FROM email_messages WHERE id=$1`, deadLetterID).Scan(&status, &attempts); err != nil || status != "failed" || attempts != mailMaxAttempts {
+		t.Fatalf("expired mail claim did not enter dead-letter state: %q %d %v", status, attempts, err)
+	}
+	t.Setenv("GITOWN_OPERATORS", "owner")
+	var queues struct {
+		DeadLetters map[string][]map[string]any `json:"dead_letters"`
+	}
+	owner.request("GET", "/operator/queues", nil, 200, &queues)
+	if len(queues.DeadLetters["email"]) == 0 || queues.DeadLetters["email"][0]["id"] != deadLetterID {
+		t.Fatalf("operator queue view omitted the email dead letter: %+v", queues.DeadLetters)
+	}
 	outbox.fail = nil
-
+	owner.request("POST", "/operator/queues/email/"+deadLetterID+"/retry", nil, 200, nil)
+	deliver()
+	if err = pool.QueryRow(ctx, `SELECT status FROM email_messages WHERE id=$1`, deadLetterID).Scan(&status); err != nil || status != "sent" {
+		t.Fatalf("operator retry did not recover the email: %q %v", status, err)
+	}
 	// Following notifies once per follower and is listed both ways.
 	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": true}, 200, nil)
 	other.request("PUT", "/users/owner/follow", map[string]bool{"followed": false}, 200, nil)
