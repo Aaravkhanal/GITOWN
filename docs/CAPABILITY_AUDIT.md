@@ -18,9 +18,9 @@ This audit checks the nine capability groups requested against the shipped produ
 
 ## Implementation plan
 
-1. Browser code experience is shipped: upload and rename with stale-head protection, blame access, branch compare, Markdown rendering and syntax coloring. Remaining code-browser work includes the complete tags UI and import/export UX.
+1. Phase 2 repository workflows are shipped for the documented alpha scope: public HTTPS import, Git bundle export, tags UI, operator dry-run and recoverable storage quarantine, and signed CLI releases with shell completions. Embedded sshd was explicitly deferred; see [Repository operations](REPOSITORY_OPERATIONS.md). Binary browser editing and multipart LFS remain unsupported.
 2. Account-security implementation is shipped. Verify real SMTP delivery, configure `GITOWN_OPERATORS`, test recovery procedures, and tune shared IP/account thresholds before enabling verified-email enforcement in production.
-3. Add observability and operations foundations: structured request/job metrics, traces, health/readiness probes, dashboards and alerts; worker retry/dead-letter visibility; runbooks; scheduled cleanup and orphan reconciliation; automated backup restore proof.
+3. Add observability and operations foundations: structured request/job metrics, traces, health/readiness probes, dashboards and alerts; worker retry/dead-letter visibility; runbooks; scheduled cleanup; automated backup restore proof.
 4. Harden for public beta: isolate Git and workflow processes, enforce quotas at the OS/process boundary, add abuse controls and rate limits, prove webhook/event durability, run load/soak and failure tests, and obtain an independent security review before accepting untrusted public workloads.
 5. Keep the roadmap honest: Routes remains planning-only until sandbox review signs off on immutable checkout, ephemeral credentials, redaction, process/network isolation, live resource caps and process-tree cancellation. Treat embedded sshd, advanced Git hosting, high availability and enterprise identity as separately scoped follow-up work.
 

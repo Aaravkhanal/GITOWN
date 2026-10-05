@@ -804,6 +804,27 @@ hr {
   margin: 0 0 18px;
   min-height: 24px;
 }
+.repo-tag-list {
+  display: grid;
+  gap: 0;
+}
+.repo-tag-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line, #2a302c);
+}
+.repo-tag-meta {
+  flex: 1;
+  min-width: 0;
+}
+.repo-tag-meta > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .section-heading h2 {
   margin: 0;
   font-size: 14px;

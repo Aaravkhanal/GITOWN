@@ -2408,6 +2408,76 @@ paths:
                         subject: { type: string }
                         signed: { type: boolean }
         "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create an annotated repository tag
+      description: Requires repository write access, an authenticated session, and recent step-up authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, branch]
+              properties:
+                name: { type: string }
+                branch: { type: string }
+                message: { type: string }
+      responses:
+        "201": { description: Tag created }
+        "428": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/tags/{tag}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: tag, in: path, required: true, schema: { type: string } },
+      ]
+    delete:
+      summary: Delete a repository tag if its object ID is unchanged
+      description: Requires repository write access, an authenticated session, and recent step-up authentication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_sha]
+              properties:
+                expected_sha: { type: string, pattern: "^[0-9a-f]{40}$" }
+      responses:
+        "200": { description: Tag deleted }
+        "409": { $ref: "#/components/responses/Error" }
+        "428": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/export:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: Download all repository refs as a Git bundle
+      description: Requires repository read access. Streams a portable bundle; it does not change repository state.
+      responses:
+        "200":
+          description: application/x-git-bundle download
+        "403": { $ref: "#/components/responses/Error" }
+  /operator/storage/reconcile:
+    post:
+      summary: Inspect or reconcile orphan Git storage
+      description: Operator-only. An empty action or dry_run inventories orphan and quarantined directories without changes. quarantine and restore require repository_id. No action deletes storage.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, enum: [dry_run, quarantine, restore] }
+                repository_id: { type: string, format: uuid }
+      responses:
+        "200": { description: Dry-run findings or completed recoverable move }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/permissions:
     parameters:
       [

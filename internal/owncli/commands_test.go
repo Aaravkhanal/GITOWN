@@ -49,3 +49,15 @@ func TestHelpDocumentsEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletionScripts(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		script, err := Completion(shell)
+		if err != nil || !strings.Contains(script, "gitown") || !strings.Contains(script, "bring") || !strings.Contains(script, "unite") {
+			t.Fatalf("Completion(%q) = %q, %v", shell, script, err)
+		}
+	}
+	if _, err := Completion("powershell"); err == nil {
+		t.Fatal("unsupported shell unexpectedly accepted")
+	}
+}

@@ -29,11 +29,7 @@ The branch-rule data model and settings UI, required Unite requests, approvals, 
 
 ### 4. Git and code experience
 
-SSH transport with forced commands and identical branch policy enforcement, repository size accounting and quotas, on-demand and scheduled `git gc` maintenance, tag signatures verified against the same registered-key trust store as commits, LFS batch transfer with path locks, raw downloads, safe Markdown, syntax colors, blame and branch compare are implemented. Still open in this section:
-
-- A complete Git tags UI.
-- Orphan storage reconciliation.
-- CLI installers, shell completion, signed releases, and server/token profiles.
+SSH transport with forced commands and identical branch policy enforcement, repository quotas and maintenance, signed-tag verification, public-source imports, all-ref Git bundle exports, a tags UI, and operator dry-run/recoverable orphan-storage quarantine are implemented. Linux/macOS CLI archives use a Sigstore-signed checksum manifest, with a verifying installer and bash/zsh/fish completions. GITOWN deliberately does not embed sshd; operators configure a separate forced-command gateway. Automatic server/token profiles remain a CLI follow-up.
 
 ### 5. Integrations and operations
 

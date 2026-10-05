@@ -10,11 +10,15 @@ Shipped: registration and login, Argon2id passwords, one-time email verification
 
 Deployment gate: verify SMTP delivery and incident procedures in the production environment before requiring verified email or relying on recovery. Configure `GITOWN_OPERATORS` for abuse-event visibility. Email and MFA setup, operational requirements, and limitations are documented in [Account security](ACCOUNT_SECURITY.md).
 
-## Phase 2 — Everyday repository work (partial)
+## Phase 2 — Everyday repository work (complete for documented alpha scope)
 
 Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection. The browser also supports text upload and rename, safe Markdown rendering, lightweight syntax colors, blame, branch comparison, and paged commit history.
 
-Remaining gate: repository import/export UX, orphan reconciliation, a complete Git tags UI, and an embedded SSH server. Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
+The browser now has public HTTPS import, an all-refs Git bundle export, and a tags page with signature status. Operators can dry-run orphan reconciliation, move unregistered repositories into recoverable quarantine, and restore them; reconciliation never deletes Git data. The CLI includes bash/zsh/fish completions and signed Linux/macOS release archives with a signature-verifying installer.
+
+SSH decision: do not embed sshd for the current product scope. The forced-command gateway provides Git SSH transport while keeping shell execution out of the service. Embedding an SSH daemon adds network lifecycle, host-key, privilege-separation, and protocol attack surface without demonstrated user need. Operators must configure a separate sshd/ForceCommand entry point; revisit embedded SSH only if deployment demand justifies this security boundary.
+
+Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. This phase does not imply production readiness or safe public execution of untrusted code.
 
 ## Phase 3 — Collaboration and protected delivery (complete)
 

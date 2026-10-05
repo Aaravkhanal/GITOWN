@@ -53,6 +53,28 @@ func Resolve(args []string) ([]string, error) {
 	return append(result, provided...), nil
 }
 
+// Completion emits native completion scripts without requiring a shell
+// framework. Keep command names derived from the same command registry.
+func Completion(shell string) (string, error) {
+	names := make([]string, 0, len(commands)+3)
+	for name := range commands {
+		names = append(names, name)
+	}
+	names = append(names, "git", "help", "version")
+	sort.Strings(names)
+	joined := strings.Join(names, " ")
+	switch shell {
+	case "bash":
+		return "_gitown() { local cur; cur=\"${COMP_WORDS[COMP_CWORD]}\"; COMPREPLY=( $(compgen -W '" + joined + "' -- \"$cur\") ); }\ncomplete -F _gitown gitown\n", nil
+	case "zsh":
+		return "#compdef gitown\n_arguments '1:command:('" + joined + ")' '*:arguments:_files'\n", nil
+	case "fish":
+		return "complete -c gitown -f -n 'not __fish_seen_subcommand_from " + joined + "' -a '" + joined + "'\n", nil
+	default:
+		return "", fmt.Errorf("unsupported shell %q (choose bash, zsh, or fish)", shell)
+	}
+}
+
 func Help() string {
 	names := make([]string, 0, len(commands))
 	for name := range commands {
@@ -65,6 +87,6 @@ func Help() string {
 		command := commands[name]
 		fmt.Fprintf(&body, "  %-8s %s\n", command.Name, command.Description)
 	}
-	body.WriteString("  git      Run any standard Git command.\n  help     Show this guide.\n  version  Show the CLI version.\n\nRun standard Git at any time with: gitown git <command> ...\n")
+	body.WriteString("  git      Run any standard Git command.\n  completion <shell>  Print bash, zsh, or fish completions.\n  help     Show this guide.\n  version  Show the CLI version.\n\nInstall signed releases from https://github.com/Aaravkhanal/GITOWN/releases/latest with scripts/install-gitown.sh.\nRun standard Git at any time with: gitown git <command> ...\n")
 	return body.String()
 }
