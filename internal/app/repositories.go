@@ -670,6 +670,7 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Branch       string `json:"branch"`
 		Path         string `json:"path"`
+		Previous     string `json:"previous_path"`
 		Content      string `json:"content"`
 		Message      string `json:"message"`
 		ExpectedHead string `json:"expected_head"`
@@ -679,6 +680,7 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Branch = strings.TrimSpace(in.Branch)
 	in.Path = strings.TrimSpace(in.Path)
+	in.Previous = strings.TrimSpace(in.Previous)
 	in.Message = strings.TrimSpace(in.Message)
 	if in.Branch == "" || in.Path == "" || in.Message == "" || len(in.Message) > 200 || len(in.ExpectedHead) != 40 || len(in.Content) > gitstore.MaxBlob {
 		fail(w, 422, "validation_failed", "Provide a branch, safe file path, expected head SHA, content up to 512 KiB, and a commit message up to 200 characters.")
@@ -687,7 +689,13 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch, repo.Role) {
 		return
 	}
-	sha, err := a.git.CommitFile(r.Context(), repo.ID, in.Branch, in.Path, []byte(in.Content), in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
+	var sha string
+	var err error
+	if in.Previous != "" && in.Previous != in.Path {
+		sha, err = a.git.MoveFile(r.Context(), repo.ID, in.Branch, in.Previous, in.Path, []byte(in.Content), in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
+	} else {
+		sha, err = a.git.CommitFile(r.Context(), repo.ID, in.Branch, in.Path, []byte(in.Content), in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
+	}
 	if errors.Is(err, gitstore.ErrConflict) {
 		fail(w, 409, "branch_changed", "The branch changed while you were editing. Refresh the file and apply your changes again.")
 		return
@@ -747,6 +755,69 @@ func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {
 	a.finishReceive(r.Context(), repo, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 200, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
 }
+func (a *App) blame(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	branch := r.URL.Query().Get("ref")
+	if branch == "" {
+		branch = repo.DefaultBranch
+	}
+	path := r.URL.Query().Get("path")
+	lines, err := a.git.Blame(r.Context(), repo.ID, branch, path)
+	if errors.Is(err, gitstore.ErrNotFound) {
+		fail(w, 404, "not_found", "Branch or file not found.")
+		return
+	}
+	if errors.Is(err, gitstore.ErrTooLarge) {
+		fail(w, 413, "too_large", "This file is too large to blame in the browser.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"path": path, "lines": lines, "truncated": len(lines) >= 4000})
+}
+
+func (a *App) compareRefs(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	baseName := strings.TrimSpace(r.URL.Query().Get("base"))
+	headName := strings.TrimSpace(r.URL.Query().Get("head"))
+	if baseName == "" {
+		baseName = repo.DefaultBranch
+	}
+	if headName == "" || baseName == headName {
+		fail(w, 422, "validation_failed", "Choose two different branches to compare.")
+		return
+	}
+	base, err := a.git.Resolve(r.Context(), repo.ID, baseName)
+	if err != nil {
+		fail(w, 404, "not_found", "The base branch was not found.")
+		return
+	}
+	head, err := a.git.Resolve(r.Context(), repo.ID, headName)
+	if err != nil {
+		fail(w, 404, "not_found", "The head branch was not found.")
+		return
+	}
+	output, err := a.git.Run(r.Context(), repo.ID, nil, "diff", "--no-ext-diff", "--no-textconv", "--stat", "--patch", base+"..."+head, "--")
+	if errors.Is(err, gitstore.ErrTooLarge) {
+		fail(w, 413, "too_large", "This comparison is too large to display. Inspect the branches with Git.")
+		return
+	}
+	if err != nil {
+		fail(w, 422, "unrelated_history", "These branches have no common history.")
+		return
+	}
+	diff, truncated := pageLines(r, string(output))
+	respond(w, 200, map[string]any{"base": baseName, "head": headName, "base_sha": base, "head_sha": head, "diff": diff, "diff_truncated": truncated})
+}
+
 func (a *App) commits(w http.ResponseWriter, r *http.Request) {
 	repo := a.access(w, r, false)
 	if repo == nil {

@@ -2632,6 +2632,24 @@ textarea {
   white-space: pre;
   padding-right: 18px;
 }
+.tok-keyword {
+  color: #9d7a2a;
+}
+.tok-string {
+  color: #2f6f4e;
+}
+.tok-comment {
+  color: #6d7f74;
+}
+.tok-number {
+  color: #8a4b2f;
+}
+.blame-meta {
+  width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .line-number {
   display: inline-block;
   width: 54px;

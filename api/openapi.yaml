@@ -2365,11 +2365,17 @@ paths:
               properties:
                 branch: { type: string }
                 path: { type: string, maxLength: 4096 }
+                previous_path:
+                  {
+                    type: string,
+                    maxLength: 4096,
+                    description: Existing file path to rename,
+                  }
                 content: { type: string, maxLength: 524288 }
                 message: { type: string, maxLength: 200 }
                 expected_head: { type: string, minLength: 40, maxLength: 40 }
       responses:
-        "201":
+        "200":
           description: File commit created and branch advanced
           content:
             application/json:
@@ -2381,6 +2387,7 @@ paths:
                   path: { type: string }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
     delete:
       summary: Delete a file with an atomic Git commit
       description: Requires repository write access. The expected branch head prevents deletion after a concurrent push.
@@ -2421,6 +2428,39 @@ paths:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/blame:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Show commit attribution for lines in a text file
+      parameters:
+        - { name: ref, in: query, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Attributed lines, capped at 4, 000 }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/compare:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Compare two repository branches
+      parameters:
+        - { name: base, in: query, required: true, schema: { type: string } }
+        - { name: head, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Branch SHAs and a paged unified diff }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/commits:
     parameters:
       [
@@ -3819,7 +3859,10 @@ paths:
         Record a runner heartbeat. The response jobs list is empty because
         untrusted execution is disabled.
       responses:
-        "200": { description: execution_enabled false and jobs [] }
+        "200":
+          {
+            description: "execution_enabled is false and jobs is an empty list",
+          }
         "401": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/remix:
     parameters:

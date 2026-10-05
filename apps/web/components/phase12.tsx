@@ -22,20 +22,27 @@ export function RouteDesk({
     version,
   );
   const runners = useData<{
-    items: { kind: string; name: string; execution_enabled: boolean; reason?: string; online?: boolean }[];
+    items: {
+      kind: string;
+      name: string;
+      execution_enabled: boolean;
+      reason?: string;
+      online?: boolean;
+    }[];
     execution_enabled: boolean;
   }>(`${endpoint}/routes/runners`, version);
-  const caches = useData<{ items: { key: string; size_bytes: number }[]; quota_bytes: number }>(
-    `${endpoint}/routes/caches`,
-    version,
-  );
+  const caches = useData<{
+    items: { key: string; size_bytes: number }[];
+    quota_bytes: number;
+  }>(`${endpoint}/routes/caches`, version);
   return (
     <section className="routes-platform">
       <h3>Runners, secrets, and cache</h3>
       <p className="muted small-text">
-        Hosted and self-hosted runners can be recorded, and secrets stay encrypted.
-        No runner receives a workflow command. Execution stays off until the
-        sandbox has been reviewed. Network access cannot be set to open.
+        Hosted and self-hosted runners can be recorded, and secrets stay
+        encrypted. No runner receives a workflow command. Execution stays off
+        until the sandbox has been reviewed. Network access cannot be set to
+        open.
       </p>
       <ErrorMessage error={error || runners.error} />
       {runners.data?.items.map((runner) => (
@@ -53,14 +60,17 @@ export function RouteDesk({
             setError("");
             const data = new FormData(e.currentTarget);
             try {
-              const created = await post<{ token: string }>(`${endpoint}/routes/runners`, {
-                name: data.get("name"),
-                cpu_millis: 1000,
-                memory_mb: 512,
-                disk_mb: 1024,
-                network: "restricted",
-                labels: [],
-              });
+              const created = await post<{ token: string }>(
+                `${endpoint}/routes/runners`,
+                {
+                  name: data.get("name"),
+                  cpu_millis: 1000,
+                  memory_mb: 512,
+                  disk_mb: 1024,
+                  network: "restricted",
+                  labels: [],
+                },
+              );
               setToken(created.token);
               setVersion((v) => v + 1);
               e.currentTarget.reset();
@@ -139,24 +149,39 @@ export function RouteDesk({
   );
 }
 
-export function TownHallPanel({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+export function TownHallPanel({
+  endpoint,
+  repo,
+}: {
+  endpoint: string;
+  repo: Repo;
+}) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  const list = useData<{ items: { number: number; title: string; category: string; state: string; author: string }[] }>(
-    `${endpoint}/discussions`,
-    version,
-  );
-  const detail = useData<{ title: string; body: string; comments: { id: string; body: string; author: string }[] }>(
-    open ? `${endpoint}/discussions/${open}` : null,
-    version,
-  );
+  const list = useData<{
+    items: {
+      number: number;
+      title: string;
+      category: string;
+      state: string;
+      author: string;
+    }[];
+  }>(`${endpoint}/discussions`, version);
+  const detail = useData<{
+    title: string;
+    body: string;
+    comments: { id: string; body: string; author: string }[];
+  }>(open ? `${endpoint}/discussions/${open}` : null, version);
   return (
     <section className="panel">
       <h2>
         <MessagesSquare size={18} /> Town Hall
       </h2>
-      <p className="muted small-text">Discussions stay with the repository. They are not issues and they are not unite requests.</p>
+      <p className="muted small-text">
+        Discussions stay with the repository. They are not issues and they are
+        not unite requests.
+      </p>
       <ErrorMessage error={error || list.error} />
       {repo.can_comment && !repo.archived && (
         <form
@@ -204,7 +229,12 @@ export function TownHallPanel({ endpoint, repo }: { endpoint: string; repo: Repo
         <Loading />
       ) : (
         list.data?.items.map((item) => (
-          <button className="button small-button" type="button" key={item.number} onClick={() => setOpen(item.number)}>
+          <button
+            className="button small-button"
+            type="button"
+            key={item.number}
+            onClick={() => setOpen(item.number)}
+          >
             #{item.number} {item.title} · {item.category} · {item.state}
           </button>
         ))
@@ -215,7 +245,8 @@ export function TownHallPanel({ endpoint, repo }: { endpoint: string; repo: Repo
           <SafeMarkdown text={detail.data.body} />
           {detail.data.comments.map((comment) => (
             <p key={comment.id}>
-              <strong>{comment.author}</strong> <SafeMarkdown text={comment.body} />
+              <strong>{comment.author}</strong>{" "}
+              <SafeMarkdown text={comment.body} />
             </p>
           ))}
           {repo.can_comment && !repo.archived && (
@@ -224,7 +255,9 @@ export function TownHallPanel({ endpoint, repo }: { endpoint: string; repo: Repo
                 e.preventDefault();
                 const data = new FormData(e.currentTarget);
                 try {
-                  await post(`${endpoint}/discussions/${open}/comments`, { body: data.get("body") });
+                  await post(`${endpoint}/discussions/${open}/comments`, {
+                    body: data.get("body"),
+                  });
                   setVersion((v) => v + 1);
                   e.currentTarget.reset();
                 } catch (saveError) {
@@ -244,38 +277,62 @@ export function TownHallPanel({ endpoint, repo }: { endpoint: string; repo: Repo
   );
 }
 
-export function SupplyPanel({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+export function SupplyPanel({
+  endpoint,
+  repo,
+}: {
+  endpoint: string;
+  repo: Repo;
+}) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
-  const graph = useData<{ items: { manifest: string; ecosystem: string; name: string; version: string }[] }>(
-    `${endpoint}/dependency-graph`,
+  const graph = useData<{
+    items: {
+      manifest: string;
+      ecosystem: string;
+      name: string;
+      version: string;
+    }[];
+  }>(`${endpoint}/dependency-graph`, version);
+  const findings = useData<{
+    items: {
+      id: string;
+      path: string;
+      line: number;
+      marker: string;
+      state: string;
+    }[];
+  }>(repo.can_write ? `${endpoint}/secret-findings` : null, version);
+  const advisories = useData<{
+    items: { code: string; severity: string; summary: string; state: string }[];
+  }>(`${endpoint}/advisories`, version);
+  const alerts = useData<{
+    items: {
+      id: string;
+      code: string;
+      package_name: string;
+      installed_version: string;
+      state: string;
+    }[];
+  }>(repo.can_write ? `${endpoint}/vulnerability-alerts` : null, version);
+  const envs = useData<{
+    items: { id: string; status: string; image: string }[];
+    execution_enabled: boolean;
+  }>(`${endpoint}/dev-environments`, version);
+  const owners = useData<{ items: { pattern: string; owners: string[] }[] }>(
+    `${endpoint}/codeowners`,
     version,
   );
-  const findings = useData<{ items: { id: string; path: string; line: number; marker: string; state: string }[] }>(
-    repo.can_write ? `${endpoint}/secret-findings` : null,
-    version,
-  );
-  const advisories = useData<{ items: { code: string; severity: string; summary: string; state: string }[] }>(
-    `${endpoint}/advisories`,
-    version,
-  );
-  const alerts = useData<{ items: { id: string; code: string; package_name: string; installed_version: string; state: string }[] }>(
-    repo.can_write ? `${endpoint}/vulnerability-alerts` : null,
-    version,
-  );
-  const envs = useData<{ items: { id: string; status: string; image: string }[]; execution_enabled: boolean }>(
-    `${endpoint}/dev-environments`,
-    version,
-  );
-  const owners = useData<{ items: { pattern: string; owners: string[] }[] }>(`${endpoint}/codeowners`, version);
   return (
     <section className="panel">
       <h2>
         <Shield size={18} /> Supply and workshop
       </h2>
       <p className="muted small-text">
-        Dependency graph, secret markers, advisories, and code owners are read from the default branch.
-        A development environment records <code>.gitown/dev.yml</code> and stays pending until sandbox review. It does not start a machine.
+        Dependency graph, secret markers, advisories, and code owners are read
+        from the default branch. A development environment records{" "}
+        <code>.gitown/dev.yml</code> and stays pending until sandbox review. It
+        does not start a machine.
       </p>
       <ErrorMessage error={error} />
       {repo.can_write && !repo.archived && (
@@ -299,7 +356,8 @@ export function SupplyPanel({ endpoint, repo }: { endpoint: string; repo: Repo }
       {graph.data?.items.length ? (
         graph.data.items.map((item) => (
           <p key={`${item.manifest}-${item.name}`}>
-            {item.ecosystem} {item.name} {item.version} <span className="muted">({item.manifest})</span>
+            {item.ecosystem} {item.name} {item.version}{" "}
+            <span className="muted">({item.manifest})</span>
           </p>
         ))
       ) : (
@@ -361,17 +419,21 @@ export function SupplyPanel({ endpoint, repo }: { endpoint: string; repo: Repo }
       <h3>Vulnerability alerts</h3>
       {alerts.data?.items.map((item) => (
         <p key={item.id}>
-          {item.code} · {item.package_name} {item.installed_version} ({item.state})
+          {item.code} · {item.package_name} {item.installed_version} (
+          {item.state})
         </p>
       ))}
       <h3>Code owners</h3>
       {owners.data?.items.map((rule) => (
         <p key={rule.pattern}>
-          <code>{rule.pattern}</code> {rule.owners.map((name) => `@${name}`).join(" ")}
+          <code>{rule.pattern}</code>{" "}
+          {rule.owners.map((name) => `@${name}`).join(" ")}
         </p>
       ))}
       <h3>Development environments</h3>
-      <p className="muted small-text">Execution enabled: {String(envs.data?.execution_enabled ?? false)}</p>
+      <p className="muted small-text">
+        Execution enabled: {String(envs.data?.execution_enabled ?? false)}
+      </p>
       {envs.data?.items.map((item) => (
         <p key={item.id}>
           {item.image || "no image"} · {item.status}
@@ -398,13 +460,18 @@ export function SupplyPanel({ endpoint, repo }: { endpoint: string; repo: Repo }
   );
 }
 
-export function MergeQueuePanel({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+export function MergeQueuePanel({
+  endpoint,
+  repo,
+}: {
+  endpoint: string;
+  repo: Repo;
+}) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
-  const queue = useData<{ items: { number: number; title: string; position: number }[] }>(
-    `${endpoint}/merge-queue`,
-    version,
-  );
+  const queue = useData<{
+    items: { number: number; title: string; position: number }[];
+  }>(`${endpoint}/merge-queue`, version);
   if (!repo.can_write && !queue.data?.items.length) return null;
   return (
     <section className="panel">
@@ -412,7 +479,8 @@ export function MergeQueuePanel({ endpoint, repo }: { endpoint: string; repo: Re
         <GitMerge size={16} /> Merge queue
       </h3>
       <p className="muted small-text">
-        While the queue has a waiting request, only the one at the front can merge. This does not run checks; existing branch rules still apply.
+        While the queue has a waiting request, only the one at the front can
+        merge. This does not run checks; existing branch rules still apply.
       </p>
       <ErrorMessage error={error || queue.error} />
       {queue.data?.items.map((item) => (
@@ -427,7 +495,10 @@ export function MergeQueuePanel({ endpoint, repo }: { endpoint: string; repo: Re
               type="button"
               onClick={async () => {
                 try {
-                  await post(`${endpoint}/merge-queue/${item.number}/dequeue`, {});
+                  await post(
+                    `${endpoint}/merge-queue/${item.number}/dequeue`,
+                    {},
+                  );
                   setVersion((v) => v + 1);
                 } catch (saveError) {
                   setError((saveError as Error).message);
@@ -446,7 +517,9 @@ export function MergeQueuePanel({ endpoint, repo }: { endpoint: string; repo: Re
             e.preventDefault();
             const data = new FormData(e.currentTarget);
             try {
-              await post(`${endpoint}/merge-queue`, { number: Number(data.get("number")) });
+              await post(`${endpoint}/merge-queue`, {
+                number: Number(data.get("number")),
+              });
               setVersion((v) => v + 1);
               e.currentTarget.reset();
             } catch (saveError) {
@@ -471,14 +544,15 @@ export function SnippetsPage() {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const list = useData<{ items: { id: string; title: string; owner: string; visibility: string }[] }>(
-    "/snippets",
-    version,
-  );
-  const snippet = useData<{ title: string; filename: string; content: string; owner: string }>(
-    selected ? `/snippets/${selected}` : null,
-    version,
-  );
+  const list = useData<{
+    items: { id: string; title: string; owner: string; visibility: string }[];
+  }>("/snippets", version);
+  const snippet = useData<{
+    title: string;
+    filename: string;
+    content: string;
+    owner: string;
+  }>(selected ? `/snippets/${selected}` : null, version);
   return (
     <section>
       <div className="page-heading">
@@ -523,7 +597,12 @@ export function SnippetsPage() {
         <Loading />
       ) : (
         list.data?.items.map((item) => (
-          <button className="button small-button" type="button" key={item.id} onClick={() => setSelected(item.id)}>
+          <button
+            className="button small-button"
+            type="button"
+            key={item.id}
+            onClick={() => setSelected(item.id)}
+          >
             {item.title} · {item.owner} · {item.visibility}
           </button>
         ))
@@ -531,7 +610,8 @@ export function SnippetsPage() {
       {snippet.data && (
         <article className="panel">
           <h2>
-            {snippet.data.title} <span className="muted">{snippet.data.filename}</span>
+            {snippet.data.title}{" "}
+            <span className="muted">{snippet.data.filename}</span>
           </h2>
           <pre>{snippet.data.content}</pre>
         </article>
@@ -547,7 +627,8 @@ export function MobileDevices() {
     <section className="panel">
       <h2>Mobile notifications</h2>
       <p className="muted small-text">
-        Register a device to pull your unread inbox. GITOWN does not send a push through Apple or Google in this version.
+        Register a device to pull your unread inbox. GITOWN does not send a push
+        through Apple or Google in this version.
       </p>
       <ErrorMessage error={error} />
       <form
@@ -595,20 +676,22 @@ export function Backers({
 }) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
-  const pledges = useData<{ items: { sponsor: string; amount_cents: number; message: string }[]; charges: boolean }>(
-    `/users/${encodeURIComponent(username)}/sponsorships`,
-    version,
-  );
+  const pledges = useData<{
+    items: { sponsor: string; amount_cents: number; message: string }[];
+    charges: boolean;
+  }>(`/users/${encodeURIComponent(username)}/sponsorships`, version);
   return (
     <section className="panel">
       <h2>Backers</h2>
       <p className="muted small-text">
-        Pledges are public records. Charges: {String(pledges.data?.charges ?? false)}. GITOWN does not bill a card.
+        Pledges are public records. Charges:{" "}
+        {String(pledges.data?.charges ?? false)}. GITOWN does not bill a card.
       </p>
       <ErrorMessage error={error || pledges.error} />
       {pledges.data?.items.map((item) => (
         <p key={item.sponsor}>
-          {item.sponsor} pledged ${(item.amount_cents / 100).toFixed(2)} {item.message}
+          {item.sponsor} pledged ${(item.amount_cents / 100).toFixed(2)}{" "}
+          {item.message}
         </p>
       ))}
       {currentUsername && currentUsername !== username && (
@@ -619,11 +702,14 @@ export function Backers({
             const data = new FormData(e.currentTarget);
             setError("");
             try {
-              await post(`/users/${encodeURIComponent(username)}/sponsorships`, {
-                amount_cents: Math.round(Number(data.get("dollars")) * 100),
-                message: data.get("message") || "",
-                public: true,
-              });
+              await post(
+                `/users/${encodeURIComponent(username)}/sponsorships`,
+                {
+                  amount_cents: Math.round(Number(data.get("dollars")) * 100),
+                  message: data.get("message") || "",
+                  public: true,
+                },
+              );
               setVersion((v) => v + 1);
             } catch (saveError) {
               setError((saveError as Error).message);

@@ -40,8 +40,12 @@ export function WikiPanel({
     exists ? `${endpoint}/wiki/${encodeURIComponent(slug)}` : null,
     version,
   );
-  const found = useData<{ items: { slug: string; line: string; text: string }[] }>(
-    submitted ? `${endpoint}/wiki-search?q=${encodeURIComponent(submitted)}` : null,
+  const found = useData<{
+    items: { slug: string; line: string; text: string }[];
+  }>(
+    submitted
+      ? `${endpoint}/wiki-search?q=${encodeURIComponent(submitted)}`
+      : null,
     version,
   );
   const history = useData<Commit[]>(

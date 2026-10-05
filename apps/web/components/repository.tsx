@@ -41,10 +41,15 @@ import {
   Workflow,
   BookOpenText,
 } from "lucide-react";
-import { DropsPanel } from "@/components/ecosystem";
-import { MergeQueuePanel, SupplyPanel, TownHallPanel } from "@/components/phase12";
+import { DropsPanel, SafeMarkdown } from "@/components/ecosystem";
+import {
+  MergeQueuePanel,
+  SupplyPanel,
+  TownHallPanel,
+} from "@/components/phase12";
 import { RouteEnvironmentSettings, RoutesPanel } from "@/components/routes";
 import { WikiPanel } from "@/components/wiki";
+import { BlameView, ComparePanel, SourceView } from "@/components/codeview";
 import {
   api,
   patch,
@@ -363,6 +368,7 @@ export function RepositoryPage({
             branch={branch}
             path={path}
             setPath={setPath}
+            branches={repo.data.branches}
           />
         ) : (
           <EmptyRepository repo={r} />
@@ -406,9 +412,7 @@ export function RepositoryPage({
             repo={r}
             branches={repo.data.branches}
           />
-          {!r.archived && (
-            <RemixUniteForm endpoint={endpoint} repo={r} />
-          )}
+          {!r.archived && <RemixUniteForm endpoint={endpoint} repo={r} />}
         </>
       ) : tab === "settings" && (r.can_manage || r.can_maintain) ? (
         <RepositorySettings
@@ -509,7 +513,8 @@ function RemixUniteForm({ endpoint, repo }: { endpoint: string; repo: Repo }) {
     >
       <h3>Unite from a remix</h3>
       <p className="muted small-text">
-        Open a request from a remix you can write to. The base repository does not need to grant you write access.
+        Open a request from a remix you can write to. The base repository does
+        not need to grant you write access.
       </p>
       <ErrorMessage error={error} />
       <div className="two-fields">
@@ -525,11 +530,19 @@ function RemixUniteForm({ endpoint, repo }: { endpoint: string; repo: Repo }) {
       <div className="two-fields">
         <label>
           Base branch
-          <input name="base_branch" defaultValue={repo.default_branch} required />
+          <input
+            name="base_branch"
+            defaultValue={repo.default_branch}
+            required
+          />
         </label>
         <label>
           Head branch
-          <input name="head_branch" defaultValue={repo.default_branch} required />
+          <input
+            name="head_branch"
+            defaultValue={repo.default_branch}
+            required
+          />
         </label>
       </div>
       <label>
@@ -674,17 +687,21 @@ function CodeBrowser({
   branch,
   path,
   setPath,
+  branches,
 }: {
   endpoint: string;
   repo: Repo;
   branch: string;
   path: string;
   setPath: (path: string) => void;
+  branches: string[];
 }) {
   const [version, setVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editPath, setEditPath] = useState("");
+  const [originalPath, setOriginalPath] = useState("");
   const [draft, setDraft] = useState("");
+  const [showBlame, setShowBlame] = useState(false);
   const [editError, setEditError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showFileHistory, setShowFileHistory] = useState(false);
@@ -711,6 +728,7 @@ function CodeBrowser({
   );
   useEffect(() => {
     setShowFileHistory(false);
+    setShowBlame(false);
     setEditing(false);
   }, [branch, path]);
   const latest = commits.data?.[0];
@@ -745,6 +763,7 @@ function CodeBrowser({
                   <button
                     className="text-button"
                     onClick={() => {
+                      setOriginalPath("");
                       setEditPath(
                         path && tree.data?.content === undefined
                           ? `${path}/`
@@ -757,6 +776,36 @@ function CodeBrowser({
                   >
                     New file
                   </button>
+                )}
+                {repo.can_write && !repo.archived && (
+                  <label className="text-button">
+                    Upload
+                    <input
+                      type="file"
+                      hidden
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        if (file.size > 524288) {
+                          setEditError("Upload a text file up to 512 KiB.");
+                          return;
+                        }
+                        const text = await file.text();
+                        if (text.includes("\u0000")) {
+                          setEditError(
+                            "Binary uploads are not accepted in the browser. Use Git for that file.",
+                          );
+                          return;
+                        }
+                        setOriginalPath("");
+                        setEditPath((path ? path + "/" : "") + file.name);
+                        setDraft(text);
+                        setEditError("");
+                        setEditing(true);
+                      }}
+                    />
+                  </label>
                 )}
               </>
             ) : (
@@ -780,6 +829,10 @@ function CodeBrowser({
                     body: JSON.stringify({
                       branch,
                       path: editPath,
+                      previous_path:
+                        originalPath && originalPath !== editPath
+                          ? originalPath
+                          : undefined,
                       content: draft,
                       message: data.get("message"),
                       expected_head: tree.data?.sha,
@@ -864,11 +917,18 @@ function CodeBrowser({
                 >
                   <History size={14} /> History
                 </button>
+                <button
+                  className="button small-button"
+                  onClick={() => setShowBlame((value) => !value)}
+                >
+                  {showBlame ? "Source" : "Blame"}
+                </button>
                 {repo.can_write && !repo.archived && (
                   <>
                     <button
                       className="button small-button"
                       onClick={() => {
+                        setOriginalPath(path);
                         setEditPath(path);
                         setDraft(tree.data!.content || "");
                         setEditError("");
@@ -938,17 +998,10 @@ function CodeBrowser({
                     <p className="muted padded">No file history found.</p>
                   )}
                 </div>
+              ) : showBlame ? (
+                <BlameView endpoint={endpoint} branch={branch} path={path} />
               ) : (
-                <pre>
-                  {tree.data.content.split("\n").map((line, i) => (
-                    <span className="code-line" key={i}>
-                      <span className="line-number" aria-hidden="true">
-                        {i + 1}
-                      </span>
-                      <code>{line || " "}</code>
-                    </span>
-                  ))}
-                </pre>
+                <SourceView path={path} content={tree.data.content} />
               )}
             </div>
           ) : tree.data?.binary ? (
@@ -1020,11 +1073,16 @@ function CodeBrowser({
           <article className="panel readme-panel">
             <div className="panel-header">
               <BookOpen size={16} />
-              README.md<span>Plain text</span>
+              README.md
             </div>
-            <pre>{readme.data.content}</pre>
+            <SafeMarkdown text={readme.data.content} />
           </article>
         )}
+        <ComparePanel
+          endpoint={endpoint}
+          branches={branches}
+          current={branch}
+        />
       </section>
       <aside className="about-repo">
         <h2>About this repository</h2>

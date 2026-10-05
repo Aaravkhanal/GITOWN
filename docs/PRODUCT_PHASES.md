@@ -12,9 +12,9 @@ Remaining gate: verified email, password recovery, TOTP MFA and recovery codes, 
 
 ## Phase 2 — Everyday repository work (partial)
 
-Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection.
+Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection. The browser also supports text upload and rename, safe Markdown rendering, lightweight syntax colors, blame, branch comparison, and paged commit history.
 
-Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, blame, compare UI, import/export, orphan reconciliation, and an embedded SSH server. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
+Remaining gate: repository import/export UX, orphan reconciliation, a complete Git tags UI, and an embedded SSH server. Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
 
 ## Phase 3 — Collaboration and protected delivery (complete)
 
