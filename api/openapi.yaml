@@ -1493,6 +1493,38 @@ paths:
         "200": { description: Password changed and credentials revoked }
         "422": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
+  /auth/email/verify:
+    post:
+      summary: Verify an email with a single-use token
+      description: Verification links expire after 24 hours. Email enforcement at sign-in is enabled with GITOWN_REQUIRE_VERIFIED_EMAIL=true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Email verified }
+        "422": { $ref: "#/components/responses/Error" }
+  /auth/email/verification-request:
+    post:
+      summary: Request an email verification link
+      description: Returns a generic response for verified, unverified, and unknown addresses. Requests are rate limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        "200": { description: Generic verification response }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/register:
     post:
       security: []
@@ -1589,6 +1621,19 @@ paths:
       responses:
         "200": { $ref: "#/components/responses/OK" }
         "404": { $ref: "#/components/responses/Error" }
+  /user/email-verification:
+    get:
+      summary: Read the signed-in user's email verification status
+      responses:
+        "200": { description: Verification status }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/email-verification/resend:
+    post:
+      summary: Resend a verification link for the signed-in user's address
+      responses:
+        "200": { description: Generic verification response }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /user/sessions:
     get:
       summary: List up to 20 active browser sessions and identify the current one

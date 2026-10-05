@@ -62,8 +62,19 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	requireEmailVerification := a.emailVerificationRequired()
+	if requireEmailVerification {
+		if err = queueEmailVerification(r.Context(), tx, u.ID, in.Email, a.cfg.Origin); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
+		return
+	}
+	if requireEmailVerification {
+		respond(w, 201, map[string]any{"user": u, "verification_required": true})
 		return
 	}
 	if err = a.session(w, r, u); err != nil {
@@ -91,13 +102,18 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	defer func() { <-a.passwords }()
 	var u User
 	var encoded string
-	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,password_hash FROM users WHERE username=$1 OR email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded)
+	var emailVerified bool
+	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,password_hash,email_verified_at IS NOT NULL FROM users WHERE username=$1 OR email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded, &emailVerified)
 	if err != nil {
 		encoded = a.dummyHash
 	}
 	valid := auth.CheckPassword(encoded, in.Password)
 	if err != nil || !valid {
 		fail(w, 401, "invalid_credentials", "Incorrect username or password.")
+		return
+	}
+	if a.emailVerificationRequired() && !emailVerified {
+		fail(w, 403, "email_verification_required", "Verify your email before signing in. Request a new link from the verification page.")
 		return
 	}
 	if err := a.session(w, r, u); err != nil {

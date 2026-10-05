@@ -13,6 +13,7 @@ func TestPhase13PasswordRecovery(t *testing.T) {
 	if databaseURL == "" {
 		t.Skip("set TEST_DATABASE_URL to run PostgreSQL and real Git integration tests")
 	}
+	t.Setenv("GITOWN_REQUIRE_VERIFIED_EMAIL", "false")
 	server, application, closeServer := newPhase9Server(t, databaseURL)
 	defer closeServer()
 	jar, _ := cookiejar.New(nil)
@@ -46,4 +47,36 @@ func TestPhase13PasswordRecovery(t *testing.T) {
 	anon.request("POST", "/auth/password/reset", map[string]string{"token": token, "new_password": "another-password-long"}, 422, nil)
 	owner.request("POST", "/auth/login", map[string]string{"username": "recover", "password": "initial-password-long"}, 401, nil)
 	owner.request("POST", "/auth/login", map[string]string{"username": "recover", "password": "replacement-password-long"}, 200, nil)
+}
+
+func TestPhase13EmailVerificationGate(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL to run PostgreSQL and real Git integration tests")
+	}
+	t.Setenv("GITOWN_REQUIRE_VERIFIED_EMAIL", "true")
+	server, application, closeServer := newPhase9Server(t, databaseURL)
+	defer closeServer()
+	client := testClient{t, server.URL, &http.Client{}}
+	var registration struct {
+		VerificationRequired bool `json:"verification_required"`
+	}
+	client.request("POST", "/auth/register", map[string]string{"username": "verify", "email": "verify@example.test", "password": "verification-password-long"}, 201, &registration)
+	if !registration.VerificationRequired {
+		t.Fatal("registration did not require email verification")
+	}
+	credentials := map[string]string{"username": "verify", "password": "verification-password-long"}
+	client.request("POST", "/auth/login", credentials, 403, nil)
+	var body string
+	if err := application.db.QueryRow(t.Context(), `SELECT body FROM email_messages WHERE recipient_email=$1 AND kind='email_verification' ORDER BY created_at DESC LIMIT 1`, "verify@example.test").Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	start := strings.LastIndex(body, "token=")
+	if start < 0 {
+		t.Fatalf("verification mail has no link: %q", body)
+	}
+	token := strings.Fields(body[start+len("token="):])[0]
+	client.request("POST", "/auth/email/verify", map[string]string{"token": token}, 200, nil)
+	client.request("POST", "/auth/email/verify", map[string]string{"token": token}, 422, nil)
+	client.request("POST", "/auth/login", credentials, 200, nil)
 }

@@ -1,0 +1,27 @@
+# Account security
+
+GITOWN supports one-time password recovery and email verification. TOTP MFA and recovery codes are planned but not available yet.
+
+## Email delivery
+
+Configure both `GITOWN_SMTP_ADDR` and `GITOWN_SMTP_FROM` before relying on verification or recovery emails. Without them, the durable mail worker marks transactional messages as suppressed. Users see generic responses and cannot use a link that was not delivered.
+
+To require email verification at registration and sign-in, set:
+
+```sh
+GITOWN_REQUIRE_VERIFIED_EMAIL=true
+```
+
+Existing accounts are considered verified during the migration. New registrations receive a one-time link that expires after 24 hours. The token is stored as a digest, and the account cannot sign in while enforcement is enabled until the link is used. Verification requests return a generic response and are rate limited. A signed-in user can check status and request another link from Account security; public resend is also available from `/verify-email`.
+
+Leave enforcement disabled until SMTP is configured and tested. When disabled, sign-in keeps the existing behavior; signed-in users can still verify their address from Account security.
+
+## Password recovery
+
+The login page links to Forgot your password. The API returns the same response for known and unknown email addresses. A matching account receives a one-time link that expires after 30 minutes; requests for the same account have a one-minute cooldown. Only the token digest is stored in the token table. The outbox body containing the link is erased after delivery, suppression, or final delivery failure.
+
+Using the link changes the password, consumes the token, revokes every browser session and personal access token, and records an audit event. GITOWN queues a security notice to the account email. Users must sign in again with the new password.
+
+## Remaining account-security work
+
+TOTP MFA, single-use recovery codes, step-up authentication, richer security-event notifications, and durable account/IP abuse decisions have not shipped. See the [capability audit](CAPABILITY_AUDIT.md) for the implementation order.

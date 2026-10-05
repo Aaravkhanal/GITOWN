@@ -420,6 +420,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <AuthPage mode={section} />
           ) : section === "forgot-password" || section === "reset-password" ? (
             <PasswordRecoveryPage reset={section === "reset-password"} />
+          ) : section === "verify-email" ? (
+            <VerifyEmailPage />
           ) : section === "new" ? (
             <NewRepository />
           ) : section === "unsubscribe" ? (
@@ -1151,6 +1153,7 @@ function AuthPage({ mode }: { mode: string }) {
   const { refresh, user, signup } = useSession();
   const router = useRouter();
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   if (user)
     return (
@@ -1175,6 +1178,7 @@ function AuthPage({ mode }: { mode: string }) {
           : "Sign in to your workspace. Your next commit is waiting."}
       </p>
       <ErrorMessage error={error} />
+      {notice && <div className="info-box">{notice}</div>}
       {register && !signup ? (
         <div className="info-box">
           Registration is disabled on this instance. Contact its owner for
@@ -1188,7 +1192,7 @@ function AuthPage({ mode }: { mode: string }) {
             setError("");
             const data = new FormData(e.currentTarget);
             try {
-              await post(
+              const result = await post<{ verification_required?: boolean }>(
                 `/auth/${register ? "register" : "login"}`,
                 register
                   ? {
@@ -1202,6 +1206,12 @@ function AuthPage({ mode }: { mode: string }) {
                       password: data.get("password"),
                     },
               );
+              if (result.verification_required) {
+                setNotice(
+                  "Check your email for a verification link. You can sign in after confirming the address.",
+                );
+                return;
+              }
               refresh();
               router.push("/");
             } catch (error) {
@@ -1365,6 +1375,83 @@ function PasswordRecoveryPage({ reset }: { reset: boolean }) {
                 : reset
                   ? "Reset password"
                   : "Send reset link"}
+              <ArrowRight size={16} />
+            </button>
+          </form>
+        </>
+      )}
+      <p className="auth-switch">
+        <Link href="/login">Back to sign in</Link>
+      </p>
+    </div>
+  );
+}
+
+function VerifyEmailPage() {
+  const params = useSearchParams();
+  const token = params.get("token") || "";
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  return (
+    <div className="auth-card">
+      <span className="auth-icon">
+        <ShieldCheck size={27} />
+      </span>
+      <div className="eyebrow">ACCOUNT SECURITY</div>
+      <h1>{token ? "Verify your email." : "Confirm your email address."}</h1>
+      {message ? (
+        <div className="info-box">{message}</div>
+      ) : (
+        <>
+          <p>
+            {token
+              ? "This one-time link expires after 24 hours."
+              : "If the account needs verification, we’ll send a one-time link."}
+          </p>
+          <ErrorMessage error={error} />
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
+              const data = new FormData(event.currentTarget);
+              try {
+                if (token) {
+                  await post("/auth/email/verify", { token });
+                  setMessage("Email verified. You can now sign in.");
+                } else {
+                  const response = await post<{ message: string }>(
+                    "/auth/email/verification-request",
+                    { email: data.get("email") },
+                  );
+                  setMessage(response.message);
+                }
+              } catch (submitError) {
+                setError((submitError as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {!token && (
+              <label>
+                Email address
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </label>
+            )}
+            <button className="button primary full-width" disabled={busy}>
+              {busy
+                ? "One moment…"
+                : token
+                  ? "Verify email"
+                  : "Send verification link"}
               <ArrowRight size={16} />
             </button>
           </form>
@@ -1837,9 +1924,13 @@ function SessionsPage() {
 
 function SecurityPage() {
   const { user } = useSession();
+  const verification = useData<{ verified: boolean }>(
+    user ? "/user/email-verification" : null,
+  );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [verificationBusy, setVerificationBusy] = useState(false);
   if (!user) return <SignInPrompt />;
   return (
     <div className="form-page wide-form">
@@ -1856,6 +1947,41 @@ function SecurityPage() {
       </div>
       <ErrorMessage error={error} />
       {notice && <div className="success-message">{notice}</div>}
+      <section className="panel form-panel">
+        <h2>Email verification</h2>
+        {verification.loading ? (
+          <Loading />
+        ) : verification.error ? (
+          <ErrorMessage error={verification.error} />
+        ) : verification.data?.verified ? (
+          <p className="success-message">Your email address is verified.</p>
+        ) : (
+          <>
+            <p className="muted">Your account email has not been confirmed.</p>
+            <button
+              className="button"
+              disabled={verificationBusy}
+              onClick={async () => {
+                setVerificationBusy(true);
+                setError("");
+                try {
+                  const response = await post<{ message: string }>(
+                    "/user/email-verification/resend",
+                    {},
+                  );
+                  setNotice(response.message);
+                } catch (sendError) {
+                  setError((sendError as Error).message);
+                } finally {
+                  setVerificationBusy(false);
+                }
+              }}
+            >
+              {verificationBusy ? "Sending…" : "Resend verification email"}
+            </button>
+          </>
+        )}
+      </section>
       <form
         className="panel form-panel"
         onSubmit={async (event) => {
