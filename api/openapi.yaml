@@ -40,6 +40,75 @@ servers:
 security:
   - session: []
 paths:
+  /repos/{owner}/{repo}/wiki:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+    get:
+      security: []
+      summary: List Git-backed wiki page slugs on the default branch
+      responses:
+        "200":
+          description: Visible page slugs and the current branch head SHA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages: { type: array, items: { type: string } }
+                  head_sha: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/wiki/{slug}:
+    parameters:
+      - { $ref: "#/components/parameters/Owner" }
+      - { $ref: "#/components/parameters/Repo" }
+      - {
+          name: slug,
+          in: path,
+          required: true,
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,79}$" },
+        }
+    get:
+      security: []
+      summary: Read a UTF-8 wiki page from the default branch
+      responses:
+        "200":
+          description: Markdown source and current branch head SHA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug: { type: string }
+                  content: { type: string }
+                  head_sha: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Create or edit a wiki page as a Git commit, with stale-head and branch-rule protection
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, expected_head]
+              properties:
+                content: { type: string, maxLength: 131072 }
+                expected_head: { type: string, pattern: "^[0-9a-f]{40}$" }
+      responses:
+        "201":
+          description: Saved wiki commit
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug: { type: string }
+                  sha: { type: string }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /search/builders:
     get:
       security: []
@@ -1390,6 +1459,40 @@ paths:
                       - $ref: "#/components/schemas/User"
                       - type: "null"
                   signup_enabled: { type: boolean }
+  /auth/password/forgot:
+    post:
+      summary: Request a one-time password reset link
+      description: Returns the same response whether the email is registered or not. The address is rate limited and a reset link expires after 30 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        "200": { description: Generic recovery response }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/password/reset:
+    post:
+      summary: Reset a password using a one-time email token
+      description: Tokens expire after 30 minutes, are single use, and successful reset revokes every session and personal access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string, maxLength: 128 }
+                new_password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        "200": { description: Password changed and credentials revoked }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/register:
     post:
       security: []
@@ -2296,11 +2399,17 @@ paths:
               properties:
                 branch: { type: string }
                 path: { type: string, maxLength: 4096 }
+                previous_path:
+                  {
+                    type: string,
+                    maxLength: 4096,
+                    description: Existing file path to rename,
+                  }
                 content: { type: string, maxLength: 524288 }
                 message: { type: string, maxLength: 200 }
                 expected_head: { type: string, minLength: 40, maxLength: 40 }
       responses:
-        "201":
+        "200":
           description: File commit created and branch advanced
           content:
             application/json:
@@ -2312,6 +2421,7 @@ paths:
                   path: { type: string }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
     delete:
       summary: Delete a file with an atomic Git commit
       description: Requires repository write access. The expected branch head prevents deletion after a concurrent push.
@@ -2352,6 +2462,39 @@ paths:
               schema: { type: string, format: binary }
         "404": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/blame:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Show commit attribution for lines in a text file
+      parameters:
+        - { name: ref, in: query, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Attributed lines, capped at 4, 000 }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/compare:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      security: []
+      summary: Compare two repository branches
+      parameters:
+        - { name: base, in: query, required: true, schema: { type: string } }
+        - { name: head, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Branch SHAs and a paged unified diff }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/commits:
     parameters:
       [
@@ -3700,6 +3843,147 @@ paths:
       responses:
         "200": { description: Uninstalled }
         "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/routes/secrets:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List route secret names. Values are never returned.
+      responses:
+        "200": { description: Secret names and execution_enabled false }
+  /repos/{owner}/{repo}/routes/secrets/{name}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: name, in: path, required: true, schema: { type: string } },
+      ]
+    put:
+      summary: Store an encrypted route secret. The value is not returned.
+      responses:
+        "200": { description: Stored }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a route secret
+      responses:
+        "200": { description: Deleted }
+  /repos/{owner}/{repo}/routes/runners:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: >-
+        List runners. Includes a synthetic hosted runner that is offline.
+        execution_enabled is false.
+      responses:
+        "200": { description: Runners }
+    post:
+      summary: >-
+        Register a self-hosted runner. Returns a one-time token and does not
+        dispatch workflow steps.
+      responses:
+        "201": { description: Runner token, shown once }
+  /routes/runners/heartbeat:
+    post:
+      summary: >-
+        Record a runner heartbeat. The response jobs list is empty because
+        untrusted execution is disabled.
+      responses:
+        "200":
+          {
+            description: "execution_enabled is false and jobs is an empty list",
+          }
+        "401": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/remix:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Remix a visible repository into one the caller owns
+      responses:
+        "201": { description: Remix created }
+  /imports:
+    post:
+      summary: >-
+        Import a public GitHub, GitLab, or Bitbucket HTTPS repository. No
+        forge credential is accepted.
+      responses:
+        "201": { description: Repository imported }
+        "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/discussions:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List Town Hall discussions
+      responses:
+        "200": { description: Discussions }
+    post:
+      summary: Start a Town Hall discussion
+      responses:
+        "201": { description: Discussion created }
+  /repos/{owner}/{repo}/merge-queue:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: List waiting merge-queue entries
+      responses:
+        "200": { description: Queue }
+    post:
+      summary: Enqueue an open Unite request
+      responses:
+        "201": { description: Enqueued }
+  /repos/{owner}/{repo}/wiki-search:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: Fixed-string search of wiki Markdown on the default branch
+      responses:
+        "200": { description: Matching lines }
+  /snippets:
+    get:
+      summary: List public snippets, plus the caller's own
+      responses:
+        "200": { description: Snippets }
+    post:
+      summary: Save a public or private snippet
+      responses:
+        "201": { description: Snippet created }
+  /users/{username}/sponsorships:
+    parameters:
+      [{ name: username, in: path, required: true, schema: { type: string } }]
+    get:
+      summary: List public pledges. charges is false.
+      responses:
+        "200": { description: Pledges }
+    post:
+      summary: Record a pledge. No card is charged.
+      responses:
+        "201": { description: Pledge recorded with charges false }
+  /user/devices:
+    post:
+      summary: Register a device token for a pull notification feed
+      responses:
+        "201": { description: Device token, shown once }
+  /mobile/feed:
+    get:
+      summary: Unread inbox rows for a device token. Delivery is pull.
+      responses:
+        "200": { description: Feed }
 components:
   securitySchemes:
     session: { type: apiKey, in: cookie, name: gitown_session }

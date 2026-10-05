@@ -11,6 +11,7 @@ import {
   type ProfileLink,
   type PublicRepository,
 } from "@/lib/api";
+import { Backers } from "@/components/phase12";
 import { Avatar, Badge, ErrorMessage, Loading, useData } from "./ui";
 
 function EmailPreference() {
@@ -305,13 +306,19 @@ export function PublicProfile({
       {tab === "followers" || tab === "following" ? (
         <FollowList username={person.username} kind={tab} />
       ) : (
-        <ProfileOverview person={person} />
+        <ProfileOverview person={person} currentUsername={currentUsername} />
       )}
     </>
   );
 }
 
-function ProfileOverview({ person }: { person: Profile }) {
+function ProfileOverview({
+  person,
+  currentUsername,
+}: {
+  person: Profile;
+  currentUsername?: string;
+}) {
   return (
     <>
       <ContributionStrip username={person.username} />
@@ -372,6 +379,7 @@ function ProfileOverview({ person }: { person: Profile }) {
           </div>
         )}
       </section>
+      <Backers username={person.username} currentUsername={currentUsername} />
       {!!person.showcase.length && (
         <section aria-label="Showcase repositories">
           <div className="section-heading">

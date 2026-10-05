@@ -8,6 +8,43 @@ import (
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
 )
 
+func TestCloneLocalAndCopyCommit(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	source := auth.ID()
+	if err = s.Init(ctx, source, "source", "Owner", "owner@example.test", true); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := s.Resolve(ctx, source, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := auth.ID()
+	if err = s.CloneLocal(ctx, dest, source); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := s.Resolve(ctx, dest, "main")
+	if err != nil || copied != sha {
+		t.Fatalf("local clone did not preserve main: %v %s", err, copied)
+	}
+	other := auth.ID()
+	if err = s.Init(ctx, other, "other", "Owner", "owner@example.test", false); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CopyCommit(ctx, other, source, sha); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Run(ctx, other, nil, "cat-file", "-e", sha); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.CloneHTTPS(ctx, auth.ID(), "file:///tmp/not-allowed"); err == nil {
+		t.Fatal("https clone accepted a file URL")
+	}
+}
+
 func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	s, err := New(t.TempDir())
 	if err != nil {
@@ -59,14 +96,29 @@ func TestRepositoryAndSafeBrowsing(t *testing.T) {
 	if err != nil || len(history) != 1 || history[0].Message != "Add guide" {
 		t.Fatalf("file history was not returned: %+v %v", history, err)
 	}
+	renamed, err := s.MoveFile(ctx, id, "main", "docs/guide.md", "docs/renamed.md", []byte("# Renamed guide\n"), "Rename guide", "Owner", "owner@example.test", commit)
+	if err != nil || renamed == commit {
+		t.Fatalf("web rename failed: %s %v", renamed, err)
+	}
+	moved, err := s.Browse(ctx, id, "main", "docs/renamed.md")
+	if err != nil || moved.Content == nil || *moved.Content != "# Renamed guide\n" {
+		t.Fatalf("renamed file was not readable: %+v %v", moved, err)
+	}
+	if _, err = s.Browse(ctx, id, "main", "docs/guide.md"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("original path remained after rename: %v", err)
+	}
+	blame, err := s.Blame(ctx, id, "main", "docs/renamed.md")
+	if err != nil || len(blame) != 1 || blame[0].Text != "# Renamed guide" {
+		t.Fatalf("blame did not report the renamed file: %+v %v", blame, err)
+	}
 	if _, err = s.CommitFile(ctx, id, "main", "docs/guide.md", []byte("stale"), "Stale edit", "Owner", "owner@example.test", head); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale edit returned %v", err)
 	}
-	deleted, err := s.DeleteFile(ctx, id, "main", "docs/guide.md", "Remove guide", "Owner", "owner@example.test", commit)
-	if err != nil || deleted == commit {
+	deleted, err := s.DeleteFile(ctx, id, "main", "docs/renamed.md", "Remove guide", "Owner", "owner@example.test", renamed)
+	if err != nil || deleted == renamed {
 		t.Fatalf("web delete failed: %s %v", deleted, err)
 	}
-	if _, err = s.Browse(ctx, id, "main", "docs/guide.md"); !errors.Is(err, ErrNotFound) {
+	if _, err = s.Browse(ctx, id, "main", "docs/renamed.md"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted file remained readable: %v", err)
 	}
 	if _, err = s.DeleteFile(ctx, id, "main", "README.md", "Stale delete", "Owner", "owner@example.test", commit); !errors.Is(err, ErrConflict) {

@@ -196,6 +196,9 @@ func (a *App) finishReceive(ctx context.Context, repo *Repository, actorID strin
 		if err := a.syncRouteSchedules(ctx, repo); err != nil {
 			slog.Error("route schedule sync failed", "error", err, "repository", repo.Owner+"/"+repo.Name)
 		}
+		if _, _, _, err := a.refreshSupplyChain(ctx, repo, nil); err != nil {
+			slog.Error("supply chain scan failed", "error", err, "repository", repo.Owner+"/"+repo.Name)
+		}
 	}
 	_ = a.noteRepositoryFacts(ctx, repo)
 }

@@ -124,9 +124,9 @@ func (a *App) StartWorkers(ctx context.Context) {
 }
 
 type queuedMail struct {
-	id, to, subject, body, link string
-	userID                      *string
-	attempts                    int
+	id, kind, to, subject, body, link string
+	userID                            *string
+	attempts                          int
 }
 
 // claimMail marks one batch of due messages "sending" and commits right
@@ -138,7 +138,7 @@ func (a *App) claimMail(ctx context.Context) ([]queuedMail, error) {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id,user_id::text,recipient_email,subject,body,link_path,attempts
+	rows, err := tx.Query(ctx, `SELECT id,kind,user_id::text,recipient_email,subject,body,link_path,attempts
 		FROM email_messages WHERE status='pending' AND NOT digest AND next_attempt_at<=now()
 		ORDER BY next_attempt_at,created_at LIMIT $1 FOR UPDATE SKIP LOCKED`, mailBatchSize)
 	if err != nil {
@@ -147,7 +147,7 @@ func (a *App) claimMail(ctx context.Context) ([]queuedMail, error) {
 	var batch []queuedMail
 	for rows.Next() {
 		var item queuedMail
-		if err = rows.Scan(&item.id, &item.userID, &item.to, &item.subject, &item.body, &item.link, &item.attempts); err != nil {
+		if err = rows.Scan(&item.id, &item.kind, &item.userID, &item.to, &item.subject, &item.body, &item.link, &item.attempts); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -179,7 +179,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 	}
 	for _, item := range batch {
 		if a.mailer == nil {
-			if _, err = a.db.Exec(ctx, `UPDATE email_messages SET status='suppressed',last_error=$2 WHERE id=$1`, item.id, errSMTPDisabled.Error()); err != nil {
+			if _, err = a.db.Exec(ctx, `UPDATE email_messages SET status='suppressed',last_error=$2,body=CASE WHEN kind='password_reset' THEN '' ELSE body END WHERE id=$1`, item.id, errSMTPDisabled.Error()); err != nil {
 				return 0, err
 			}
 			continue
@@ -200,7 +200,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 		sendErr := a.mailer(sendCtx, message)
 		cancel()
 		if sendErr == nil {
-			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status='sent',sent_at=now(),attempts=attempts+1,last_error='',
+			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status='sent',sent_at=now(),attempts=attempts+1,last_error='',body=CASE WHEN kind='password_reset' THEN '' ELSE body END,
 				unsubscribe_token=$2,unsubscribe_expires_at=CASE WHEN $2::text IS NULL THEN NULL ELSE now()+make_interval(secs => $3) END WHERE id=$1`,
 				item.id, tokenHash, unsubscribeLifetime.Seconds())
 		} else {
@@ -212,7 +212,7 @@ func (a *App) deliverMail(ctx context.Context) (int, error) {
 			// Back off 1, 2, 4 ... minutes, capped at six hours.
 			delay := time.Minute << min(attempts-1, 9)
 			delay = min(delay, 6*time.Hour)
-			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status=$2,attempts=$3,last_error=$4,next_attempt_at=now()+make_interval(secs => $5) WHERE id=$1`,
+			_, err = a.db.Exec(ctx, `UPDATE email_messages SET status=$2,attempts=$3,last_error=$4,next_attempt_at=now()+make_interval(secs => $5),body=CASE WHEN kind='password_reset' AND $2='failed' THEN '' ELSE body END WHERE id=$1`,
 				item.id, status, attempts, cleanHeader(sendErr.Error(), 300), delay.Seconds())
 			slog.Warn("email delivery attempt failed", "message_id", item.id, "attempts", attempts, "error", sendErr)
 		}

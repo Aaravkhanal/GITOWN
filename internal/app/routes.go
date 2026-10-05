@@ -618,6 +618,13 @@ func (a *App) createRouteRun(ctx context.Context, repo *Repository, path string,
 	if err := a.validateRouteSecretRefs(ctx, repo, jobs); err != nil {
 		return err
 	}
+	var queued int
+	if err := a.db.QueryRow(ctx, `SELECT count(*) FROM route_runs WHERE repository_id=$1 AND status='queued'`, repo.ID).Scan(&queued); err != nil {
+		return err
+	}
+	if queued >= routesMaxQueuedRuns {
+		return errors.New("this repository already has 25 queued runs; cancel one before queueing another")
+	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -701,16 +708,13 @@ func (a *App) validateRouteSecretRefs(ctx context.Context, repo *Repository, job
 	if len(names) == 0 {
 		return nil
 	}
-	if repo.DistrictID == "" {
-		return errors.New("this workflow references secrets, which are only available on repositories owned by a district")
-	}
 	for name := range names {
 		var exists bool
-		if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM district_secrets WHERE district_id=$1 AND name=$2)`, repo.DistrictID, name).Scan(&exists); err != nil {
+		if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM route_secrets WHERE repository_id=$1 AND name=$2) OR EXISTS(SELECT 1 FROM district_secrets WHERE district_id::text=$3 AND name=$2 AND $3<>'')`, repo.ID, name, repo.DistrictID).Scan(&exists); err != nil {
 			return err
 		}
 		if !exists {
-			return fmt.Errorf("secret %q is not defined for this repository's district", name)
+			return fmt.Errorf("secret %q is not defined for this repository", name)
 		}
 	}
 	return nil
@@ -913,7 +917,7 @@ func (a *App) routesRunDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		logs = append(logs, it)
 	}
-	respond(w, 200, map[string]any{"jobs": jobs, "logs": logs})
+	respond(w, 200, map[string]any{"jobs": jobs, "logs": logs, "execution_enabled": false, "queue_timeout": "24h"})
 }
 
 func (a *App) dispatchRoute(w http.ResponseWriter, r *http.Request) {
@@ -1061,7 +1065,7 @@ func (a *App) routeEnvironments(w http.ResponseWriter, r *http.Request) {
 	if repo == nil {
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `SELECT name,required_approvers FROM route_environments WHERE repository_id=$1 ORDER BY name`, repo.ID)
+	rows, err := a.db.Query(r.Context(), `SELECT name,required_approvers,network,cpu_millis,memory_mb,disk_mb,isolation FROM route_environments WHERE repository_id=$1 ORDER BY name`, repo.ID)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -1070,11 +1074,16 @@ func (a *App) routeEnvironments(w http.ResponseWriter, r *http.Request) {
 	type env struct {
 		Name      string   `json:"name"`
 		Approvers []string `json:"required_approvers"`
+		Network   string   `json:"network"`
+		CPU       int      `json:"cpu_millis"`
+		MemoryMB  int      `json:"memory_mb"`
+		DiskMB    int      `json:"disk_mb"`
+		Isolation string   `json:"isolation"`
 	}
 	items := []env{}
 	for rows.Next() {
 		var it env
-		if err = rows.Scan(&it.Name, &it.Approvers); err != nil {
+		if err = rows.Scan(&it.Name, &it.Approvers, &it.Network, &it.CPU, &it.MemoryMB, &it.DiskMB, &it.Isolation); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -1095,6 +1104,10 @@ func (a *App) updateRouteEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		RequiredApprovers []string `json:"required_approvers"`
+		Network           *string  `json:"network"`
+		CPU               *int     `json:"cpu_millis"`
+		MemoryMB          *int     `json:"memory_mb"`
+		DiskMB            *int     `json:"disk_mb"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -1104,12 +1117,43 @@ func (a *App) updateRouteEnvironment(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", msg)
 		return
 	}
-	if _, err := a.db.Exec(r.Context(), `INSERT INTO route_environments(id,repository_id,name,required_approvers) VALUES($1,$2,$3,$4) ON CONFLICT(repository_id,name) DO UPDATE SET required_approvers=excluded.required_approvers`,
-		auth.ID(), repo.ID, name, approvers); err != nil {
+	network := "restricted"
+	cpu, memory, disk := 1000, 512, 1024
+	if in.Network != nil {
+		network = *in.Network
+	}
+	if in.CPU != nil {
+		cpu = *in.CPU
+	}
+	if in.MemoryMB != nil {
+		memory = *in.MemoryMB
+	}
+	if in.DiskMB != nil {
+		disk = *in.DiskMB
+	}
+	if msg = routeResourceCaps(network, cpu, memory, disk); msg != "" {
+		fail(w, 422, "validation_failed", msg)
+		return
+	}
+	var networkArg, cpuArg, memoryArg, diskArg any
+	if in.Network != nil {
+		networkArg = network
+	}
+	if in.CPU != nil {
+		cpuArg = cpu
+	}
+	if in.MemoryMB != nil {
+		memoryArg = memory
+	}
+	if in.DiskMB != nil {
+		diskArg = disk
+	}
+	if _, err := a.db.Exec(r.Context(), `INSERT INTO route_environments(id,repository_id,name,required_approvers,network,cpu_millis,memory_mb,disk_mb) VALUES($1,$2,$3,$4,COALESCE($5,'restricted'),COALESCE($6,1000),COALESCE($7,512),COALESCE($8,1024)) ON CONFLICT(repository_id,name) DO UPDATE SET required_approvers=excluded.required_approvers, network=COALESCE($5,route_environments.network), cpu_millis=COALESCE($6,route_environments.cpu_millis), memory_mb=COALESCE($7,route_environments.memory_mb), disk_mb=COALESCE($8,route_environments.disk_mb)`,
+		auth.ID(), repo.ID, name, approvers, networkArg, cpuArg, memoryArg, diskArg); err != nil {
 		serverError(w, err)
 		return
 	}
-	respond(w, 200, map[string]any{"name": name, "required_approvers": approvers})
+	respond(w, 200, map[string]any{"name": name, "required_approvers": approvers, "network": network, "cpu_millis": cpu, "memory_mb": memory, "disk_mb": disk, "isolation": "untrusted_execution_disabled"})
 }
 
 // --- Scheduled trigger and expiry worker -------------------------------------

@@ -6,15 +6,15 @@ Status legend: **partial** means usable capabilities exist but the phase gate ha
 
 ## Phase 1 — Safe public accounts (partial)
 
-Shipped: registration and login, Argon2id passwords, authenticated password changes that revoke other sessions and can revoke every access token, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
+Shipped: registration and login, Argon2id passwords, authenticated password changes that revoke other sessions and can revoke every access token, one-time password recovery links with hashed 30-minute tokens and generic responses, revocation of all credentials after reset, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
 
-Remaining gate: verified email, password recovery, TOTP MFA and recovery codes, step-up authentication for destructive actions, security-event notifications, invitation controls, stronger account/IP abuse throttles, and operator-visible abuse decisions.
+Remaining gate: verified email, TOTP MFA and recovery codes, step-up authentication for destructive actions, security-event notifications, stronger account/IP abuse throttles, and operator-visible abuse decisions.
 
 ## Phase 2 — Everyday repository work (partial)
 
-Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection.
+Shipped: public/private repository creation, collaborators and roles, real bare Git storage, smart HTTP clone/fetch/push, branch/tag transport, tree and text browsing, raw downloads, repository and file-specific history, lifecycle controls, friendly CLI commands, and browser file creation/editing/deletion with atomic stale-head protection. The browser also supports text upload and rename, safe Markdown rendering, lightweight syntax colors, blame, branch comparison, and paged commit history.
 
-Remaining gate: file rename/upload, sanitized Markdown, syntax highlighting, blame, compare UI, import/export, orphan reconciliation, and an embedded SSH server. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
+Remaining gate: repository import/export UX, orphan reconciliation, a complete Git tags UI, and an embedded SSH server. Browser uploads are limited to text files up to 512 KiB; binary files use Git. Repository and account quotas, `git gc`, Git LFS batch transfer with path locks, and a forced-command SSH gateway are implemented. A push that unpacks over the quota has its new refs rolled back before the client is told the push succeeded. LFS has no multipart transfer. SSH is not an embedded sshd.
 
 ## Phase 3 — Collaboration and protected delivery (complete)
 
@@ -98,12 +98,29 @@ External CI integration is now a complete, real path rather than a status-only w
 
 ## Phase 11 — Routes (partial)
 
-Shipped preview: bounded workflow YAML parsing, push/opened-Unite/manual run planning, local reusable workflow and matrix expansion, dependency and protected-environment approval gates, a repository Routes tab, queued-run cancellation and expiry, a planning log, and a pending commit status. [Routes documentation](ROUTES.md) states the exact limits.
+Shipped control plane: bounded workflow YAML, triggers for push, opened Unite requests, a restricted schedule, and manual dispatch, job dependencies, matrix expansion, local reusable workflows, a planning log, base64 artifacts and caches with size quotas, encrypted route secrets that are never returned, environment approval plus stored CPU, memory, disk, and network caps, queued-run cancellation, a 24-hour queue expiry, a pending commit status, and runner registration. A synthetic hosted runner is listed as offline. A self-hosted runner can heartbeat and receives an empty job list. [Routes documentation](ROUTES.md) states the exact limits.
 
-Remaining gate: a reviewed sandboxed executor, immutable checkout, ephemeral credentials and secrets, process and network isolation, quotas, actual step logs and artifacts, cancellation of running jobs, terminal check statuses, schedule catch-up/retry, and runner operations. **No workflow command executes in this preview.**
+Remaining gate: a reviewed sandbox before any untrusted workflow command runs. That includes an immutable checkout, ephemeral credentials, secret injection with redaction, process and network isolation, enforcement of the stored quotas against a live process, cancellation of a running process tree, terminal check statuses, and schedule catch-up. **No workflow command executes. Network `open` is rejected. Isolation stays `untrusted_execution_disabled`.**
 
-## Phase 12 — Extended ecosystem (planned)
+## Phase 12 — Extended ecosystem (partial)
 
-Wikis, Showcase hosting, Town Hall, forks (Remixes), cross-repository Unite, card billing, and high availability are the proposed scope. SAML/OIDC and IP restrictions remain later too. Each product needs its own security, authorization, migration, export, and operational gate before being called complete.
+Shipped, with the limits in [the ecosystem note](ECOSYSTEM.md):
+
+- Remixes clone a visible repository locally. A private parent forces a private remix.
+- Cross-project Unite requests are limited to a remix of the same family. The head commit is copied into the base repository so review and merge can see it.
+- A [Git-backed Wiki](WIKI.md), including fixed-string search of `.gitown/wiki`.
+- Town Hall discussions and comments.
+- Showcase static files for public repositories, served with a script-blocking content security policy.
+- Snippets, public or private.
+- Development-environment requests that stay `pending_sandbox_review`. `.gitown/dev.yml` may not contain a command.
+- A local dependency graph for root `go.mod`, `package.json`, and `requirements.txt`. A published advisory can open an issue. It does not edit files or call an external advisory database.
+- Repository security advisories, vulnerability alerts, and secret findings that store a marker name, path, and line — never the secret text.
+- `.gitown/CODEOWNERS` review requests for owners and write or maintain members.
+- A merge queue: while it has waiting entries, only the front Unite request can merge.
+- Mobile device registration with a pull feed. There is no Apple or Google push.
+- Public sponsorship pledges. `charges` is false. No card is billed.
+- Import of a public `github.com`, `gitlab.com`, or `bitbucket.org` HTTPS URL. Credentials, query strings, and custom ports are rejected.
+
+Remaining gate: wiki attachments, a reviewed development-environment sandbox, external advisory feeds, push notification delivery, card billing, private-forge import, and high availability. SAML/OIDC and IP restrictions remain later. Phases 11 and 12 are not complete.
 
 The naming contract is defined in [NAMING.md](NAMING.md). Standard Git protocol and commands remain compatible even when GITOWN presents friendlier names in its UI and CLI.

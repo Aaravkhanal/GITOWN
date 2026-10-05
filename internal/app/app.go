@@ -90,6 +90,8 @@ func (a *App) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/v1/auth/register", a.register)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.HandleFunc("POST /api/v1/auth/password/forgot", a.requestPasswordReset)
+	mux.HandleFunc("POST /api/v1/auth/password/reset", a.resetPassword)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", a.me)
 	mux.HandleFunc("GET /api/v1/users/{username}/profile", a.profile)
@@ -214,6 +216,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/members/{username}", a.removeMember)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/tree", a.tree)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/raw", a.raw)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/blame", a.blame)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/compare", a.compareRefs)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/contents", a.updateContent)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/contents", a.deleteContent)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/commits", a.commits)
@@ -316,6 +320,43 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries", a.repoWebhookDeliveries)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/webhooks/{id}/deliveries/{deliveryId}/replay", a.replayRepoWebhookDelivery)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/workflows", a.routesWorkflows)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki", a.wikiPages)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki-search", a.wikiSearch)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/wiki/{slug}", a.wikiPage)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/wiki/{slug}", a.saveWikiPage)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/remixes", a.remixes)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/remix", a.createRemix)
+	mux.HandleFunc("POST /api/v1/imports", a.importRepository)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/discussions", a.discussions)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/discussions", a.discussions)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/discussions/{number}", a.discussion)
+	mux.HandleFunc("PATCH /api/v1/repos/{owner}/{repo}/discussions/{number}", a.discussion)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/discussions/{number}/comments", a.discussionComment)
+	mux.HandleFunc("GET /api/v1/snippets", a.snippets)
+	mux.HandleFunc("POST /api/v1/snippets", a.snippets)
+	mux.HandleFunc("GET /api/v1/snippets/{id}", a.snippet)
+	mux.HandleFunc("DELETE /api/v1/snippets/{id}", a.snippet)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/dev-environments", a.devEnvironments)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/dev-environments", a.devEnvironments)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/dev-environments/{id}/cancel", a.cancelDevEnvironment)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/codeowners", a.codeOwners)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/dependency-graph", a.dependencyGraph)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/supply-chain/scan", a.scanSupplyChain)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/secret-findings", a.secretFindings)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/secret-findings/{id}/dismiss", a.dismissSecretFinding)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/advisories", a.advisories)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/advisories", a.advisories)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/vulnerability-alerts", a.vulnerabilityAlerts)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/vulnerability-alerts/{id}/dismiss", a.dismissVulnerability)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/merge-queue", a.mergeQueue)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/merge-queue", a.enqueueMerge)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/merge-queue/{number}/dequeue", a.dequeueMerge)
+	mux.HandleFunc("GET /api/v1/users/{username}/sponsorships", a.sponsorships)
+	mux.HandleFunc("POST /api/v1/users/{username}/sponsorships", a.sponsorships)
+	mux.HandleFunc("POST /api/v1/user/devices", a.registerDevice)
+	mux.HandleFunc("GET /api/v1/mobile/feed", a.mobileFeed)
+	mux.HandleFunc("GET /sites/{owner}/{repo}", a.serveShowcase)
+	mux.HandleFunc("GET /sites/{owner}/{repo}/{path...}", a.serveShowcase)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/runs", a.routesRuns)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/runs/{id}", a.routesRunDetail)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/dispatch", a.dispatchRoute)
@@ -323,6 +364,18 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/jobs/{id}/approve", a.approveRouteJob)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/environments", a.routeEnvironments)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/routes/environments/{name}", a.updateRouteEnvironment)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/secrets", a.routeSecrets)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/routes/secrets/{name}", a.putRouteSecret)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/routes/secrets/{name}", a.deleteRouteSecret)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/runs/{id}/artifacts", a.uploadRouteArtifact)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/artifacts/{artifactId}", a.downloadRouteArtifact)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/caches", a.routeCaches)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/routes/caches/{key}", a.putRouteCache)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/routes/runners", a.routeRunners)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/runners", a.createRouteRunner)
+	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/routes/runners/{runnerId}", a.deleteRouteRunner)
+	mux.HandleFunc("POST /api/v1/routes/runners/heartbeat", a.routeRunnerHeartbeat)
+	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/routes/runs/{id}/logs", a.appendRouteLog)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/maintenance", a.maintainRepository)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/district", a.updateRepositoryDistrict)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/refs", a.refEvents)
@@ -372,8 +425,17 @@ func (a *App) Handler() http.Handler {
 			// clients per the OAuth spec — form-encoded, no browser Origin —
 			// unlike /oauth/authorize, which our own frontend calls normally.
 			oauthTokenExchange := r.Method == "POST" && r.URL.Path == "/api/v1/oauth/token"
-			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange {
-				if r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
+			runnerHeartbeat := r.Method == "POST" && r.URL.Path == "/api/v1/routes/runners/heartbeat"
+			bearerRepoWrite := false
+			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange && !runnerHeartbeat {
+				if allowed, done := a.allowBearerWrite(w, r); done {
+					return
+				} else {
+					bearerRepoWrite = allowed
+				}
+			}
+			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange && !runnerHeartbeat {
+				if !bearerRepoWrite && r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
 					return
 				}
@@ -427,27 +489,59 @@ func conflict(err error) bool {
 	return errors.As(err, &pg) && pg.Code == "23505"
 }
 
-// user resolves the caller's identity from a session cookie first, falling
-// back to a Bearer access token (a personal access token, or one issued
-// through the OAuth or GITOWN App flow — all three live in access_tokens)
-// for GET/HEAD requests only. This is a deliberate, narrow bound: general
-// write handlers here check repo.CanWrite (the resolved user's actual
-// role) but not a token's own scope string the way the three purpose-built
-// Bearer surfaces (git push, package publish, commit-status posting) do —
-// so letting a Bearer token authenticate a write through this general path
-// would let even a repo:read-scoped token write, since nothing here would
-// stop it. Restricting the fallback to safe methods sidesteps that gap
-// entirely: a token can always be used to read through the general API
-// (the real point of issuing one to an OAuth app or automation script),
-// and can only ever write through a surface that checks its scope itself.
+// user resolves the caller's identity from a session cookie first, then a
+// Bearer access token. A browser session is not limited by token scope.
+// A token is: allowBearerWrite rejects every write unless the token's
+// scope is repo:write, and account-security routes stay session-only.
+// package:read and package:write do not authorize general API writes.
 func (a *App) user(r *http.Request) *User {
 	if u := a.sessionUser(r); u != nil {
 		return u
 	}
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		return a.bearerUser(r)
+	return a.bearerUser(r)
+}
+
+// allowBearerWrite reports whether this write authenticated with a
+// repo:write bearer token. done is true when the response was already sent.
+func (a *App) allowBearerWrite(w http.ResponseWriter, r *http.Request) (allowed bool, done bool) {
+	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || raw == "" || strings.HasPrefix(raw, "rnr_") || strings.HasPrefix(raw, "mob_") {
+		return false, false
 	}
-	return nil
+	if sessionOnlyWrite(r.URL.Path) {
+		fail(w, 403, "session_required", "Account security changes require a browser session.")
+		return false, true
+	}
+	var scope string
+	err := a.db.QueryRow(r.Context(), `SELECT scope FROM access_tokens WHERE token_hash=$1 AND expires_at>now()`, auth.Digest(raw)).Scan(&scope)
+	if err != nil {
+		fail(w, 401, "authentication_required", "Use a personal access token with repo:write scope.")
+		return false, true
+	}
+	if scope != "repo:write" {
+		fail(w, 403, "token_scope", "This token is read-only. A repo:write token is required for this change.")
+		return false, true
+	}
+	return true, false
+}
+
+func sessionOnlyWrite(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/api/v1/auth/"):
+		return true
+	case path == "/api/v1/user/password" || strings.HasPrefix(path, "/api/v1/user/tokens"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/user/sessions"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/user/oauth-apps"):
+		return true
+	case path == "/api/v1/oauth/authorize" || strings.HasPrefix(path, "/api/v1/oauth/authorize"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/user/gitown-apps"):
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *App) sessionUser(r *http.Request) *User {

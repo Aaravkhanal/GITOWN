@@ -282,6 +282,144 @@ func (s *Store) CommitFile(ctx context.Context, id, branch, path string, content
 	return commit, nil
 }
 
+// MoveFile renames a blob and optionally replaces its contents in one commit.
+// The destination must not already exist.
+func (s *Store) MoveFile(ctx context.Context, id, branch, from, to string, content []byte, message, username, email, expectedHead string) (string, error) {
+	if !validFilePath(from) || !validFilePath(to) || from == to || len(content) > MaxBlob || strings.TrimSpace(message) == "" {
+		return "", ErrNotFound
+	}
+	head, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return "", err
+	}
+	if head != expectedHead {
+		return "", ErrConflict
+	}
+	kind, err := s.Run(ctx, id, nil, "cat-file", "-t", head+":"+from)
+	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+		return "", ErrNotFound
+	}
+	if dest, destErr := s.Run(ctx, id, nil, "cat-file", "-t", head+":"+to); destErr == nil && strings.TrimSpace(string(dest)) != "" {
+		return "", ErrNotFound
+	}
+	indexPath, env, err := s.scratchIndex(ctx, id, head)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(indexPath)
+	blob, err := s.Run(ctx, id, bytes.NewReader(content), "hash-object", "-w", "--stdin")
+	if err != nil {
+		return "", err
+	}
+	remove := []byte("0 " + strings.Repeat("0", 40) + "\t" + from + "\x00")
+	add := []byte("100644 " + strings.TrimSpace(string(blob)) + "\t" + to + "\x00")
+	if _, err = s.run(ctx, id, bytes.NewReader(append(remove, add...)), env, "update-index", "-z", "--index-info"); err != nil {
+		return "", err
+	}
+	return s.commitIndex(ctx, id, branch, head, expectedHead, indexPath, env, message, username, email)
+}
+
+func (s *Store) scratchIndex(ctx context.Context, id, head string) (string, []string, error) {
+	index, err := os.CreateTemp(s.Root, "gitown-index-*")
+	if err != nil {
+		return "", nil, err
+	}
+	indexPath := index.Name()
+	if err = index.Close(); err != nil {
+		return "", nil, err
+	}
+	if err = os.Remove(indexPath); err != nil {
+		return "", nil, err
+	}
+	env := []string{"GIT_INDEX_FILE=" + indexPath}
+	if _, err = s.run(ctx, id, nil, env, "read-tree", head); err != nil {
+		os.Remove(indexPath)
+		return "", nil, err
+	}
+	return indexPath, env, nil
+}
+
+func (s *Store) commitIndex(ctx context.Context, id, branch, head, expectedHead, indexPath string, env []string, message, username, email string) (string, error) {
+	tree, err := s.run(ctx, id, nil, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	commit, err := s.Commit(ctx, id, strings.TrimSpace(string(tree)), []string{head}, message, username, email)
+	if err != nil {
+		return "", err
+	}
+	if _, err = s.Run(ctx, id, nil, "update-ref", "refs/heads/"+branch, commit, expectedHead); err != nil {
+		return "", ErrConflict
+	}
+	return commit, nil
+}
+
+// BlameLine is one displayed line of git blame. The text is the file line,
+// not a stored secret scan.
+type BlameLine struct {
+	SHA     string `json:"sha"`
+	Author  string `json:"author"`
+	Summary string `json:"summary"`
+	Line    int    `json:"line"`
+	Text    string `json:"text"`
+}
+
+func (s *Store) Blame(ctx context.Context, id, branch, path string) ([]BlameLine, error) {
+	if !validFilePath(path) {
+		return nil, ErrNotFound
+	}
+	sha, err := s.Resolve(ctx, id, branch)
+	if err != nil {
+		return nil, err
+	}
+	kind, err := s.Run(ctx, id, nil, "cat-file", "-t", sha+":"+path)
+	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+		return nil, ErrNotFound
+	}
+	out, err := s.Run(ctx, id, nil, "blame", "--porcelain", sha, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	return parseBlame(string(out)), nil
+}
+
+func parseBlame(text string) []BlameLine {
+	var lines []BlameLine
+	var current BlameLine
+	for _, line := range strings.Split(text, "\n") {
+		if len(line) >= 40 && isHex(line[:40]) && (len(line) == 40 || line[40] == ' ') {
+			current = BlameLine{SHA: line[:40]}
+			continue
+		}
+		if strings.HasPrefix(line, "author ") {
+			current.Author = strings.TrimPrefix(line, "author ")
+			continue
+		}
+		if strings.HasPrefix(line, "summary ") {
+			current.Summary = strings.TrimPrefix(line, "summary ")
+			continue
+		}
+		if strings.HasPrefix(line, "\t") {
+			current.Line = len(lines) + 1
+			current.Text = strings.TrimPrefix(line, "\t")
+			lines = append(lines, current)
+			if len(lines) >= 4000 {
+				break
+			}
+		}
+	}
+	return lines
+}
+
+func isHex(value string) bool {
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) DeleteFile(ctx context.Context, id, branch, path, message, username, email, expectedHead string) (string, error) {
 	if !validFilePath(path) || strings.TrimSpace(message) == "" {
 		return "", ErrNotFound
@@ -344,10 +482,8 @@ func (s *Store) Init(ctx context.Context, id, name, username, email string, read
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	for _, kv := range [][2]string{{"http.receivepack", "true"}, {"receive.fsckObjects", "true"}, {"transfer.fsckObjects", "true"}, {"receive.denyNonFastForwards", "true"}, {"receive.denyDeletes", "true"}, {"receive.maxInputSize", "104857600"}} {
-		if _, err := s.Run(ctx, id, nil, "config", kv[0], kv[1]); err != nil {
-			return err
-		}
+	if err := s.applyHostConfigs(ctx, id); err != nil {
+		return err
 	}
 	if !readme {
 		return nil

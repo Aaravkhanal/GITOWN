@@ -27,6 +27,8 @@ import {
   LayoutGrid,
   LockKeyhole,
   MessageSquarePlus,
+  MessagesSquare,
+  Shield,
   Package,
   Plus,
   RefreshCw,
@@ -37,9 +39,17 @@ import {
   Trash2,
   Users,
   Workflow,
+  BookOpenText,
 } from "lucide-react";
-import { DropsPanel } from "@/components/ecosystem";
+import { DropsPanel, SafeMarkdown } from "@/components/ecosystem";
+import {
+  MergeQueuePanel,
+  SupplyPanel,
+  TownHallPanel,
+} from "@/components/phase12";
 import { RouteEnvironmentSettings, RoutesPanel } from "@/components/routes";
+import { WikiPanel } from "@/components/wiki";
+import { BlameView, ComparePanel, SourceView } from "@/components/codeview";
 import {
   api,
   patch,
@@ -190,6 +200,12 @@ export function RepositoryPage({
             <Terminal size={16} />
             Clone repository
           </button>
+          {!r.archived && <RemixButton endpoint={endpoint} />}
+          {r.visibility === "public" && (
+            <a className="button" href={`/sites/${owner}/${name}/`}>
+              Showcase site
+            </a>
+          )}
         </div>
       </div>
       {r.archived && (
@@ -273,6 +289,24 @@ export function RepositoryPage({
             label: "Routes",
             href: `${basePath}/routes`,
           },
+          {
+            key: "wiki",
+            icon: BookOpenText,
+            label: "Wiki",
+            href: `${basePath}/wiki`,
+          },
+          {
+            key: "hall",
+            icon: MessagesSquare,
+            label: "Town Hall",
+            href: `${basePath}/hall`,
+          },
+          {
+            key: "supply",
+            icon: Shield,
+            label: "Supply",
+            href: `${basePath}/supply`,
+          },
           ...(r.can_manage || r.can_maintain
             ? [
                 {
@@ -334,6 +368,7 @@ export function RepositoryPage({
             branch={branch}
             path={path}
             setPath={setPath}
+            branches={repo.data.branches}
           />
         ) : (
           <EmptyRepository repo={r} />
@@ -346,6 +381,12 @@ export function RepositoryPage({
         <DropsPanel endpoint={endpoint} canWrite={r.can_write && !r.archived} />
       ) : tab === "routes" ? (
         <RoutesPanel endpoint={endpoint} repo={r} />
+      ) : tab === "wiki" ? (
+        <WikiPanel endpoint={endpoint} repo={r} pageSlug={number} />
+      ) : tab === "hall" ? (
+        <TownHallPanel endpoint={endpoint} repo={r} />
+      ) : tab === "supply" ? (
+        <SupplyPanel endpoint={endpoint} repo={r} />
       ) : tab === "issues" && number ? (
         <IssueDetail endpoint={endpoint} repo={r} number={number} />
       ) : tab === "issues" ? (
@@ -364,11 +405,15 @@ export function RepositoryPage({
       ) : tab === "pulls" && number ? (
         <PullRequestDetail endpoint={endpoint} number={number} repo={r} />
       ) : tab === "pulls" ? (
-        <PullRequestList
-          endpoint={endpoint}
-          repo={r}
-          branches={repo.data.branches}
-        />
+        <>
+          <MergeQueuePanel endpoint={endpoint} repo={r} />
+          <PullRequestList
+            endpoint={endpoint}
+            repo={r}
+            branches={repo.data.branches}
+          />
+          {!r.archived && <RemixUniteForm endpoint={endpoint} repo={r} />}
+        </>
       ) : tab === "settings" && (r.can_manage || r.can_maintain) ? (
         <RepositorySettings
           endpoint={endpoint}
@@ -382,6 +427,136 @@ export function RepositoryPage({
         </div>
       )}
     </>
+  );
+}
+
+function RemixButton({ endpoint }: { endpoint: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div>
+      <button className="button" type="button" onClick={() => setOpen(!open)}>
+        Remix
+      </button>
+      {open && (
+        <form
+          className="panel inline-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            setBusy(true);
+            setError("");
+            try {
+              const created = await post<Repo>(`${endpoint}/remix`, {
+                name: data.get("name"),
+                visibility: data.get("visibility"),
+              });
+              router.push(repoPath(created));
+            } catch (saveError) {
+              setError((saveError as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <ErrorMessage error={error} />
+          <label>
+            Remix name
+            <input name="name" required />
+          </label>
+          <label>
+            Visibility
+            <select name="visibility" defaultValue="private">
+              <option value="private">Private</option>
+              <option value="public">Public</option>
+            </select>
+          </label>
+          <button className="button primary small-button" disabled={busy}>
+            {busy ? "Remixing…" : "Create remix"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function RemixUniteForm({ endpoint, repo }: { endpoint: string; repo: Repo }) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="panel inline-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        setBusy(true);
+        setError("");
+        try {
+          const pull = await post<Pull>(`${endpoint}/pulls`, {
+            title: data.get("title"),
+            body: data.get("body") || "",
+            base_branch: data.get("base_branch"),
+            head_branch: data.get("head_branch"),
+            head_owner: data.get("head_owner"),
+            head_repository: data.get("head_repository"),
+          });
+          router.push(`${repoPath(repo)}/pulls/${pull.number}`);
+        } catch (saveError) {
+          setError((saveError as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3>Unite from a remix</h3>
+      <p className="muted small-text">
+        Open a request from a remix you can write to. The base repository does
+        not need to grant you write access.
+      </p>
+      <ErrorMessage error={error} />
+      <div className="two-fields">
+        <label>
+          Head owner
+          <input name="head_owner" required />
+        </label>
+        <label>
+          Head repository
+          <input name="head_repository" required />
+        </label>
+      </div>
+      <div className="two-fields">
+        <label>
+          Base branch
+          <input
+            name="base_branch"
+            defaultValue={repo.default_branch}
+            required
+          />
+        </label>
+        <label>
+          Head branch
+          <input
+            name="head_branch"
+            defaultValue={repo.default_branch}
+            required
+          />
+        </label>
+      </div>
+      <label>
+        Title
+        <input name="title" required maxLength={200} />
+      </label>
+      <label>
+        Description
+        <textarea name="body" rows={3} />
+      </label>
+      <button className="button primary" disabled={busy}>
+        {busy ? "Opening…" : "Open cross-project unite request"}
+      </button>
+    </form>
   );
 }
 
@@ -512,17 +687,21 @@ function CodeBrowser({
   branch,
   path,
   setPath,
+  branches,
 }: {
   endpoint: string;
   repo: Repo;
   branch: string;
   path: string;
   setPath: (path: string) => void;
+  branches: string[];
 }) {
   const [version, setVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const [editPath, setEditPath] = useState("");
+  const [originalPath, setOriginalPath] = useState("");
   const [draft, setDraft] = useState("");
+  const [showBlame, setShowBlame] = useState(false);
   const [editError, setEditError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showFileHistory, setShowFileHistory] = useState(false);
@@ -549,6 +728,7 @@ function CodeBrowser({
   );
   useEffect(() => {
     setShowFileHistory(false);
+    setShowBlame(false);
     setEditing(false);
   }, [branch, path]);
   const latest = commits.data?.[0];
@@ -583,6 +763,7 @@ function CodeBrowser({
                   <button
                     className="text-button"
                     onClick={() => {
+                      setOriginalPath("");
                       setEditPath(
                         path && tree.data?.content === undefined
                           ? `${path}/`
@@ -595,6 +776,36 @@ function CodeBrowser({
                   >
                     New file
                   </button>
+                )}
+                {repo.can_write && !repo.archived && (
+                  <label className="text-button">
+                    Upload
+                    <input
+                      type="file"
+                      hidden
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (!file) return;
+                        if (file.size > 524288) {
+                          setEditError("Upload a text file up to 512 KiB.");
+                          return;
+                        }
+                        const text = await file.text();
+                        if (text.includes("\u0000")) {
+                          setEditError(
+                            "Binary uploads are not accepted in the browser. Use Git for that file.",
+                          );
+                          return;
+                        }
+                        setOriginalPath("");
+                        setEditPath((path ? path + "/" : "") + file.name);
+                        setDraft(text);
+                        setEditError("");
+                        setEditing(true);
+                      }}
+                    />
+                  </label>
                 )}
               </>
             ) : (
@@ -618,6 +829,10 @@ function CodeBrowser({
                     body: JSON.stringify({
                       branch,
                       path: editPath,
+                      previous_path:
+                        originalPath && originalPath !== editPath
+                          ? originalPath
+                          : undefined,
                       content: draft,
                       message: data.get("message"),
                       expected_head: tree.data?.sha,
@@ -702,11 +917,18 @@ function CodeBrowser({
                 >
                   <History size={14} /> History
                 </button>
+                <button
+                  className="button small-button"
+                  onClick={() => setShowBlame((value) => !value)}
+                >
+                  {showBlame ? "Source" : "Blame"}
+                </button>
                 {repo.can_write && !repo.archived && (
                   <>
                     <button
                       className="button small-button"
                       onClick={() => {
+                        setOriginalPath(path);
                         setEditPath(path);
                         setDraft(tree.data!.content || "");
                         setEditError("");
@@ -776,17 +998,10 @@ function CodeBrowser({
                     <p className="muted padded">No file history found.</p>
                   )}
                 </div>
+              ) : showBlame ? (
+                <BlameView endpoint={endpoint} branch={branch} path={path} />
               ) : (
-                <pre>
-                  {tree.data.content.split("\n").map((line, i) => (
-                    <span className="code-line" key={i}>
-                      <span className="line-number" aria-hidden="true">
-                        {i + 1}
-                      </span>
-                      <code>{line || " "}</code>
-                    </span>
-                  ))}
-                </pre>
+                <SourceView path={path} content={tree.data.content} />
               )}
             </div>
           ) : tree.data?.binary ? (
@@ -858,11 +1073,16 @@ function CodeBrowser({
           <article className="panel readme-panel">
             <div className="panel-header">
               <BookOpen size={16} />
-              README.md<span>Plain text</span>
+              README.md
             </div>
-            <pre>{readme.data.content}</pre>
+            <SafeMarkdown text={readme.data.content} />
           </article>
         )}
+        <ComparePanel
+          endpoint={endpoint}
+          branches={branches}
+          current={branch}
+        />
       </section>
       <aside className="about-repo">
         <h2>About this repository</h2>
@@ -3385,7 +3605,11 @@ function PullRequestList({
               <div>
                 <strong>{pull.title}</strong>
                 <p>
-                  #{pull.number} · {pull.head_branch} → {pull.base_branch} ·{" "}
+                  #{pull.number} ·{" "}
+                  {pull.head_owner
+                    ? `${pull.head_owner}/${pull.head_repository}:`
+                    : ""}
+                  {pull.head_branch} → {pull.base_branch} ·{" "}
                   {date(pull.created_at)}
                 </p>
               </div>

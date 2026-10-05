@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, date, put, type Notification } from "@/lib/api";
+import { MobileDevices } from "@/components/phase12";
 import { Badge, ErrorMessage, Loading, useData } from "./ui";
 
 const actions: Record<string, string> = {
@@ -227,6 +228,7 @@ export function Inbox({ onChange }: { onChange?: () => void }) {
           </p>
         </div>
       )}
+      <MobileDevices />
     </>
   );
 }

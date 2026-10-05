@@ -41,6 +41,9 @@ type Pull struct {
 	// Set only in a merge response when deleting the source branch was requested.
 	BranchDeleted     *bool  `json:"branch_deleted,omitempty"`
 	BranchDeleteError string `json:"branch_delete_error,omitempty"`
+	HeadRepositoryID  string `json:"head_repository_id,omitempty"`
+	HeadOwner         string `json:"head_owner,omitempty"`
+	HeadRepository    string `json:"head_repository,omitempty"`
 }
 
 type PullComment struct {
@@ -62,11 +65,11 @@ type PullReview struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at,p.draft,p.merge_method`
+const pullColumns = `p.id,p.number,p.title,p.body,p.state,u.username,p.base_branch,p.head_branch,p.merge_sha,p.expected_base_sha,p.created_at,p.draft,p.merge_method,COALESCE(p.head_repository_id::text,''),COALESCE((SELECT u2.username FROM repositories hr JOIN users u2 ON u2.id=hr.owner_id WHERE hr.id=p.head_repository_id),''),COALESCE((SELECT hr.name FROM repositories hr WHERE hr.id=p.head_repository_id),'')`
 
 func scanPull(row scanner) (Pull, error) {
 	var p Pull
-	err := row.Scan(&p.ID, &p.Number, &p.Title, &p.Body, &p.State, &p.Author, &p.Base, &p.Head, &p.MergeSHA, &p.ExpectedBase, &p.CreatedAt, &p.Draft, &p.MergeMethod)
+	err := row.Scan(&p.ID, &p.Number, &p.Title, &p.Body, &p.State, &p.Author, &p.Base, &p.Head, &p.MergeSHA, &p.ExpectedBase, &p.CreatedAt, &p.Draft, &p.MergeMethod, &p.HeadRepositoryID, &p.HeadOwner, &p.HeadRepository)
 	return p, err
 }
 
@@ -373,30 +376,93 @@ func (a *App) pulls(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
-	repo := a.access(w, r, true)
+	repo := a.access(w, r, false)
 	if repo == nil {
 		return
 	}
+	if repo.Archived {
+		fail(w, 409, "repository_archived", "Unarchive this repository before making changes.")
+		return
+	}
 	u := a.user(r)
+	if u == nil {
+		fail(w, 401, "authentication_required", "Sign in to open a unite request.")
+		return
+	}
 	var in struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-		Base  string `json:"base_branch"`
-		Head  string `json:"head_branch"`
-		Draft bool   `json:"draft"`
+		Title     string `json:"title"`
+		Body      string `json:"body"`
+		Base      string `json:"base_branch"`
+		Head      string `json:"head_branch"`
+		Draft     bool   `json:"draft"`
+		HeadOwner string `json:"head_owner"`
+		HeadRepo  string `json:"head_repository"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	if !validContent(in.Title, in.Body) || in.Base == in.Head {
-		fail(w, 422, "validation_failed", "Provide a title and two different branches.")
+	in.HeadOwner = strings.ToLower(strings.TrimSpace(in.HeadOwner))
+	in.HeadRepo = strings.ToLower(strings.TrimSpace(in.HeadRepo))
+	if !validContent(in.Title, in.Body) || in.Base == "" || in.Head == "" {
+		fail(w, 422, "validation_failed", "Provide a title and two branches.")
 		return
 	}
+	headRepo := repo
+	var headRepositoryID any
+	if in.HeadOwner != "" || in.HeadRepo != "" {
+		if in.HeadOwner == "" || in.HeadRepo == "" {
+			fail(w, 422, "validation_failed", "Name both the head owner and the head repository.")
+			return
+		}
+		if in.HeadOwner != repo.Owner || in.HeadRepo != repo.Name {
+			loaded, err := a.lookupRepo(r.Context(), u, in.HeadOwner, in.HeadRepo)
+			if err != nil {
+				fail(w, 422, "invalid_repository", "The head repository must be one you can read.")
+				return
+			}
+			if loaded.OwnerID != u.ID && !loaded.CanWrite {
+				fail(w, 403, "forbidden", "You need write access to the remix you are contributing from.")
+				return
+			}
+			baseLink, err := a.forkLink(r.Context(), repo.ID)
+			if err != nil {
+				serverError(w, err)
+				return
+			}
+			headLink, err := a.forkLink(r.Context(), loaded.ID)
+			if err != nil {
+				serverError(w, err)
+				return
+			}
+			if !sameRemixFamily(baseLink, headLink) {
+				fail(w, 422, "unrelated_repository", "Cross-project unite requests have to come from a remix of this project.")
+				return
+			}
+			headRepo = loaded
+			headRepositoryID = loaded.ID
+		}
+	}
+	if headRepo.ID == repo.ID {
+		if in.Base == in.Head {
+			fail(w, 422, "validation_failed", "Provide a title and two different branches.")
+			return
+		}
+		if !repo.CanWrite {
+			fail(w, 403, "forbidden", "Repository write permission is required.")
+			return
+		}
+	}
 	base, e1 := a.git.Resolve(r.Context(), repo.ID, in.Base)
-	head, e2 := a.git.Resolve(r.Context(), repo.ID, in.Head)
+	head, e2 := a.git.Resolve(r.Context(), headRepo.ID, in.Head)
 	if e1 != nil || e2 != nil {
 		fail(w, 422, "invalid_branch", "Both branches must exist.")
 		return
+	}
+	if headRepo.ID != repo.ID {
+		if err := a.git.CopyCommit(r.Context(), repo.ID, headRepo.ID, head); err != nil {
+			fail(w, 422, "invalid_branch", "The remix commits could not be read.")
+			return
+		}
 	}
 	if _, err := a.git.Run(r.Context(), repo.ID, nil, "merge-base", base, head); err != nil {
 		fail(w, 422, "unrelated_history", "These branches have no common history.")
@@ -417,7 +483,7 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := Pull{ID: auth.ID(), Title: strings.TrimSpace(in.Title), Body: in.Body, State: "open", Author: u.Username, Base: in.Base, Head: in.Head, Draft: in.Draft}
-	err = tx.QueryRow(r.Context(), `INSERT INTO pull_requests(id,repository_id,number,author_id,title,body,base_branch,head_branch,draft) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5,$6,$7,$8 FROM pull_requests WHERE repository_id=$2 RETURNING number,created_at`, p.ID, repo.ID, u.ID, p.Title, p.Body, p.Base, p.Head, p.Draft).Scan(&p.Number, &p.CreatedAt)
+	err = tx.QueryRow(r.Context(), `INSERT INTO pull_requests(id,repository_id,number,author_id,title,body,base_branch,head_branch,draft,head_repository_id) SELECT $1,$2,COALESCE(MAX(number),0)+1,$3,$4,$5,$6,$7,$8,$9 FROM pull_requests WHERE repository_id=$2 RETURNING number,created_at`, p.ID, repo.ID, u.ID, p.Title, p.Body, p.Base, p.Head, p.Draft, headRepositoryID).Scan(&p.Number, &p.CreatedAt)
 	if conflict(err) {
 		fail(w, 409, "pull_exists", "An open pull request already exists for these branches.")
 		return
@@ -446,6 +512,10 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.requestCodeOwners(r.Context(), tx, repo, u, p.ID, p.Author, base, head); err != nil {
+		serverError(w, err)
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'pull.opened',$2)`, u.ID, fmt.Sprintf("%s/%s#%d", repo.Owner, repo.Name, p.Number)); err != nil {
 		serverError(w, err)
 		return
@@ -458,8 +528,13 @@ func (a *App) createPull(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if headSHA, resolveErr := a.git.Resolve(r.Context(), repo.ID, p.Head); resolveErr == nil {
-		a.evaluateRouteTriggers(r.Context(), repo, u.ID, p.Head, headSHA, "pull_request", fmt.Sprintf("pull #%d opened", p.Number))
+	if headRepositoryID == nil {
+		a.evaluateRouteTriggers(r.Context(), repo, u.ID, p.Head, head, "pull_request", fmt.Sprintf("pull #%d opened", p.Number))
+	}
+	if headRepositoryID != nil {
+		p.HeadRepositoryID, _ = headRepositoryID.(string)
+		p.HeadOwner = in.HeadOwner
+		p.HeadRepository = in.HeadRepo
 	}
 	respond(w, 201, p)
 }
@@ -503,7 +578,7 @@ func (a *App) pull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base, e1 := a.git.Resolve(r.Context(), repo.ID, p.Base)
-	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	head, e2 := a.resolvePullHead(r.Context(), repo, p)
 	diff := ""
 	diffError := ""
 	diffTruncated := false
@@ -742,7 +817,7 @@ func (a *App) pullReviews(w http.ResponseWriter, r *http.Request) {
 	if p == nil {
 		return
 	}
-	currentHead, _ := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	currentHead, _ := a.resolvePullHead(r.Context(), repo, p)
 	rows, err := a.db.Query(r.Context(), `SELECT rv.id,rv.state,rv.body,u.username,rv.head_sha,rv.dismissed_at IS NOT NULL,rv.dismissal_reason,rv.created_at FROM pull_reviews rv JOIN users u ON u.id=rv.reviewer_id WHERE rv.pull_request_id=$1 ORDER BY rv.created_at,rv.id LIMIT 200`, p.ID)
 	if err != nil {
 		serverError(w, err)
@@ -801,7 +876,7 @@ func (a *App) createPullReview(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "review_body_required", "A review comment is required when requesting changes or commenting.")
 		return
 	}
-	currentHead, err := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	currentHead, err := a.resolvePullHead(r.Context(), repo, p)
 	if err != nil || currentHead != in.HeadSHA {
 		fail(w, 409, "stale_review", "The head branch changed. Refresh before reviewing the latest code.")
 		return
@@ -897,6 +972,7 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.State == "merged" {
+		a.settleMergeQueue(r.Context(), p.ID)
 		respond(w, 200, p)
 		return
 	}
@@ -941,8 +1017,16 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "draft_pull", "Mark the unite request ready before merging it.")
 		return
 	}
+	if err = a.mergeQueueBlocks(r.Context(), repo.ID, p.ID); err != nil {
+		if errors.Is(err, errMergeQueue) {
+			fail(w, 409, "merge_queue", err.Error())
+			return
+		}
+		serverError(w, err)
+		return
+	}
 	base, e1 := a.git.Resolve(r.Context(), repo.ID, p.Base)
-	head, e2 := a.git.Resolve(r.Context(), repo.ID, p.Head)
+	head, e2 := a.resolvePullHead(r.Context(), repo, p)
 	if e1 != nil || e2 != nil || head != in.HeadSHA || base != in.BaseSHA {
 		fail(w, 409, "stale_branches", "A branch changed. Refresh the pull request before merging.")
 		return
@@ -1000,7 +1084,7 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	deleted, deleteProblem := false, ""
-	if in.DeleteBranch {
+	if in.DeleteBranch && p.HeadRepositoryID == "" {
 		deleted, deleteProblem = a.deleteMergedBranch(r.Context(), repo, p, head)
 	}
 	if err = a.finishMerge(r.Context(), conn, *p, *repo, *u, method, string(messages)); err != nil {
@@ -1011,6 +1095,7 @@ func (a *App) mergePull(w http.ResponseWriter, r *http.Request) {
 		a.recordRefEvents(r.Context(), repo.ID, u.ID, []refUpdate{{Old: head, New: strings.Repeat("0", 40), Ref: "refs/heads/" + p.Head}}, "api")
 	}
 	p.State = "merged"
+	a.settleMergeQueue(r.Context(), p.ID)
 	if in.DeleteBranch {
 		p.BranchDeleted = &deleted
 		p.BranchDeleteError = deleteProblem

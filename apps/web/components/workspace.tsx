@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -76,6 +76,7 @@ import { Inbox, useUnreadCount } from "./inbox";
 import { ProjectShowcase, UnsubscribePage } from "./showcase";
 import { DeveloperAppsPage, OAuthAuthorizePage } from "./oauth";
 import { FollowingFeed } from "./feed";
+import { SnippetsPage } from "./phase12";
 
 type Session = {
   user: User | null;
@@ -292,6 +293,12 @@ export function Workspace({ segments }: { segments: string[] }) {
                 <Hash size={17} /> Topics
               </Link>
               <Link
+                className={section === "snippets" ? "selected" : ""}
+                href="/snippets"
+              >
+                <Code2 size={17} /> Snippets
+              </Link>
+              <Link
                 className={
                   section === "settings" && segments[1] === "tokens"
                     ? "selected"
@@ -411,6 +418,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <Loading />
           ) : authPage ? (
             <AuthPage mode={section} />
+          ) : section === "forgot-password" || section === "reset-password" ? (
+            <PasswordRecoveryPage reset={section === "reset-password"} />
           ) : section === "new" ? (
             <NewRepository />
           ) : section === "unsubscribe" ? (
@@ -462,6 +471,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             ) : (
               <SignInPrompt />
             )
+          ) : section === "snippets" ? (
+            <SnippetsPage />
           ) : section === "crates" ? (
             user ? (
               <CratesPage />
@@ -1256,11 +1267,111 @@ function AuthPage({ mode }: { mode: string }) {
           </button>
         </form>
       )}
+      {!register && (
+        <p className="auth-switch">
+          <Link href="/forgot-password">Forgot your password?</Link>
+        </p>
+      )}
       <p className="auth-switch">
         {register ? "Already have a home here?" : "New around here?"}{" "}
         <Link href={register ? "/login" : "/register"}>
           {register ? "Sign in" : "Create an account"}
         </Link>
+      </p>
+    </div>
+  );
+}
+
+function PasswordRecoveryPage({ reset }: { reset: boolean }) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  return (
+    <div className="auth-card">
+      <span className="auth-icon">
+        <KeyRound size={27} />
+      </span>
+      <div className="eyebrow">ACCOUNT SECURITY</div>
+      <h1>{reset ? "Choose a new password." : "Recover your account."}</h1>
+      {message ? (
+        <div className="info-box">{message}</div>
+      ) : (
+        <>
+          <p>
+            {reset
+              ? "Use a password you have not used here before. This will sign out every active session and revoke access tokens."
+              : "Enter the email on your account. If it matches and email delivery is configured, we’ll send a one-time reset link."}
+          </p>
+          <ErrorMessage error={error} />
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
+              const data = new FormData(event.currentTarget);
+              try {
+                if (reset) {
+                  await post("/auth/password/reset", {
+                    token: params.get("token") || "",
+                    new_password: data.get("password"),
+                  });
+                  setMessage(
+                    "Password changed. Sign in with your new password.",
+                  );
+                  window.setTimeout(() => router.push("/login"), 1400);
+                } else {
+                  const response = await post<{ message: string }>(
+                    "/auth/password/forgot",
+                    { email: data.get("email") },
+                  );
+                  setMessage(response.message);
+                }
+              } catch (submitError) {
+                setError((submitError as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {reset ? (
+              <label>
+                New password
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  required
+                />
+              </label>
+            ) : (
+              <label>
+                Email address
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </label>
+            )}
+            <button className="button primary full-width" disabled={busy}>
+              {busy
+                ? "One moment…"
+                : reset
+                  ? "Reset password"
+                  : "Send reset link"}
+              <ArrowRight size={16} />
+            </button>
+          </form>
+        </>
+      )}
+      <p className="auth-switch">
+        <Link href="/login">Back to sign in</Link>
       </p>
     </div>
   );
@@ -1407,6 +1518,70 @@ function NewRepository() {
             {busy ? "Creating repository…" : "Create repository"}
           </button>
         </div>
+      </form>
+      <form
+        className="panel form-panel"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          const data = new FormData(event.currentTarget);
+          try {
+            const repo = await post<Repo>("/imports", {
+              source: data.get("source"),
+              url: data.get("url"),
+              name: String(data.get("import_name") || "").toLowerCase(),
+              visibility: data.get("import_visibility"),
+            });
+            router.push(repoPath(repo));
+          } catch (importError) {
+            setError((importError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <h2>Import a public repository</h2>
+        <p className="muted small-text">
+          GitHub, GitLab, and Bitbucket public HTTPS URLs only. GITOWN does not
+          accept a personal access token or any other forge credential.
+        </p>
+        <label>
+          Forge
+          <select name="source" defaultValue="github">
+            <option value="github">GitHub</option>
+            <option value="gitlab">GitLab</option>
+            <option value="bitbucket">Bitbucket</option>
+          </select>
+        </label>
+        <label>
+          Public URL
+          <input
+            name="url"
+            type="url"
+            required
+            placeholder="https://github.com/owner/name"
+          />
+        </label>
+        <label>
+          Name on GITOWN
+          <input
+            name="import_name"
+            required
+            pattern="[a-z0-9][a-z0-9._-]{0,99}"
+            placeholder="imported-name"
+          />
+        </label>
+        <label>
+          Visibility
+          <select name="import_visibility" defaultValue="private">
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        <button className="button" disabled={busy} type="submit">
+          Import repository
+        </button>
       </form>
     </div>
   );

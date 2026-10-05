@@ -2632,6 +2632,24 @@ textarea {
   white-space: pre;
   padding-right: 18px;
 }
+.tok-keyword {
+  color: #9d7a2a;
+}
+.tok-string {
+  color: #2f6f4e;
+}
+.tok-comment {
+  color: #6d7f74;
+}
+.tok-number {
+  color: #8a4b2f;
+}
+.blame-meta {
+  width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .line-number {
   display: inline-block;
   width: 54px;
@@ -3806,4 +3824,56 @@ textarea {
   padding: 12px;
   display: grid;
   gap: 10px;
+}
+.wiki-layout {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+.wiki-sidebar,
+.wiki-content {
+  padding: 22px;
+}
+.wiki-sidebar h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.wiki-sidebar nav {
+  display: grid;
+  gap: 3px;
+  margin: 18px 0;
+}
+.wiki-sidebar nav a {
+  border-radius: 6px;
+  padding: 7px 9px;
+  text-transform: capitalize;
+}
+.wiki-sidebar nav a:hover,
+.wiki-sidebar nav a.active {
+  background: var(--surface-raised);
+}
+.wiki-sidebar form {
+  display: grid;
+  gap: 8px;
+}
+.wiki-content h2 {
+  text-transform: capitalize;
+}
+.wiki-content textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono), monospace;
+}
+.wiki-history {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+@media (max-width: 760px) {
+  .wiki-layout {
+    grid-template-columns: 1fr;
+  }
 }
