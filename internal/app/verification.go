@@ -35,7 +35,7 @@ func (a *App) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "invalid_or_expired_token", "This verification link is invalid or expired. Request a new one.")
 		return
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, in.Token) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -98,7 +98,7 @@ func (a *App) resendEmailVerification(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, u.ID) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -128,7 +128,7 @@ func (a *App) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
 	if len(in.Email) > 254 {
 		in.Email = ""
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, in.Email) {
 		return
 	}
 	defer func() { <-a.passwords }()

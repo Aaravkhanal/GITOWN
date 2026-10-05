@@ -2081,6 +2081,13 @@ function SecurityPage() {
               body: JSON.stringify({
                 current_password: data.get("current_password"),
                 new_password: data.get("new_password"),
+                ...(() => {
+                  const proof = String(data.get("mfa_proof") || "").trim();
+                  if (!proof) return {};
+                  return proof.startsWith("GITOWN-")
+                    ? { recovery_code: proof }
+                    : { code: proof };
+                })(),
                 revoke_access_tokens: data.get("revoke_access_tokens") === "on",
               }),
             });
@@ -2104,6 +2111,14 @@ function SecurityPage() {
             autoComplete="current-password"
             maxLength={128}
             required
+          />
+        </label>
+        <label>
+          Authenticator or unused recovery code (required when MFA is enabled)
+          <input
+            name="mfa_proof"
+            autoComplete="one-time-code"
+            placeholder="Leave blank if MFA is not enabled"
           />
         </label>
         <div className="two-fields">

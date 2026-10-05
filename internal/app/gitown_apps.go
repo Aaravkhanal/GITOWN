@@ -143,6 +143,7 @@ func (a *App) createGitownApp(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	a.notifySecurityChange(r, u.ID, "account.gitown_app_created", in.Name, "A GITOWN App named '"+in.Name+"' was created for your account. Review its installations and requested permissions if this was not you.")
 	respond(w, 201, map[string]any{
 		"id": id, "name": in.Name, "description": in.Description, "homepage_url": in.HomepageURL,
 		"webhook_url": in.WebhookURL, "requested_scope": in.RequestedScope, "bot_username": botUsername, "created_at": created,
@@ -176,6 +177,7 @@ func (a *App) deleteGitownApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'gitown_app.deleted',$2)`, u.ID, r.PathValue("id"))
+	a.notifySecurityChange(r, u.ID, "account.gitown_app_deleted", r.PathValue("id"), "A GITOWN App was removed from your account.")
 	respond(w, 200, map[string]bool{"removed": true})
 }
 

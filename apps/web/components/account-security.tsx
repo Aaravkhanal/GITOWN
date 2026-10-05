@@ -50,6 +50,57 @@ export function MFASettings() {
               event.preventDefault();
               setBusy(true);
               setError("");
+              const form = event.currentTarget;
+              const data = new FormData(form);
+              const code = String(data.get("code") || "").trim();
+              try {
+                const result = await post<{ recovery_codes: string[] }>(
+                  "/user/mfa/recovery-codes/regenerate",
+                  {
+                    current_password: data.get("password"),
+                    ...(code.startsWith("GITOWN-")
+                      ? { recovery_code: code }
+                      : { code }),
+                  },
+                );
+                setCodes(result.recovery_codes || []);
+                form.reset();
+                setVersion((value) => value + 1);
+              } catch (submitError) {
+                setError((submitError as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <strong>Replace recovery codes</strong>
+            <p className="muted">
+              This invalidates every existing recovery code. The new set is
+              shown once.
+            </p>
+            <label>
+              Current password
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <label>
+              Authenticator code or unused recovery code
+              <input name="code" autoComplete="one-time-code" required />
+            </label>
+            <button className="button" disabled={busy}>
+              {busy ? "Replacing…" : "Regenerate recovery codes"}
+            </button>
+          </form>
+          <form
+            className="inline-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
               const data = new FormData(event.currentTarget);
               const code = String(data.get("code") || "").trim();
               try {

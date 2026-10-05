@@ -22,10 +22,10 @@ The branch-rule data model and settings UI, required Unite requests, approvals, 
 
 ### 3. Identity and account security
 
-- One-time verified email and password recovery are implemented; enforcement is opt-in with `GITOWN_REQUIRE_VERIFIED_EMAIL=true`. Configure SMTP first. Session/device management is implemented.
-- TOTP MFA with single-use recovery codes is implemented. General step-up authentication for destructive actions remains open.
-- SSH keys, deploy keys, scoped/rotatable credentials, and security-event notifications.
-- Abuse throttles by account and IP with operator-visible decisions.
+- One-time verified email and password recovery are implemented; enforcement is opt-in with `GITOWN_REQUIRE_VERIFIED_EMAIL=true`. Configure and verify SMTP before enabling enforcement. Session/device management is implemented.
+- TOTP MFA includes encrypted secrets, replay protection, single-use codes, and atomic recovery-code regeneration. Ten-minute step-up authentication protects sensitive credential, session, repository deletion, and transfer actions.
+- New-device, password-change/reset, MFA, recovery-code, and session-revocation notices use the durable email outbox.
+- Shared PostgreSQL IP/account throttles and a redacted operator abuse view are implemented. Remaining work is production delivery verification, proxy identity review, and threshold tuning.
 
 ### 4. Git and code experience
 

@@ -99,6 +99,7 @@ func (a *App) createOAuthApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'oauth_app.created',$2)`, u.ID, in.Name)
+	a.notifySecurityChange(r, u.ID, "account.oauth_app_created", in.Name, "An OAuth application named '"+in.Name+"' was created for your account. If this was not you, remove it and review authorized applications.")
 	respond(w, 201, map[string]any{
 		"id": id, "name": in.Name, "description": in.Description, "homepage_url": in.HomepageURL,
 		"redirect_uri": in.RedirectURI, "client_id": clientID, "client_secret": secret, "created_at": created,
@@ -121,6 +122,7 @@ func (a *App) regenerateOAuthAppSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'oauth_app.secret_regenerated',$2)`, u.ID, r.PathValue("id"))
+	a.notifySecurityChange(r, u.ID, "account.oauth_app_secret_rotated", r.PathValue("id"), "An OAuth application client secret was regenerated. The previous secret is no longer valid.")
 	respond(w, 200, map[string]string{"client_secret": secret})
 }
 
@@ -139,6 +141,7 @@ func (a *App) deleteOAuthApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'oauth_app.deleted',$2)`, u.ID, r.PathValue("id"))
+	a.notifySecurityChange(r, u.ID, "account.oauth_app_deleted", r.PathValue("id"), "An OAuth application was deleted from your account.")
 	respond(w, 200, map[string]bool{"removed": true})
 }
 

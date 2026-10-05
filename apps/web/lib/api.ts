@@ -554,6 +554,14 @@ export async function api<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  return apiRequest<T>(path, options, true);
+}
+
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit,
+  allowStepUp: boolean,
+): Promise<T> {
   const response = await fetch(`/api/v1${path}`, {
     ...options,
     credentials: "same-origin",
@@ -561,6 +569,43 @@ export async function api<T>(
     cache: "no-store",
   });
   const data = await response.json().catch(() => null);
+  if (
+    response.status === 428 &&
+    allowStepUp &&
+    data?.error?.code === "step_up_required" &&
+    typeof window !== "undefined"
+  ) {
+    const currentPassword = window.prompt(
+      "For your security, confirm your GITOWN password to continue.",
+    );
+    if (currentPassword) {
+      let proof: Record<string, string> = {
+        current_password: currentPassword,
+      };
+      if (response.headers.get("X-GITOWN-MFA-Required") === "true") {
+        const code = window.prompt(
+          "Enter one authenticator code or unused recovery code.",
+        );
+        if (code) {
+          proof = code.startsWith("GITOWN-")
+            ? { ...proof, recovery_code: code.trim() }
+            : { ...proof, code: code.trim() };
+        }
+      }
+      const stepUp = await fetch("/api/v1/user/step-up", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proof),
+        cache: "no-store",
+      });
+      if (stepUp.ok) return apiRequest<T>(path, options, false);
+      const stepUpData = await stepUp.json().catch(() => null);
+      throw new Error(
+        stepUpData?.error?.message || "Identity confirmation failed.",
+      );
+    }
+  }
   if (!response.ok)
     throw new Error(
       data?.error?.message || `Request failed (${response.status}).`,

@@ -4,11 +4,11 @@ This file is the product-parity plan discussed for GITOWN. It complements the de
 
 Status legend: **partial** means usable capabilities exist but the phase gate has not been met; **planned** means implementation has not reached the gate.
 
-## Phase 1 — Safe public accounts (partial)
+## Phase 1 — Safe public accounts (complete for the shipped account-security scope)
 
-Shipped: registration and login, Argon2id passwords, one-time email verification with 24-hour hashed tokens, generic resend responses and a one-minute cooldown, optional sign-in enforcement through `GITOWN_REQUIRE_VERIFIED_EMAIL=true`, one-time password recovery links with hashed 30-minute tokens and generic responses, revocation of all credentials after reset, TOTP MFA with encrypted secrets and ten single-use recovery codes, a five-minute login challenge with replay protection, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
+Shipped: registration and login, Argon2id passwords, one-time email verification with 24-hour hashed tokens, generic resend responses and a one-minute cooldown, optional sign-in enforcement through `GITOWN_REQUIRE_VERIFIED_EMAIL=true`, one-time password recovery links with hashed 30-minute tokens and generic responses, revocation of all credentials after reset, TOTP MFA with encrypted secrets and ten single-use recovery codes, a five-minute login challenge with replay protection, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, ten-minute password/MFA step-up for high-impact credential, session, repository deletion, and ownership-transfer actions, atomic recovery-code rotation, new-device/password/MFA/session security notices, and shared PostgreSQL IP/account throttles with an operator-only view of hashed abuse events and current blocks.
 
-Remaining gate: general step-up authentication for destructive actions, recovery-code regeneration, comprehensive security-event notifications, stronger account/IP abuse throttles, and operator-visible abuse decisions. Email and MFA configuration is documented in [Account security](ACCOUNT_SECURITY.md).
+Deployment gate: verify SMTP delivery and incident procedures in the production environment before requiring verified email or relying on recovery. Configure `GITOWN_OPERATORS` for abuse-event visibility. Email and MFA setup, operational requirements, and limitations are documented in [Account security](ACCOUNT_SECURITY.md).
 
 ## Phase 2 — Everyday repository work (partial)
 

@@ -35,6 +35,12 @@ info:
     text and falls back to git grep. District invoices record operator-entered
     amounts and do not charge a card. Most lists return bounded arrays; public
     repository and builder search use offset pagination with 25-item pages.
+    High-impact credential, SSH-key, membership, branch-rule, webhook,
+    repository lifecycle, and ownership changes require a ten-minute step-up
+    confirmation from the current browser session. When MFA is enabled,
+    step-up also consumes a current TOTP or unused recovery code. Authentication attempts
+    are throttled by shared IP/account windows; operator abuse views expose
+    only abbreviated digests, never raw IP addresses or account identifiers.
 servers:
   - url: /api/v1
 security:
@@ -1636,6 +1642,7 @@ paths:
                 properties:
                   token: { type: string }
                   details: { $ref: "#/components/schemas/Token" }
+        "428": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /user/tokens/{id}:
     parameters:
@@ -1650,6 +1657,7 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
+        "428": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /user/email-verification:
     get:
@@ -1705,6 +1713,55 @@ paths:
         "200": { description: Enabled, with one-time recovery codes }
         "401": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+  /user/mfa/recovery-codes/regenerate:
+    post:
+      summary: Replace all MFA recovery codes after proving the password and second factor
+      description: Invalidates every existing recovery code in the same transaction and returns the replacement set once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Replacement recovery codes, shown only once }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/step-up:
+    post:
+      summary: Confirm the current session for a high-impact action
+      description: Requires the current password and, when enabled, one authenticator or unused recovery code. Confirmation lasts ten minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Session confirmed for ten minutes }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /operator/security/abuse:
+    get:
+      summary: List recent authentication abuse events and active blocks
+      description: Restricted to usernames listed in GITOWN_OPERATORS. Only abbreviated digests are returned.
+      responses:
+        "200":
+          {
+            description: Seven days of recent events and current throttle blocks,
+          }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
   /user/mfa/disable:
     post:
       summary: Disable MFA with the current password and one authenticator or recovery code
@@ -1742,10 +1799,12 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
+        "428": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /user/password:
     patch:
       summary: Change your password and revoke every other browser session
+      description: If MFA is enabled, also provide one authenticator code or unused recovery code.
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1757,6 +1816,8 @@ paths:
               properties:
                 current_password: { type: string, maxLength: 128 }
                 new_password: { type: string, minLength: 12, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
                 revoke_access_tokens: { type: boolean }
       responses:
         "200":

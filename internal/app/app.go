@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,8 +25,6 @@ type App struct {
 	cfg        config.Config
 	db         *pgxpool.Pool
 	git        *gitstore.Store
-	ratesMu    sync.Mutex
-	rates      map[string]rateWindow
 	apiRatesMu sync.Mutex
 	apiRates   map[string]rateWindow
 	passwords  chan struct{}
@@ -113,7 +110,7 @@ func New(cfg config.Config, db *pgxpool.Pool) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, db: db, git: git, rates: make(map[string]rateWindow), apiRates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_")), webhookClient: newWebhookHTTPClient()}
+	a := &App{cfg: cfg, db: db, git: git, apiRates: make(map[string]rateWindow), passwords: make(chan struct{}, 2), transports: make(chan struct{}, 4), dummyHash: auth.HashPassword(auth.Secret("dummy_")), webhookClient: newWebhookHTTPClient()}
 	if cfg.SMTPAddr != "" {
 		a.mailer = a.sendSMTP
 	}
@@ -195,7 +192,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/user/mfa", a.mfaSettings)
 	mux.HandleFunc("POST /api/v1/user/mfa/setup", a.setupMFA)
 	mux.HandleFunc("POST /api/v1/user/mfa/confirm", a.confirmMFA)
+	mux.HandleFunc("POST /api/v1/user/mfa/recovery-codes/regenerate", a.regenerateMFARecoveryCodes)
 	mux.HandleFunc("POST /api/v1/user/mfa/disable", a.disableMFA)
+	mux.HandleFunc("POST /api/v1/user/step-up", a.stepUpAuthentication)
+	mux.HandleFunc("GET /api/v1/operator/security/abuse", a.abuseOverview)
 	mux.HandleFunc("GET /api/v1/user/deleted-repositories", a.deletedRepositories)
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)
@@ -517,6 +517,11 @@ func (a *App) Handler() http.Handler {
 				}
 			}
 		}
+		if requiresStepUp(r.Method, r.URL.Path) {
+			if !a.hasRecentStepUp(w, r) {
+				return
+			}
+		}
 		defer func() {
 			if err := recover(); err != nil {
 				slog.Error("request panic", "request_id", w.Header().Get("X-Request-ID"))
@@ -651,44 +656,13 @@ func (a *App) requireUser(w http.ResponseWriter, r *http.Request) *User {
 	return u
 }
 
-func (a *App) authLimit(w http.ResponseWriter, r *http.Request) bool {
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	a.ratesMu.Lock()
-	defer a.ratesMu.Unlock()
-	now := time.Now()
-	for key, v := range a.rates {
-		if now.After(v.until) {
-			delete(a.rates, key)
-		}
-	}
-	v := a.rates[ip]
-	if v.until.IsZero() {
-		v.until = now.Add(10 * time.Minute)
-	}
-	if v.count >= 30 || (len(a.rates) >= 10000 && v.count == 0) {
-		w.Header().Set("Retry-After", "600")
-		fail(w, 429, "rate_limited", "Too many attempts. Try again later.")
-		return false
-	}
-	v.count++
-	a.rates[ip] = v
-	select {
-	case a.passwords <- struct{}{}:
-		return true
-	default:
-		w.Header().Set("Retry-After", "2")
-		fail(w, 429, "busy", "Please try again in a moment.")
-		return false
-	}
-}
-
 // apiRateLimit bounds every /api/ request by identity: a signed-in session
 // or access token gets its own bucket (so one busy user never starves
 // another), and an anonymous caller falls back to a per-IP bucket. Tokens
 // are hashed before use as a map key so a raw secret is never held in
 // memory outside the request that presented it.
 func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	ip := trustedClientIP(r, a.cfg.TrustedProxies)
 	key := "ip:" + ip
 	if c, err := r.Cookie("gitown_session"); err == nil && c.Value != "" {
 		key = "s:" + auth.Digest(c.Value)
@@ -720,10 +694,7 @@ func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
 func (a *App) session(w http.ResponseWriter, r *http.Request, u User) error {
 	secret := auth.Secret("ses_")
 	expires := time.Now().Add(7 * 24 * time.Hour)
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if ip == "" {
-		ip = r.RemoteAddr
-	}
+	ip := trustedClientIP(r, a.cfg.TrustedProxies)
 	userAgent := r.UserAgent()
 	if len(userAgent) > 300 {
 		userAgent = userAgent[:300]
@@ -739,8 +710,22 @@ func (a *App) session(w http.ResponseWriter, r *http.Request, u User) error {
 	if _, err = tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id=$1 AND (expires_at<=now() OR token_hash IN (SELECT token_hash FROM sessions WHERE user_id=$1 ORDER BY created_at DESC OFFSET 19))`, u.ID); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `INSERT INTO sessions(id,token_hash,user_id,expires_at,ip_address,user_agent) VALUES($1,$2,$3,$4,$5,$6)`, auth.ID(), auth.Digest(secret), u.ID, expires, ip, userAgent); err != nil {
+	var newDevice bool
+	if ip != "" && userAgent != "" {
+		if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1) AND NOT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND ip_address=$2 AND user_agent=$3)`, u.ID, ip, userAgent).Scan(&newDevice); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO sessions(id,token_hash,user_id,expires_at,ip_address,user_agent,step_up_at) VALUES($1,$2,$3,$4,$5,$6,now())`, auth.ID(), auth.Digest(secret), u.ID, expires, ip, userAgent); err != nil {
 		return err
+	}
+	if newDevice {
+		if err = a.queueSecurityNotice(r, tx, u.ID, "New sign-in to your GITOWN account", "A sign-in to your GITOWN account was completed from a device or network not seen before. If this was not you, change your password and revoke unfamiliar sessions."); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'account.new_device_sign_in','self')`, u.ID); err != nil {
+			return err
+		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		return err
