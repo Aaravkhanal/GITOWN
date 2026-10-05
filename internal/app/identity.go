@@ -34,7 +34,7 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Use a valid username and email, and a password between 12 and 128 characters.")
 		return
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, in.Email) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -62,8 +62,19 @@ func (a *App) register(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	requireEmailVerification := a.emailVerificationRequired()
+	if requireEmailVerification {
+		if err = queueEmailVerification(r.Context(), tx, u.ID, in.Email, a.cfg.Origin); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
+		return
+	}
+	if requireEmailVerification {
+		respond(w, 201, map[string]any{"user": u, "verification_required": true})
 		return
 	}
 	if err = a.session(w, r, u); err != nil {
@@ -85,19 +96,53 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "invalid_credentials", "Incorrect username or password.")
 		return
 	}
-	if !a.authLimit(w, r) {
+	var u User
+	var encoded string
+	var emailVerified bool
+	var mfaEnabled bool
+	principal := strings.ToLower(strings.TrimSpace(in.Username))
+	err := a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name,u.password_hash,u.email_verified_at IS NOT NULL,COALESCE(m.enabled_at IS NOT NULL,false)
+		FROM users u LEFT JOIN user_mfa m ON m.user_id=u.id WHERE u.username=$1 OR u.email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded, &emailVerified, &mfaEnabled)
+	if err != nil {
+		encoded = a.dummyHash
+	} else {
+		principal = u.ID // Username and email use one canonical account throttle bucket.
+	}
+	if !a.authLimitFor(w, r, principal) {
 		return
 	}
 	defer func() { <-a.passwords }()
-	var u User
-	var encoded string
-	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,password_hash FROM users WHERE username=$1 OR email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded)
-	if err != nil {
-		encoded = a.dummyHash
-	}
 	valid := auth.CheckPassword(encoded, in.Password)
 	if err != nil || !valid {
+		a.recordFailedLogin(r, principal)
 		fail(w, 401, "invalid_credentials", "Incorrect username or password.")
+		return
+	}
+	if a.emailVerificationRequired() && !emailVerified {
+		fail(w, 403, "email_verification_required", "Verify your email before signing in. Request a new link from the verification page.")
+		return
+	}
+	if mfaEnabled {
+		challenge := auth.Secret("mfachallenge_")
+		tx, txErr := a.db.Begin(r.Context())
+		if txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		if _, txErr = tx.Exec(r.Context(), `DELETE FROM mfa_login_challenges WHERE user_id=$1 AND expires_at<=now()`, u.ID); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		if _, txErr = tx.Exec(r.Context(), `INSERT INTO mfa_login_challenges(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '5 minutes')`, auth.Digest(challenge), u.ID); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		if txErr = tx.Commit(r.Context()); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		respond(w, 200, map[string]any{"mfa_required": true, "challenge": challenge})
 		return
 	}
 	if err := a.session(w, r, u); err != nil {
@@ -118,7 +163,7 @@ func (a *App) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	if len(in.Email) > 254 {
 		in.Email = ""
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, in.Email) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -184,7 +229,7 @@ func (a *App) resetPassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "invalid_or_expired_token", "This reset link is invalid or expired. Request a new one.")
 		return
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, in.Token) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -321,6 +366,10 @@ func (a *App) deleteSession(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.queueSecurityNotice(r, tx, u.ID, "A GITOWN session was revoked", "A browser session was revoked from your GITOWN account settings. If you did not do this, change your password and review active sessions."); err != nil {
+		serverError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
@@ -339,6 +388,8 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		CurrentPassword    string `json:"current_password"`
 		NewPassword        string `json:"new_password"`
+		Code               string `json:"code"`
+		RecoveryCode       string `json:"recovery_code"`
 		RevokeAccessTokens bool   `json:"revoke_access_tokens"`
 	}
 	if !decode(w, r, &in) {
@@ -348,7 +399,7 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "validation_failed", "Use a new password between 12 and 128 characters.")
 		return
 	}
-	if !a.authLimit(w, r) {
+	if !a.authLimitFor(w, r, u.ID) {
 		return
 	}
 	defer func() { <-a.passwords }()
@@ -365,6 +416,42 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		fail(w, 422, "password_unchanged", "Choose a password you have not just used.")
 		return
 	}
+	if len(in.Code) > 6 || len(in.RecoveryCode) > 128 || (in.Code != "" && in.RecoveryCode != "") {
+		fail(w, 422, "validation_failed", "Provide at most one authenticator or recovery code.")
+		return
+	}
+	var mfaEnabled bool
+	var mfaCipher, mfaNonce []byte
+	if err := a.db.QueryRow(r.Context(), `SELECT enabled_at IS NOT NULL,secret_cipher,secret_nonce FROM user_mfa WHERE user_id=$1`, u.ID).Scan(&mfaEnabled, &mfaCipher, &mfaNonce); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		serverError(w, err)
+		return
+	}
+	var totpStep int64
+	totpValid := false
+	recoveryHash := ""
+	if mfaEnabled {
+		if (in.Code == "") == (in.RecoveryCode == "") {
+			fail(w, 422, "mfa_required", "Enter one authenticator or unused recovery code to change your password.")
+			return
+		}
+		secret, err := openSecret(mfaCipher, mfaNonce)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		totpStep, totpValid = verifyTOTP(secret, in.Code, time.Now())
+		if !totpValid && in.RecoveryCode != "" {
+			recoveryHash = auth.Digest(in.RecoveryCode)
+		}
+		if !totpValid && recoveryHash == "" {
+			a.recordAuthAbuse(r, "password_change_mfa_failed", u.ID, r.URL.Path)
+			fail(w, 401, "invalid_mfa_code", "That authenticator or recovery code is invalid.")
+			return
+		}
+	} else if in.Code != "" || in.RecoveryCode != "" {
+		fail(w, 422, "mfa_not_enabled", "This account does not have an authenticator configured.")
+		return
+	}
 	currentSession := ""
 	if cookie, err := r.Cookie("gitown_session"); err == nil {
 		currentSession = auth.Digest(cookie.Value)
@@ -376,6 +463,38 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if mfaEnabled {
+		var lockedUser string
+		if err = tx.QueryRow(r.Context(), `SELECT user_id FROM user_mfa WHERE user_id=$1 AND enabled_at IS NOT NULL FOR UPDATE`, u.ID).Scan(&lockedUser); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				fail(w, 409, "mfa_changed", "MFA changed while the request was in progress. Retry with a fresh code.")
+			} else {
+				serverError(w, err)
+			}
+			return
+		}
+		if totpValid {
+			result, updateErr := tx.Exec(r.Context(), `UPDATE user_mfa SET last_totp_step=$2 WHERE user_id=$1 AND last_totp_step<$2`, u.ID, totpStep)
+			if updateErr != nil {
+				serverError(w, updateErr)
+				return
+			}
+			if result.RowsAffected() != 1 {
+				fail(w, 401, "invalid_mfa_code", "That authenticator code was already used.")
+				return
+			}
+		} else {
+			result, deleteErr := tx.Exec(r.Context(), `DELETE FROM mfa_recovery_codes WHERE user_id=$1 AND code_hash=$2`, u.ID, recoveryHash)
+			if deleteErr != nil {
+				serverError(w, deleteErr)
+				return
+			}
+			if result.RowsAffected() != 1 {
+				fail(w, 401, "invalid_mfa_code", "That recovery code is invalid or was already used.")
+				return
+			}
+		}
+	}
 	result, err := tx.Exec(r.Context(), `UPDATE users SET password_hash=$1 WHERE id=$2 AND password_hash=$3`, newHash, u.ID, currentHash)
 	if err != nil {
 		serverError(w, err)
@@ -400,6 +519,14 @@ func (a *App) changePassword(w http.ResponseWriter, r *http.Request) {
 		tokenCount = tokensResult.RowsAffected()
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'account.password_changed',$2)`, u.ID, u.Username); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.queueSecurityNotice(r, tx, u.ID, "Your GITOWN password was changed", "The password for your GITOWN account was changed. Other browser sessions were signed out. If you did not make this change, use password recovery and review your account security."); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE sessions SET step_up_at=NULL WHERE token_hash=$1`, currentSession); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -485,6 +612,10 @@ func (a *App) createToken(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	if err = a.queueSecurityNotice(r, tx, u.ID, "A GITOWN access token was created", "A personal access token named '"+t.Name+"' with scope '"+t.Scope+"' was created for your account. If this was not you, revoke it from Account security and change your password."); err != nil {
+		serverError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		serverError(w, err)
 		return
@@ -510,6 +641,10 @@ func (a *App) deleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'token.revoked',$2)`, u.ID, name); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = a.queueSecurityNotice(r, tx, u.ID, "A GITOWN access token was revoked", "The personal access token named '"+name+"' was revoked from your account."); err != nil {
 		serverError(w, err)
 		return
 	}

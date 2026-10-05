@@ -148,6 +148,7 @@ func (a *App) createSSHKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'ssh_key.created',$2)`, u.ID, fingerprint)
+	a.notifySecurityChange(r, u.ID, "account.ssh_key_added", in.Title, "An SSH key titled '"+in.Title+"' was added to your GITOWN account. If this was not you, remove it from Account security and change your password.")
 	respond(w, 201, map[string]any{"id": id, "title": in.Title, "fingerprint": fingerprint, "created_at": created, "authorized_keys": authorizedKeysLine(fingerprint, in.PublicKey)})
 }
 
@@ -165,6 +166,7 @@ func (a *App) deleteSSHKey(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "not_found", "SSH key not found.")
 		return
 	}
+	a.notifySecurityChange(r, u.ID, "account.ssh_key_removed", r.PathValue("id"), "An SSH key was removed from your GITOWN account.")
 	respond(w, 200, map[string]bool{"removed": true})
 }
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -499,7 +498,7 @@ func (a *App) downloadDropAsset(w http.ResponseWriter, r *http.Request) {
 // unboundedly. It counts downloads of private and internal repository
 // assets too — previously only public, non-draft assets were counted at all.
 func (a *App) countAssetDownload(r *http.Request, assetID string) {
-	identity := "ip:" + clientIP(r)
+	identity := "ip:" + trustedClientIP(r, a.cfg.TrustedProxies)
 	if u := a.user(r); u != nil {
 		identity = "user:" + u.ID
 	}
@@ -527,13 +526,6 @@ func (a *App) deleteDropAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = os.Remove(filepath.Join(a.extraRoot(), "drops", dropID, id))
 	respond(w, 200, map[string]bool{"removed": true})
-}
-
-func clientIP(r *http.Request) string {
-	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return ip
-	}
-	return r.RemoteAddr
 }
 
 func writePrivateFile(path string, data []byte) error {

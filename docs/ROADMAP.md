@@ -22,16 +22,16 @@ The branch-rule data model and settings UI, required Unite requests, approvals, 
 
 ### 3. Identity and account security
 
-- Verified email, password recovery, invitation controls, and account/device sessions.
-- TOTP MFA with recovery codes and step-up authentication for destructive actions.
-- SSH keys, deploy keys, scoped/rotatable credentials, and security-event notifications.
-- Abuse throttles by account and IP with operator-visible decisions.
+- One-time verified email and password recovery are implemented; enforcement is opt-in with `GITOWN_REQUIRE_VERIFIED_EMAIL=true`. Configure and verify SMTP before enabling enforcement. Session/device management is implemented.
+- TOTP MFA includes encrypted secrets, replay protection, single-use codes, and atomic recovery-code regeneration. Ten-minute step-up authentication protects sensitive credential, session, repository deletion, and transfer actions.
+- New-device, password-change/reset, MFA, recovery-code, and session-revocation notices use the durable email outbox.
+- Shared PostgreSQL IP/account throttles and a redacted operator abuse view are implemented. Remaining work is production delivery verification, proxy identity review, and threshold tuning.
 
 ### 4. Git and code experience
 
-SSH transport with forced commands and identical branch policy enforcement, repository size accounting and quotas, on-demand and scheduled `git gc` maintenance, tag signatures verified against the same registered-key trust store as commits, and LFS batch transfer with path locks all shipped in phase 8, alongside a deploy-key and push-activity UI. Still open in this section:
+SSH transport with forced commands and identical branch policy enforcement, repository size accounting and quotas, on-demand and scheduled `git gc` maintenance, tag signatures verified against the same registered-key trust store as commits, LFS batch transfer with path locks, raw downloads, safe Markdown, syntax colors, blame and branch compare are implemented. Still open in this section:
 
-- Raw downloads, rendered sanitized Markdown, syntax highlighting, tags, blame, and pagination.
+- A complete Git tags UI.
 - Orphan storage reconciliation.
 - CLI installers, shell completion, signed releases, and server/token profiles.
 

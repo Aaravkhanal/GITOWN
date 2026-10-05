@@ -79,6 +79,7 @@ func (a *App) createSigningKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'signing_key.created',$2)`, u.ID, fingerprint)
+	a.notifySecurityChange(r, u.ID, "account.signing_key_added", in.Title, "A commit-signing key titled '"+in.Title+"' was added to your GITOWN account. If this was not you, remove it and review your account security.")
 	respond(w, 201, map[string]any{"id": id, "title": in.Title, "fingerprint": fingerprint, "created_at": created})
 }
 
@@ -97,6 +98,7 @@ func (a *App) deleteSigningKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'signing_key.deleted',$2)`, u.ID, r.PathValue("id"))
+	a.notifySecurityChange(r, u.ID, "account.signing_key_removed", r.PathValue("id"), "A commit-signing key was removed from your GITOWN account.")
 	respond(w, 200, map[string]bool{"removed": true})
 }
 

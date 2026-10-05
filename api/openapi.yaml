@@ -35,6 +35,12 @@ info:
     text and falls back to git grep. District invoices record operator-entered
     amounts and do not charge a card. Most lists return bounded arrays; public
     repository and builder search use offset pagination with 25-item pages.
+    High-impact credential, SSH-key, membership, branch-rule, webhook,
+    repository lifecycle, and ownership changes require a ten-minute step-up
+    confirmation from the current browser session. When MFA is enabled,
+    step-up also consumes a current TOTP or unused recovery code. Authentication attempts
+    are throttled by shared IP/account windows; operator abuse views expose
+    only abbreviated digests, never raw IP addresses or account identifiers.
 servers:
   - url: /api/v1
 security:
@@ -1493,6 +1499,57 @@ paths:
         "200": { description: Password changed and credentials revoked }
         "422": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
+  /auth/email/verify:
+    post:
+      summary: Verify an email with a single-use token
+      description: Verification links expire after 24 hours. Email enforcement at sign-in is enabled with GITOWN_REQUIRE_VERIFIED_EMAIL=true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Email verified }
+        "422": { $ref: "#/components/responses/Error" }
+  /auth/email/verification-request:
+    post:
+      summary: Request an email verification link
+      description: Returns a generic response for verified, unverified, and unknown addresses. Requests are rate limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        "200": { description: Generic verification response }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/mfa/verify:
+    post:
+      summary: Complete a password sign-in with an authenticator or recovery code
+      description: The password login challenge expires after five minutes. Each authenticator time step and recovery code can be used once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge]
+              properties:
+                challenge: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Sign-in completed and session created }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/register:
     post:
       security: []
@@ -1532,7 +1589,18 @@ paths:
                 username: { type: string }
                 password: { type: string, maxLength: 128 }
       responses:
-        "200": { $ref: "#/components/responses/Session" }
+        "200":
+          description: Session created, or an MFA challenge returned without a session cookie
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Session"
+                  - type: object
+                    required: [mfa_required, challenge]
+                    properties:
+                      mfa_required: { type: boolean, const: true }
+                      challenge: { type: string }
         "401": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
   /auth/logout:
@@ -1574,6 +1642,7 @@ paths:
                 properties:
                   token: { type: string }
                   details: { $ref: "#/components/schemas/Token" }
+        "428": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /user/tokens/{id}:
     parameters:
@@ -1588,7 +1657,129 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
+        "428": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /user/email-verification:
+    get:
+      summary: Read the signed-in user's email verification status
+      responses:
+        "200": { description: Verification status }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/email-verification/resend:
+    post:
+      summary: Resend a verification link for the signed-in user's address
+      responses:
+        "200": { description: Generic verification response }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /user/mfa:
+    get:
+      summary: Read MFA enrollment and remaining recovery-code count
+      responses:
+        "200": { description: MFA status }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/mfa/setup:
+    post:
+      summary: Start encrypted TOTP setup after confirming the current password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+      responses:
+        "200":
+          { description: TOTP secret and otpauth URI, returned once for setup }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /user/mfa/confirm:
+    post:
+      summary: Verify the setup code and enable TOTP MFA
+      description: Returns ten single-use recovery codes once. Store them securely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, code]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        "200": { description: Enabled, with one-time recovery codes }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/mfa/recovery-codes/regenerate:
+    post:
+      summary: Replace all MFA recovery codes after proving the password and second factor
+      description: Invalidates every existing recovery code in the same transaction and returns the replacement set once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Replacement recovery codes, shown only once }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/step-up:
+    post:
+      summary: Confirm the current session for a high-impact action
+      description: Requires the current password and, when enabled, one authenticator or unused recovery code. Confirmation lasts ten minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Session confirmed for ten minutes }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /operator/security/abuse:
+    get:
+      summary: List recent authentication abuse events and active blocks
+      description: Restricted to usernames listed in GITOWN_OPERATORS. Only abbreviated digests are returned.
+      responses:
+        "200":
+          {
+            description: Seven days of recent events and current throttle blocks,
+          }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+  /user/mfa/disable:
+    post:
+      summary: Disable MFA with the current password and one authenticator or recovery code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: MFA disabled }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /user/sessions:
     get:
       summary: List up to 20 active browser sessions and identify the current one
@@ -1608,10 +1799,12 @@ paths:
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       responses:
         "200": { $ref: "#/components/responses/OK" }
+        "428": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
   /user/password:
     patch:
       summary: Change your password and revoke every other browser session
+      description: If MFA is enabled, also provide one authenticator code or unused recovery code.
       parameters: [{ $ref: "#/components/parameters/Origin" }]
       requestBody:
         required: true
@@ -1623,6 +1816,8 @@ paths:
               properties:
                 current_password: { type: string, maxLength: 128 }
                 new_password: { type: string, minLength: 12, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
                 revoke_access_tokens: { type: boolean }
       responses:
         "200":

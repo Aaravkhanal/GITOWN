@@ -69,6 +69,8 @@ GITOWN_WEB_PORT=3100 GITOWN_API_PORT=8180 npm run dev
 
 To send email, export `GITOWN_SMTP_ADDR` (host:port) and `GITOWN_SMTP_FROM`, plus `GITOWN_SMTP_USER` and `GITOWN_SMTP_PASSWORD` if your server requires authentication. STARTTLS is used whenever the server offers it. `GITOWN_DIGEST_INTERVAL` (default `60m`) controls how often digest emails are sent. Without SMTP, GITOWN keeps an honest delivery record and marks messages as suppressed.
 
+For production account security, set a stable private `GITOWN_SECRET_KEY`, configure `GITOWN_OPERATORS` to the smallest operator username allowlist, and—when behind a reverse proxy—set `GITOWN_TRUSTED_PROXIES` to its exact IPs/CIDRs. Review the [account-security deployment checklist](docs/ACCOUNT_SECURITY.md) before enabling verified-email enforcement.
+
 The release version comes from the root `package.json`. `npm run dev`, `make build`, `make cli`, and the API Dockerfile inject it into the Go binaries; `/healthz`, `gitown version`, and the web sidebar report it. Set `NEXT_PUBLIC_GITOWN_CHANNEL=stable` to hide the release-channel badge.
 
 If you already have a dedicated database, export `DATABASE_URL` first. The launcher will use it without starting PostgreSQL. It does **not** automatically load `.env` into your shell. `.env` is used by Docker Compose.

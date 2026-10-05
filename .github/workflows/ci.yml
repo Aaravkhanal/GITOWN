@@ -5,6 +5,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         # ubuntu-latest currently ships PostgreSQL 16 client tools. Keep the
@@ -43,10 +44,21 @@ jobs:
       - name: Browser workflows
         run: |
           npm run dev > /tmp/gitown-dev.log 2>&1 &
-          for attempt in $(seq 1 90); do
-            if curl --fail --silent http://localhost:3101/api/v1/auth/me; then break; fi
+          ready=false
+          for attempt in $(seq 1 60); do
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:3101/api/v1/auth/me || true)
+            # This endpoint is expected to return 401 without a session. That
+            # still proves the web proxy and API/database are ready; curl
+            # --fail incorrectly treated it as not-ready and waited the full
+            # startup budget on every successful boot.
+            if [ "$status" = "200" ] || [ "$status" = "401" ]; then ready=true; break; fi
             sleep 1
           done
+          if [ "$ready" != "true" ]; then
+            echo "GITOWN did not become ready; recent server output follows:"
+            tail -n 120 /tmp/gitown-dev.log || true
+            exit 1
+          fi
           npm run test:e2e
       - name: Upload failure diagnostics
         if: failure()

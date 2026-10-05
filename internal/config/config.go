@@ -26,6 +26,7 @@ type Config struct {
 	SMTPUser       string
 	SMTPPassword   string
 	DigestInterval time.Duration
+	TrustedProxies []net.IPNet
 }
 
 func Load() (Config, error) {
@@ -37,6 +38,26 @@ func Load() (Config, error) {
 	c.SMTPFrom = strings.TrimSpace(os.Getenv("GITOWN_SMTP_FROM"))
 	c.SMTPUser = os.Getenv("GITOWN_SMTP_USER")
 	c.SMTPPassword = os.Getenv("GITOWN_SMTP_PASSWORD")
+	for _, raw := range strings.Split(os.Getenv("GITOWN_TRUSTED_PROXIES"), ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if ip := net.ParseIP(raw); ip != nil {
+			maskBits := 128
+			if ip.To4() != nil {
+				ip = ip.To4()
+				maskBits = 32
+			}
+			c.TrustedProxies = append(c.TrustedProxies, net.IPNet{IP: ip, Mask: net.CIDRMask(maskBits, maskBits)})
+			continue
+		}
+		_, network, err := net.ParseCIDR(raw)
+		if err != nil {
+			return c, errors.New("GITOWN_TRUSTED_PROXIES must be a comma-separated list of IP addresses or CIDRs")
+		}
+		c.TrustedProxies = append(c.TrustedProxies, *network)
+	}
 	if c.SMTPAddr != "" {
 		if _, _, err := net.SplitHostPort(c.SMTPAddr); err != nil {
 			return c, errors.New("GITOWN_SMTP_ADDR must be host:port")

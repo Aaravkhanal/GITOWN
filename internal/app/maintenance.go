@@ -52,8 +52,19 @@ func (a *App) startMaintenanceSweep(ctx context.Context) {
 			if err := a.sweepMaintenance(ctx); err != nil && ctx.Err() == nil {
 				slog.Error("repository maintenance sweep failed", "error", err)
 			}
+			if err := a.sweepAuthAbuse(ctx); err != nil && ctx.Err() == nil {
+				slog.Error("authentication abuse cleanup failed", "error", err)
+			}
 		}
 	}()
+}
+
+func (a *App) sweepAuthAbuse(ctx context.Context) error {
+	if _, err := a.db.Exec(ctx, `DELETE FROM auth_rate_limit_buckets WHERE updated_at<now()-interval '1 day'`); err != nil {
+		return err
+	}
+	_, err := a.db.Exec(ctx, `DELETE FROM auth_abuse_events WHERE created_at<now()-interval '7 days'`)
+	return err
 }
 
 func (a *App) sweepMaintenance(ctx context.Context) error {
