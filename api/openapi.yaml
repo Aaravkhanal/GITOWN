@@ -115,6 +115,61 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/wiki/{slug}/attachments:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: slug, in: path, required: true, schema: { type: string } },
+      ]
+    get:
+      security: []
+      summary: List validated Git-backed wiki attachments
+      responses:
+        "200": { description: Attachment names and detected media types }
+    post:
+      summary: Commit a validated base64 wiki attachment (512 KiB maximum)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, content_base64, expected_head]
+              properties:
+                name: { type: string, maxLength: 100 }
+                content_base64: { type: string }
+                expected_head: { type: string, pattern: "^[0-9a-f]{40}$" }
+      responses:
+        "201": { description: Attachment committed }
+        "409": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/wiki/{slug}/attachments/{name}:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+        { name: slug, in: path, required: true, schema: { type: string } },
+        { name: name, in: path, required: true, schema: { type: string } },
+      ]
+    get:
+      security: []
+      summary: Read a validated image or PDF wiki attachment
+      responses:
+        "200": { description: Validated inline attachment content }
+        "404": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/supply-chain/scan:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    post:
+      summary: Scan local dependencies and optionally query OSV (GITOWN_OSV_ENABLED=true)
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      responses:
+        "200":
+          { description: Local findings and external advisory status/count }
   /search/builders:
     get:
       security: []
@@ -1762,6 +1817,31 @@ paths:
           }
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+  /operator/queues:
+    get:
+      summary: Inspect durable worker queues and dead letters
+      description: Operator-only. Does not expose recipients, webhook URLs, payloads, or response bodies. Routes jobs are planning-only; they do not execute.
+      responses:
+        "200":
+          { description: Queue counts, waiting age, and recent failed items }
+        "403": { $ref: "#/components/responses/Error" }
+  /operator/queues/{queue}/{id}/retry:
+    parameters:
+      - name: queue
+        in: path
+        required: true
+        schema: { type: string, enum: [email, webhooks] }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Requeue one dead-lettered email or webhook delivery
+      description: Operator-only and audited. Resets its attempt counter and makes it eligible on the next worker tick.
+      responses:
+        "200": { description: Item returned to its durable queue }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /user/mfa/disable:
     post:
       summary: Disable MFA with the current password and one authenticator or recovery code

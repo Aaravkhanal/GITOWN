@@ -286,6 +286,8 @@ export function SupplyPanel({
 }) {
   const [version, setVersion] = useState(0);
   const [error, setError] = useState("");
+  const [externalStatus, setExternalStatus] = useState("");
+  const [externalCount, setExternalCount] = useState<number | null>(null);
   const graph = useData<{
     items: {
       manifest: string;
@@ -304,7 +306,14 @@ export function SupplyPanel({
     }[];
   }>(repo.can_write ? `${endpoint}/secret-findings` : null, version);
   const advisories = useData<{
-    items: { code: string; severity: string; summary: string; state: string }[];
+    items: {
+      code: string;
+      severity: string;
+      summary: string;
+      state: string;
+      source: string;
+      source_url: string;
+    }[];
   }>(`${endpoint}/advisories`, version);
   const alerts = useData<{
     items: {
@@ -342,7 +351,12 @@ export function SupplyPanel({
           onClick={async () => {
             setError("");
             try {
-              await post(`${endpoint}/supply-chain/scan`, {});
+              const result = await post<{
+                external_advisories: number;
+                external_advisory_status: string;
+              }>(`${endpoint}/supply-chain/scan`, {});
+              setExternalStatus(result.external_advisory_status);
+              setExternalCount(result.external_advisories);
               setVersion((v) => v + 1);
             } catch (scanError) {
               setError((scanError as Error).message);
@@ -351,6 +365,15 @@ export function SupplyPanel({
         >
           Scan default branch
         </button>
+      )}
+      {externalStatus && (
+        <p className="muted small-text">
+          External advisory feed: {externalStatus}
+          {externalCount !== null && externalStatus === "ok"
+            ? ` · ${externalCount} OSV record(s) refreshed`
+            : ""}
+          .
+        </p>
       )}
       <h3>Dependency graph</h3>
       {graph.data?.items.length ? (
@@ -373,6 +396,15 @@ export function SupplyPanel({
       {advisories.data?.items.map((item) => (
         <p key={item.code}>
           {item.code} · {item.severity} · {item.state} — {item.summary}
+          {item.source_url && (
+            <>
+              {" "}
+              ·{" "}
+              <a href={item.source_url} target="_blank" rel="noreferrer">
+                {item.source || "source"}
+              </a>
+            </>
+          )}
         </p>
       ))}
       {repo.can_maintain && !repo.archived && (

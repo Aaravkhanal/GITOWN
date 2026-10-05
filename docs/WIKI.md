@@ -8,4 +8,6 @@ Pages use lowercase slugs of letters, numbers, and hyphens, up to 80 characters.
 
 `GET /api/v1/repos/{owner}/{repo}/wiki-search?q=` runs a fixed-string `git grep` over `.gitown/wiki` on the default branch and returns the slug, line number, and matching text. The query is at most 80 characters and cannot start with `-`.
 
-This preview has no image uploads, attachments, redirects, page-level permissions, or custom domains. Those remain part of the Phase 12 gate. Repository backup/export already includes wiki pages because they are Git files.
+Attachments are Git files at `.gitown/wiki/attachments/<slug>/<filename>` and are included in clone, history, backup, and export. Browser uploads are limited to 512 KiB (the Git store's per-blob safety limit) and PNG, JPEG, GIF, WebP, or PDF with a matching extension. SVG, HTML, and arbitrary downloads are deliberately rejected; served assets use content sniffing, `nosniff`, and a restrictive content security policy. Writers upload against the branch head they have loaded, so a concurrent edit is rejected rather than overwritten. Readers inherit repository visibility. Existing attachment files in Git are only served if their bytes match one of the allowed types.
+
+Attachments currently appear as a list below the page rather than being embedded by Markdown syntax. Redirects, page-level permissions, and custom domains are not supported. Repository backup/export includes wiki attachments because they are Git files.

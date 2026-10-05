@@ -1,0 +1,69 @@
+groups:
+  - name: gitown-availability
+    rules:
+      - alert: GITOWNAPIDown
+        expr: up{job="gitown"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: GITOWN API metrics endpoint is unavailable
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNQueueMetricsUnavailable
+        expr: gitown_queue_metrics_available == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: GITOWN cannot read durable queue metrics from PostgreSQL
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNHighAPI5xxRate
+        expr: sum(rate(gitown_http_responses_total{status_class="5xx"}[5m])) / clamp_min(sum(rate(gitown_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5% of GITOWN API responses are server errors
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+  - name: gitown-workers
+    rules:
+      - alert: GITOWNEmailDeadLetters
+        expr: gitown_queue_items{queue="email",status="failed"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Failed email deliveries need operator review
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNWebhookDeadLetters
+        expr: gitown_queue_items{queue="webhooks",status="failed"} > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Failed webhook deliveries need operator review
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNEmailQueueStalled
+        expr: gitown_queue_oldest_pending_seconds{queue="email"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Email outbox work is waiting unusually long
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNWebhookQueueStalled
+        expr: gitown_queue_oldest_pending_seconds{queue="webhooks"} > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Webhook delivery work is waiting unusually long
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNBackgroundWorkerErrors
+        expr: increase(gitown_worker_errors_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: A GITOWN background worker is failing
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md

@@ -50,9 +50,11 @@ func (a *App) startMaintenanceSweep(ctx context.Context) {
 			case <-ticker.C:
 			}
 			if err := a.sweepMaintenance(ctx); err != nil && ctx.Err() == nil {
+				a.workers.maintenanceFail.Add(1)
 				slog.Error("repository maintenance sweep failed", "error", err)
 			}
 			if err := a.sweepAuthAbuse(ctx); err != nil && ctx.Err() == nil {
+				a.workers.authCleanupFail.Add(1)
 				slog.Error("authentication abuse cleanup failed", "error", err)
 			}
 		}
@@ -93,6 +95,7 @@ func (a *App) sweepMaintenance(ctx context.Context) error {
 			return nil
 		}
 		if err = a.runMaintenance(ctx, &due[i]); err != nil {
+			a.workers.maintenanceFail.Add(1)
 			slog.Error("repository maintenance failed", "repository", due[i].Owner+"/"+due[i].Name, "error", err)
 		}
 	}

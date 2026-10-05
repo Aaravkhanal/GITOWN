@@ -1169,9 +1169,11 @@ func (a *App) startRoutesWorker(ctx context.Context) {
 			case <-ticker.C:
 			}
 			if err := a.fireDueRouteSchedules(ctx); err != nil && ctx.Err() == nil {
+				a.workers.routeScheduleFail.Add(1)
 				slog.Error("route schedule tick failed", "error", err)
 			}
 			if err := a.expireStaleRouteRuns(ctx); err != nil && ctx.Err() == nil {
+				a.workers.routeExpiryFail.Add(1)
 				slog.Error("route expiry sweep failed", "error", err)
 			}
 		}
@@ -1232,7 +1234,10 @@ func (a *App) fireDueRouteSchedules(ctx context.Context) error {
 			continue
 		}
 		if err := a.createRouteRun(ctx, repo, d.path, file, load, repo.DefaultBranch, sha, "schedule", "", "scheduled run"); err != nil {
+			a.workers.routeScheduleFail.Add(1)
 			slog.Error("scheduled route run failed", "error", err, "path", d.path)
+		} else {
+			a.workers.routeScheduleRuns.Add(1)
 		}
 	}
 	return nil

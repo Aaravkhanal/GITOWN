@@ -1,0 +1,129 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API requests / second",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(gitown_http_requests_total[5m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "API 5xx / second",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(gitown_http_responses_total{status_class=\"5xx\"}[5m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Requests in flight",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "gitown_http_requests_in_flight", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Database metrics available",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "gitown_queue_metrics_available", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Durable queue items",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "expr": "gitown_queue_items",
+          "legendFormat": "{{queue}} / {{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest waiting item (seconds)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "expr": "gitown_queue_oldest_pending_seconds",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker outcomes since process start",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "gitown_worker_attempts_total",
+          "legendFormat": "{{queue}} / {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Recovered worker claims",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "gitown_worker_recovered_claims_total",
+          "legendFormat": "claims recovered",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Routes ready plans (not execution)",
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 23 },
+      "description": "Ready means policy/dependencies allow a future reviewed executor to pick up the plan. No workflow command runs.",
+      "targets": [
+        {
+          "expr": "gitown_queue_items{queue=\"route_jobs\",status=\"ready\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Routes expired plans",
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 23 },
+      "description": "Planning records only; expired does not describe a workflow execution failure.",
+      "targets": [
+        {
+          "expr": "gitown_queue_items{queue=\"routes\",status=\"expired\"}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Background worker errors",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "gitown_worker_errors_total",
+          "legendFormat": "{{worker}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["gitown", "operations"],
+  "time": { "from": "now-6h", "to": "now" },
+  "title": "GITOWN Operations",
+  "uid": "gitown-operations",
+  "version": 1
+}

@@ -18,9 +18,11 @@ This audit checks the nine capability groups requested against the shipped produ
 
 ## Implementation plan
 
+Phase 11 now includes process-local worker outcome counters, PostgreSQL-backed queue gauges, W3C trace-context/log-span correlation, provisionable Prometheus/Grafana assets, dead-letter inspection and audited retry APIs, two-minute claim leases with crash recovery, and an operator runbook. Central OTLP spans/dependency instrumentation, alert delivery setup, and production deployment verification remain open.
+
 1. Phase 2 repository workflows are shipped for the documented alpha scope: public HTTPS import, Git bundle export, tags UI, operator dry-run and recoverable storage quarantine, and signed CLI releases with shell completions. Embedded sshd was explicitly deferred; see [Repository operations](REPOSITORY_OPERATIONS.md). Binary browser editing and multipart LFS remain unsupported.
 2. Account-security implementation is shipped. Verify real SMTP delivery, configure `GITOWN_OPERATORS`, test recovery procedures, and tune shared IP/account thresholds before enabling verified-email enforcement in production.
-3. Add observability and operations foundations: structured request/job metrics, traces, health/readiness probes, dashboards and alerts; worker retry/dead-letter visibility; runbooks; scheduled cleanup; automated backup restore proof.
+3. Complete observability rollout in deployment: central OTLP spans/dependency instrumentation, configured alert delivery, retention controls, scheduled cleanup, and automated backup restore proof.
 4. Harden for public beta: isolate Git and workflow processes, enforce quotas at the OS/process boundary, add abuse controls and rate limits, prove webhook/event durability, run load/soak and failure tests, and obtain an independent security review before accepting untrusted public workloads.
 5. Keep the roadmap honest: Routes remains planning-only until sandbox review signs off on immutable checkout, ephemeral credentials, redaction, process/network isolation, live resource caps and process-tree cancellation. Treat embedded sshd, advanced Git hosting, high availability and enterprise identity as separately scoped follow-up work.
 

@@ -12,7 +12,7 @@ A Unite request may name `head_owner` and `head_repository` when that repository
 
 ## Wiki and Town Hall
 
-Wiki pages remain Git files. Search is `GET .../wiki-search?q=`. Town Hall is `GET` and `POST .../discussions`, with comments and an open or closed state. Commenting requires a signed-in user who can see the repository.
+Wiki pages remain Git files. Search is `GET .../wiki-search?q=`. Supported PNG, JPEG, GIF, WebP, and PDF attachments are committed under `.gitown/wiki/attachments/` with a 512 KiB per-blob ceiling, matching the Git object limit. The API verifies bytes and serves only the allowlisted types with restrictive headers. Town Hall is `GET` and `POST .../discussions`, with comments and an open or closed state. Commenting requires a signed-in user who can see the repository.
 
 ## Showcase
 
@@ -40,7 +40,7 @@ A scan reads the default branch locally:
 
 Secret findings match a fixed marker list, the same family used for package publishes. The stored record is the path, line number, marker name, and commit SHA. The line itself is not stored. Repository write permission is required to list findings.
 
-A maintainer can publish a `GOWN-` advisory for a package in the `go`, `npm`, or `pypi` ecosystem. A scan opens at most five issues when a published advisory's package matches an edge and the patched version differs. The issue is a note. It does not change a file and it does not contact an external advisory service. Alerts can be dismissed.
+A maintainer can publish a `GOWN-` advisory for a package in the `go`, `npm`, or `pypi` ecosystem. A scan opens at most five issues when a published advisory's package matches an edge and the patched version differs. The issue is a note. It does not change a file. Optional OSV lookups are disabled unless `GITOWN_OSV_ENABLED=true`; when enabled they send exact package names and versions to api.osv.dev and upsert linked advisory snapshots and vulnerability alerts. Range-style versions are skipped, and the status reports whether lookups were disabled or unavailable. Review [Phase 12 ecosystem decisions](PHASE12_ECOSYSTEM.md) before enabling it on private repositories. Alerts can be dismissed.
 
 `.gitown/CODEOWNERS`, or `CODEOWNERS` at the repository root, requests reviewers on a new Unite request. The last matching pattern wins. Patterns are `*`, a directory prefix, `/**`, or an exact path. Reviewers must be the owner or a write or maintain member, and the author is excluded.
 
@@ -50,7 +50,7 @@ A maintainer can publish a `GOWN-` advisory for a package in the `go`, `npm`, or
 
 ## Mobile notifications and pledges
 
-`POST /api/v1/user/devices` returns a `mob_` token once. `GET /api/v1/mobile/feed` with that token returns unread inbox rows. Delivery is pull. GITOWN does not send a push through Apple or Google.
+`POST /api/v1/user/devices` returns a `mob_` token once. `GET /api/v1/mobile/feed` with that token returns unread inbox rows. Delivery is pull. These tokens are not APNs, FCM, or Web Push subscriptions; actual provider delivery is not yet implemented. The provider and credentials decision is scoped in [Phase 12 ecosystem decisions](PHASE12_ECOSYSTEM.md).
 
 `POST /api/v1/users/{username}/sponsorships` records a pledge of 0 to 100,000,000 cents. The response includes `charges: false`. There is no card charge. A builder cannot pledge to their own account.
 

@@ -26,6 +26,9 @@ type Config struct {
 	SMTPUser       string
 	SMTPPassword   string
 	DigestInterval time.Duration
+	// OSV lookups send dependency names and versions to api.osv.dev. Keep this
+	// opt-in so private repository metadata is never shared by surprise.
+	OSVEnabled     bool
 	TrustedProxies []net.IPNet
 }
 
@@ -35,6 +38,7 @@ func Load() (Config, error) {
 		return c, errors.New("DATABASE_URL is required")
 	}
 	c.SMTPAddr = strings.TrimSpace(os.Getenv("GITOWN_SMTP_ADDR"))
+	c.OSVEnabled = os.Getenv("GITOWN_OSV_ENABLED") == "true"
 	c.SMTPFrom = strings.TrimSpace(os.Getenv("GITOWN_SMTP_FROM"))
 	c.SMTPUser = os.Getenv("GITOWN_SMTP_USER")
 	c.SMTPPassword = os.Getenv("GITOWN_SMTP_PASSWORD")
