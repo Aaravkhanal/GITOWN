@@ -23,7 +23,7 @@ The branch-rule data model and settings UI, required Unite requests, approvals, 
 ### 3. Identity and account security
 
 - One-time verified email and password recovery are implemented; enforcement is opt-in with `GITOWN_REQUIRE_VERIFIED_EMAIL=true`. Configure SMTP first. Session/device management is implemented.
-- TOTP MFA with recovery codes and step-up authentication for destructive actions remain open.
+- TOTP MFA with single-use recovery codes is implemented. General step-up authentication for destructive actions remains open.
 - SSH keys, deploy keys, scoped/rotatable credentials, and security-event notifications.
 - Abuse throttles by account and IP with operator-visible decisions.
 

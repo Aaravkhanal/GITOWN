@@ -77,6 +77,7 @@ import { ProjectShowcase, UnsubscribePage } from "./showcase";
 import { DeveloperAppsPage, OAuthAuthorizePage } from "./oauth";
 import { FollowingFeed } from "./feed";
 import { SnippetsPage } from "./phase12";
+import { MFASettings } from "@/components/account-security";
 
 type Session = {
   user: User | null;
@@ -1154,6 +1155,7 @@ function AuthPage({ mode }: { mode: string }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [mfaChallenge, setMfaChallenge] = useState("");
   const [busy, setBusy] = useState(false);
   if (user)
     return (
@@ -1164,6 +1166,13 @@ function AuthPage({ mode }: { mode: string }) {
           Open workspace <ArrowRight size={16} />
         </Link>
       </div>
+    );
+  if (mfaChallenge)
+    return (
+      <MFAChallengePage
+        challenge={mfaChallenge}
+        onBack={() => setMfaChallenge("")}
+      />
     );
   return (
     <div className="auth-card">
@@ -1192,7 +1201,11 @@ function AuthPage({ mode }: { mode: string }) {
             setError("");
             const data = new FormData(e.currentTarget);
             try {
-              const result = await post<{ verification_required?: boolean }>(
+              const result = await post<{
+                verification_required?: boolean;
+                mfa_required?: boolean;
+                challenge?: string;
+              }>(
                 `/auth/${register ? "register" : "login"}`,
                 register
                   ? {
@@ -1210,6 +1223,10 @@ function AuthPage({ mode }: { mode: string }) {
                 setNotice(
                   "Check your email for a verification link. You can sign in after confirming the address.",
                 );
+                return;
+              }
+              if (result.mfa_required && result.challenge) {
+                setMfaChallenge(result.challenge);
                 return;
               }
               refresh();
@@ -1288,6 +1305,67 @@ function AuthPage({ mode }: { mode: string }) {
           {register ? "Sign in" : "Create an account"}
         </Link>
       </p>
+    </div>
+  );
+}
+
+function MFAChallengePage({
+  challenge,
+  onBack,
+}: {
+  challenge: string;
+  onBack: () => void;
+}) {
+  const { refresh } = useSession();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="auth-card">
+      <span className="auth-icon">
+        <ShieldCheck size={27} />
+      </span>
+      <div className="eyebrow">TWO-STEP SIGN-IN</div>
+      <h1>Confirm it’s you.</h1>
+      <p>
+        Enter an authenticator code or an unused recovery code to finish signing
+        in.
+      </p>
+      <ErrorMessage error={error} />
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          const data = new FormData(event.currentTarget);
+          const value = String(data.get("code") || "").trim();
+          try {
+            await post("/auth/mfa/verify", {
+              challenge,
+              ...(value.startsWith("GITOWN-")
+                ? { recovery_code: value }
+                : { code: value }),
+            });
+            refresh();
+            router.push("/");
+          } catch (verifyError) {
+            setError((verifyError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Authenticator or recovery code
+          <input name="code" autoComplete="one-time-code" autoFocus required />
+        </label>
+        <button className="button primary full-width" disabled={busy}>
+          {busy ? "Checking…" : "Finish sign in"} <ArrowRight size={16} />
+        </button>
+      </form>
+      <button className="text-button" onClick={onBack}>
+        Back to password sign in
+      </button>
     </div>
   );
 }
@@ -1982,6 +2060,7 @@ function SecurityPage() {
           </>
         )}
       </section>
+      <MFASettings />
       <form
         className="panel form-panel"
         onSubmit={async (event) => {

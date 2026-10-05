@@ -94,6 +94,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/password/reset", a.resetPassword)
 	mux.HandleFunc("POST /api/v1/auth/email/verify", a.verifyEmail)
 	mux.HandleFunc("POST /api/v1/auth/email/verification-request", a.requestEmailVerification)
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", a.verifyMFAChallenge)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", a.me)
 	mux.HandleFunc("GET /api/v1/users/{username}/profile", a.profile)
@@ -142,6 +143,10 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/v1/user/password", a.changePassword)
 	mux.HandleFunc("GET /api/v1/user/email-verification", a.emailVerificationStatus)
 	mux.HandleFunc("POST /api/v1/user/email-verification/resend", a.resendEmailVerification)
+	mux.HandleFunc("GET /api/v1/user/mfa", a.mfaSettings)
+	mux.HandleFunc("POST /api/v1/user/mfa/setup", a.setupMFA)
+	mux.HandleFunc("POST /api/v1/user/mfa/confirm", a.confirmMFA)
+	mux.HandleFunc("POST /api/v1/user/mfa/disable", a.disableMFA)
 	mux.HandleFunc("GET /api/v1/user/deleted-repositories", a.deletedRepositories)
 	mux.HandleFunc("POST /api/v1/user/deleted-repositories/{id}/restore", a.restoreRepository)
 	mux.HandleFunc("GET /api/v1/repos", a.repositories)
@@ -538,6 +543,8 @@ func sessionOnlyWrite(path string) bool {
 	case strings.HasPrefix(path, "/api/v1/user/sessions"):
 		return true
 	case strings.HasPrefix(path, "/api/v1/user/email-verification"):
+		return true
+	case strings.HasPrefix(path, "/api/v1/user/mfa"):
 		return true
 	case strings.HasPrefix(path, "/api/v1/user/oauth-apps"):
 		return true

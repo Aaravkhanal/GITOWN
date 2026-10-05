@@ -6,9 +6,9 @@ Status legend: **partial** means usable capabilities exist but the phase gate ha
 
 ## Phase 1 — Safe public accounts (partial)
 
-Shipped: registration and login, Argon2id passwords, one-time email verification with 24-hour hashed tokens, generic resend responses and a one-minute cooldown, optional sign-in enforcement through `GITOWN_REQUIRE_VERIFIED_EMAIL=true`, one-time password recovery links with hashed 30-minute tokens and generic responses, revocation of all credentials after reset, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
+Shipped: registration and login, Argon2id passwords, one-time email verification with 24-hour hashed tokens, generic resend responses and a one-minute cooldown, optional sign-in enforcement through `GITOWN_REQUIRE_VERIFIED_EMAIL=true`, one-time password recovery links with hashed 30-minute tokens and generic responses, revocation of all credentials after reset, TOTP MFA with encrypted secrets and ten single-use recovery codes, a five-minute login challenge with replay protection, signed-in device visibility, scoped personal access tokens, CSRF/origin checks, and basic login throttling.
 
-Remaining gate: TOTP MFA and recovery codes, step-up authentication for destructive actions, comprehensive security-event notifications, stronger account/IP abuse throttles, and operator-visible abuse decisions. Email flow configuration is documented in [Account security](ACCOUNT_SECURITY.md).
+Remaining gate: general step-up authentication for destructive actions, recovery-code regeneration, comprehensive security-event notifications, stronger account/IP abuse throttles, and operator-visible abuse decisions. Email and MFA configuration is documented in [Account security](ACCOUNT_SECURITY.md).
 
 ## Phase 2 — Everyday repository work (partial)
 

@@ -103,7 +103,9 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	var u User
 	var encoded string
 	var emailVerified bool
-	err := a.db.QueryRow(r.Context(), `SELECT id,username,display_name,password_hash,email_verified_at IS NOT NULL FROM users WHERE username=$1 OR email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded, &emailVerified)
+	var mfaEnabled bool
+	err := a.db.QueryRow(r.Context(), `SELECT u.id,u.username,u.display_name,u.password_hash,u.email_verified_at IS NOT NULL,COALESCE(m.enabled_at IS NOT NULL,false)
+		FROM users u LEFT JOIN user_mfa m ON m.user_id=u.id WHERE u.username=$1 OR u.email=$1`, strings.ToLower(strings.TrimSpace(in.Username))).Scan(&u.ID, &u.Username, &u.DisplayName, &encoded, &emailVerified, &mfaEnabled)
 	if err != nil {
 		encoded = a.dummyHash
 	}
@@ -114,6 +116,29 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.emailVerificationRequired() && !emailVerified {
 		fail(w, 403, "email_verification_required", "Verify your email before signing in. Request a new link from the verification page.")
+		return
+	}
+	if mfaEnabled {
+		challenge := auth.Secret("mfachallenge_")
+		tx, txErr := a.db.Begin(r.Context())
+		if txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		if _, txErr = tx.Exec(r.Context(), `DELETE FROM mfa_login_challenges WHERE user_id=$1 AND expires_at<=now()`, u.ID); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		if _, txErr = tx.Exec(r.Context(), `INSERT INTO mfa_login_challenges(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '5 minutes')`, auth.Digest(challenge), u.ID); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		if txErr = tx.Commit(r.Context()); txErr != nil {
+			serverError(w, txErr)
+			return
+		}
+		respond(w, 200, map[string]any{"mfa_required": true, "challenge": challenge})
 		return
 	}
 	if err := a.session(w, r, u); err != nil {

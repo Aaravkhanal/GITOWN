@@ -1525,6 +1525,25 @@ paths:
       responses:
         "200": { description: Generic verification response }
         "429": { $ref: "#/components/responses/Error" }
+  /auth/mfa/verify:
+    post:
+      summary: Complete a password sign-in with an authenticator or recovery code
+      description: The password login challenge expires after five minutes. Each authenticator time step and recovery code can be used once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge]
+              properties:
+                challenge: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Sign-in completed and session created }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/register:
     post:
       security: []
@@ -1564,7 +1583,18 @@ paths:
                 username: { type: string }
                 password: { type: string, maxLength: 128 }
       responses:
-        "200": { $ref: "#/components/responses/Session" }
+        "200":
+          description: Session created, or an MFA challenge returned without a session cookie
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/Session"
+                  - type: object
+                    required: [mfa_required, challenge]
+                    properties:
+                      mfa_required: { type: boolean, const: true }
+                      challenge: { type: string }
         "401": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
   /auth/logout:
@@ -1634,6 +1664,65 @@ paths:
         "200": { description: Generic verification response }
         "401": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/Error" }
+  /user/mfa:
+    get:
+      summary: Read MFA enrollment and remaining recovery-code count
+      responses:
+        "200": { description: MFA status }
+        "401": { $ref: "#/components/responses/Error" }
+  /user/mfa/setup:
+    post:
+      summary: Start encrypted TOTP setup after confirming the current password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+      responses:
+        "200":
+          { description: TOTP secret and otpauth URI, returned once for setup }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /user/mfa/confirm:
+    post:
+      summary: Verify the setup code and enable TOTP MFA
+      description: Returns ten single-use recovery codes once. Store them securely.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, code]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+      responses:
+        "200": { description: Enabled, with one-time recovery codes }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /user/mfa/disable:
+    post:
+      summary: Disable MFA with the current password and one authenticator or recovery code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                recovery_code: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: MFA disabled }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
   /user/sessions:
     get:
       summary: List up to 20 active browser sessions and identify the current one
