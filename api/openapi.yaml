@@ -1459,6 +1459,40 @@ paths:
                       - $ref: "#/components/schemas/User"
                       - type: "null"
                   signup_enabled: { type: boolean }
+  /auth/password/forgot:
+    post:
+      summary: Request a one-time password reset link
+      description: Returns the same response whether the email is registered or not. The address is rate limited and a reset link expires after 30 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        "200": { description: Generic recovery response }
+        "429": { $ref: "#/components/responses/Error" }
+  /auth/password/reset:
+    post:
+      summary: Reset a password using a one-time email token
+      description: Tokens expire after 30 minutes, are single use, and successful reset revokes every session and personal access token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token: { type: string, maxLength: 128 }
+                new_password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        "200": { description: Password changed and credentials revoked }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
   /auth/register:
     post:
       security: []

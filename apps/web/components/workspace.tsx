@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -418,6 +418,8 @@ export function Workspace({ segments }: { segments: string[] }) {
             <Loading />
           ) : authPage ? (
             <AuthPage mode={section} />
+          ) : section === "forgot-password" || section === "reset-password" ? (
+            <PasswordRecoveryPage reset={section === "reset-password"} />
           ) : section === "new" ? (
             <NewRepository />
           ) : section === "unsubscribe" ? (
@@ -1265,11 +1267,111 @@ function AuthPage({ mode }: { mode: string }) {
           </button>
         </form>
       )}
+      {!register && (
+        <p className="auth-switch">
+          <Link href="/forgot-password">Forgot your password?</Link>
+        </p>
+      )}
       <p className="auth-switch">
         {register ? "Already have a home here?" : "New around here?"}{" "}
         <Link href={register ? "/login" : "/register"}>
           {register ? "Sign in" : "Create an account"}
         </Link>
+      </p>
+    </div>
+  );
+}
+
+function PasswordRecoveryPage({ reset }: { reset: boolean }) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  return (
+    <div className="auth-card">
+      <span className="auth-icon">
+        <KeyRound size={27} />
+      </span>
+      <div className="eyebrow">ACCOUNT SECURITY</div>
+      <h1>{reset ? "Choose a new password." : "Recover your account."}</h1>
+      {message ? (
+        <div className="info-box">{message}</div>
+      ) : (
+        <>
+          <p>
+            {reset
+              ? "Use a password you have not used here before. This will sign out every active session and revoke access tokens."
+              : "Enter the email on your account. If it matches and email delivery is configured, we’ll send a one-time reset link."}
+          </p>
+          <ErrorMessage error={error} />
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setBusy(true);
+              setError("");
+              const data = new FormData(event.currentTarget);
+              try {
+                if (reset) {
+                  await post("/auth/password/reset", {
+                    token: params.get("token") || "",
+                    new_password: data.get("password"),
+                  });
+                  setMessage(
+                    "Password changed. Sign in with your new password.",
+                  );
+                  window.setTimeout(() => router.push("/login"), 1400);
+                } else {
+                  const response = await post<{ message: string }>(
+                    "/auth/password/forgot",
+                    { email: data.get("email") },
+                  );
+                  setMessage(response.message);
+                }
+              } catch (submitError) {
+                setError((submitError as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {reset ? (
+              <label>
+                New password
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  required
+                />
+              </label>
+            ) : (
+              <label>
+                Email address
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  maxLength={254}
+                  required
+                />
+              </label>
+            )}
+            <button className="button primary full-width" disabled={busy}>
+              {busy
+                ? "One moment…"
+                : reset
+                  ? "Reset password"
+                  : "Send reset link"}
+              <ArrowRight size={16} />
+            </button>
+          </form>
+        </>
+      )}
+      <p className="auth-switch">
+        <Link href="/login">Back to sign in</Link>
       </p>
     </div>
   );

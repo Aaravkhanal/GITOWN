@@ -1,12 +1,14 @@
 package app
 
 import (
+	"errors"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
+	"github.com/jackc/pgx/v5"
 )
 
 func (a *App) register(w http.ResponseWriter, r *http.Request) {
@@ -103,6 +105,146 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, map[string]any{"user": u})
+}
+
+func (a *App) requestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	if len(in.Email) > 254 {
+		in.Email = ""
+	}
+	if !a.authLimit(w, r) {
+		return
+	}
+	defer func() { <-a.passwords }()
+	var userID, email string
+	err := a.db.QueryRow(r.Context(), `SELECT id,email FROM users WHERE email=$1`, in.Email).Scan(&userID, &email)
+	if err == nil {
+		var recentlyIssued bool
+		if err = a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM password_reset_tokens WHERE user_id=$1 AND created_at>now()-interval '1 minute')`, userID).Scan(&recentlyIssued); err != nil {
+			serverError(w, err)
+			return
+		}
+		if !recentlyIssued {
+			token := auth.Secret("pwreset_")
+			tx, txErr := a.db.Begin(r.Context())
+			if txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+			defer tx.Rollback(r.Context())
+			if _, txErr = tx.Exec(r.Context(), `DELETE FROM password_reset_tokens WHERE user_id=$1`, userID); txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+			if _, txErr = tx.Exec(r.Context(), `INSERT INTO password_reset_tokens(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '30 minutes')`, auth.Digest(token), userID); txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+			link := strings.TrimRight(a.cfg.Origin, "/") + "/reset-password?token=" + token
+			body := "Use this one-time link within 30 minutes to reset your GITOWN password:\n\n" + link + "\n\nIf you did not request this, ignore this message."
+			if txErr = queueAddressMail(r.Context(), tx, email, "password_reset", "Reset your GITOWN password", body, ""); txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+			if _, txErr = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'account.password_reset_requested','self')`, userID); txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+			if txErr = tx.Commit(r.Context()); txErr != nil {
+				serverError(w, txErr)
+				return
+			}
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		serverError(w, err)
+		return
+	}
+	respond(w, 200, map[string]string{"message": "If an account matches and email delivery is configured, a reset link will be sent shortly."})
+}
+
+func (a *App) resetPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if len(in.Token) > 128 || len(in.NewPassword) < 12 || len(in.NewPassword) > 128 {
+		fail(w, 422, "validation_failed", "Use a valid reset link and a password between 12 and 128 characters.")
+		return
+	}
+	if !strings.HasPrefix(in.Token, "pwreset_") {
+		fail(w, 422, "invalid_or_expired_token", "This reset link is invalid or expired. Request a new one.")
+		return
+	}
+	if !a.authLimit(w, r) {
+		return
+	}
+	defer func() { <-a.passwords }()
+	var userID string
+	err := a.db.QueryRow(r.Context(), `SELECT user_id FROM password_reset_tokens WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now()`, auth.Digest(in.Token)).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 422, "invalid_or_expired_token", "This reset link is invalid or expired. Request a new one.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	newHash := auth.HashPassword(in.NewPassword)
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var consumedUserID, username, email string
+	err = tx.QueryRow(r.Context(), `UPDATE password_reset_tokens SET consumed_at=now() WHERE token_hash=$1 AND consumed_at IS NULL AND expires_at>now() RETURNING user_id`, auth.Digest(in.Token)).Scan(&consumedUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		fail(w, 422, "invalid_or_expired_token", "This reset link is invalid or expired. Request a new one.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if consumedUserID != userID {
+		fail(w, 422, "invalid_or_expired_token", "This reset link is invalid or expired. Request a new one.")
+		return
+	}
+	if err = tx.QueryRow(r.Context(), `UPDATE users SET password_hash=$1 WHERE id=$2 RETURNING username,email`, newHash, userID).Scan(&username, &email); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `DELETE FROM access_tokens WHERE user_id=$1`, userID); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'account.password_reset',$2)`, userID, username); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = queueAddressMail(r.Context(), tx, email, "security_notice", "Your GITOWN password was changed", "Your password was reset. All active sessions and access tokens were revoked. If this was not you, secure your email account and contact the GITOWN instance owner.", ""); err != nil {
+		serverError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		serverError(w, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: "gitown_session", Value: "", Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	respond(w, 200, map[string]bool{"ok": true})
 }
 
 type Token struct {

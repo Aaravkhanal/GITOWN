@@ -90,6 +90,8 @@ func (a *App) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/v1/auth/register", a.register)
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.HandleFunc("POST /api/v1/auth/password/forgot", a.requestPasswordReset)
+	mux.HandleFunc("POST /api/v1/auth/password/reset", a.resetPassword)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.logout)
 	mux.HandleFunc("GET /api/v1/auth/me", a.me)
 	mux.HandleFunc("GET /api/v1/users/{username}/profile", a.profile)
