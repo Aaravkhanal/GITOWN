@@ -102,6 +102,7 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByRole("button", { name: "README.md File" }),
   ).toHaveCount(0);
+  page.on("dialog", (dialog) => dialog.accept("changed-test-password"));
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Description")
