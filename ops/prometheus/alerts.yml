@@ -25,6 +25,14 @@ groups:
         annotations:
           summary: More than 5% of GITOWN API responses are server errors
           runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
+      - alert: GITOWNHighAPIp95Latency
+        expr: histogram_quantile(0.95, sum by (le) (rate(gitown_http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: GITOWN API p95 latency is above the starter 1-second threshold
+          runbook_url: https://github.com/Aaravkhanal/GITOWN/blob/main/docs/OPERATIONS.md
   - name: gitown-workers
     rules:
       - alert: GITOWNEmailDeadLetters

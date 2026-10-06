@@ -7,6 +7,7 @@ GITOWN ships process-local request/worker counters, durable queue gauges from Po
 - `GET /livez` confirms the process can answer requests. It does not depend on PostgreSQL; restart only when this probe fails.
 - `GET /readyz` checks PostgreSQL with a one-second deadline. Remove an instance from service when readiness fails; do not use it as a restart signal.
 - `GET /metrics` emits Prometheus text for API requests/status/duration/in-flight work, email and webhook worker outcomes, maintenance/cleanup/Routes worker errors, recovered worker claims, Routes schedule-planning outcomes, durable queue counts by fixed queue/status, and oldest waiting age. Queue metric collection is bounded to one second. It reports `gitown_queue_metrics_available 0` if PostgreSQL cannot be queried.
+- Request duration includes a fixed-bucket Prometheus histogram for aggregate p50/p95/p99 estimates. Buckets are process-local and intentionally have no path or user labels. The starter p95 alert is a 1-second warning threshold, not a measured or approved product SLO; tune it only after representative deployment load tests.
 
 Queue names/statuses are fixed and contain no user-controlled labels. Counts include failed dead letters and active `sending` claims. `route_jobs{status="ready"}` means a future reviewed executor may be allowed to claim a plan; it is not running or eligible for execution today. Metrics counters reset on process restart and are not aggregated across replicas; the durable queue gauges come from PostgreSQL and are shared.
 

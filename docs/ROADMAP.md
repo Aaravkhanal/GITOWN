@@ -36,8 +36,8 @@ SSH transport with forced commands and identical branch policy enforcement, repo
 Durable outbox for exact ref changes and collaboration events, and signed webhooks (repository- and district-scoped, HMAC-signed, SSRF-guarded against private/loopback targets and re-checked on every delivery to resist DNS rebinding) with delivery history, retries, and replay all shipped in phase 10. OAuth applications (a real authorization-code flow with exact `redirect_uri` matching and immediate revocation), GITOWN Apps (installed per-repository with their own bot identity, a bounded simplification of a full app-identity model — see [PRODUCT_PHASES.md](PRODUCT_PHASES.md)), and Slack/Discord targets on the same webhook delivery path also shipped in phase 10. Secret rotation is a regenerate, not a scheduled rotation policy. GITOWN App installation is repository-scoped only; district-wide installation is not built. Still open in this section:
 
 - Centralized OpenTelemetry/OTLP spans, dependency-level tracing, deployment alert routing, retention controls, and production verification of the supplied Prometheus/Grafana starter assets.
-- Online backup coordination and automated restore drills; maintenance exists but scheduled permanent purge is not built.
-- Hardened process isolation, independent security review, load/soak/chaos tests, and deployment verification.
+- Online backup coordination; CI backup/restore tests and an isolated application-drill verifier exist, but production-environment recovery objectives and evidence remain open. Maintenance exists but scheduled permanent purge is not built.
+- Hardened process isolation, independent security review, representative multi-instance load/soak/failure tests, alert delivery, and production deployment verification.
 
 ### 6. Product ecosystem
 

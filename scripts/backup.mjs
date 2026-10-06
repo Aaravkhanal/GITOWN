@@ -110,6 +110,21 @@ async function main() {
         (await digest(join(snapshot, "metadata.dump")))
     )
       throw new Error("Snapshot metadata checksum does not match.");
+    const snapshotStorage = join(snapshot, "repositories");
+    await access(snapshotStorage);
+    // Validate the custom archive and every bare repository before touching
+    // the selected recovery targets. A broken snapshot must fail closed.
+    run("pg_restore", ["--list", join(snapshot, "metadata.dump")]);
+    for (const entry of await readdir(snapshotStorage, {
+      withFileTypes: true,
+    })) {
+      if (entry.isDirectory() && entry.name.endsWith(".git"))
+        run("git", [
+          "--git-dir=" + join(snapshotStorage, entry.name),
+          "fsck",
+          "--full",
+        ]);
+    }
     if (await exists(storage))
       throw new Error(
         "Restore requires a new repository directory. Existing storage is never overwritten.",
@@ -125,20 +140,12 @@ async function main() {
       throw new Error(
         "Restore requires an empty dedicated database. Existing tables are never overwritten.",
       );
-    await cp(join(snapshot, "repositories"), storage, {
+    await cp(snapshotStorage, storage, {
       recursive: true,
       errorOnExist: true,
       force: false,
     });
     await chmod(storage, 0o700);
-    for (const entry of await readdir(storage, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.endsWith(".git"))
-        run("git", [
-          "--git-dir=" + join(storage, entry.name),
-          "fsck",
-          "--full",
-        ]);
-    }
     run("pg_restore", [
       "--dbname=" + database,
       "--no-owner",

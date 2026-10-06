@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -33,6 +34,9 @@ type App struct {
 	// mailer delivers rendered email; nil means SMTP is not configured and
 	// queued mail is recorded as suppressed rather than sent.
 	mailer func(context.Context, outgoingMail) error
+	// smtpDial is injectable so the SMTP protocol test can use net.Pipe and
+	// run under sandboxes that prohibit loopback listeners.
+	smtpDial func(context.Context, string) (net.Conn, error)
 	// webhookClient sends webhook deliveries. New() always sets this to a
 	// client whose dialer refuses private/loopback addresses; tests swap it
 	// for one pointed at a local receiver rather than weakening that dialer.
@@ -42,11 +46,14 @@ type App struct {
 }
 
 type httpMetrics struct {
-	requests atomic.Uint64
-	duration atomic.Uint64
-	inFlight atomic.Int64
-	status   [6]atomic.Uint64
+	requests        atomic.Uint64
+	duration        atomic.Uint64
+	durationBuckets [10]atomic.Uint64
+	inFlight        atomic.Int64
+	status          [6]atomic.Uint64
 }
+
+var httpDurationBuckets = [10]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
 
 type metricResponseWriter struct {
 	http.ResponseWriter
@@ -79,6 +86,11 @@ func (m *httpMetrics) record(status int, elapsed time.Duration) {
 	}
 	if elapsed > 0 {
 		m.duration.Add(uint64(elapsed))
+	}
+	for index, bound := range httpDurationBuckets {
+		if elapsed.Seconds() <= bound {
+			m.durationBuckets[index].Add(1)
+		}
 	}
 }
 
@@ -685,6 +697,12 @@ func (a *App) requireUser(w http.ResponseWriter, r *http.Request) *User {
 // are hashed before use as a map key so a raw secret is never held in
 // memory outside the request that presented it.
 func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
+	return a.apiRateLimitAt(w, r, apiRateLimitPerMinute, time.Now())
+}
+
+// apiRateLimitAt isolates the decision from wall-clock time and the production
+// threshold so abuse and concurrency tests can exercise it deterministically.
+func (a *App) apiRateLimitAt(w http.ResponseWriter, r *http.Request, limit int, now time.Time) bool {
 	ip := trustedClientIP(r, a.cfg.TrustedProxies)
 	key := "ip:" + ip
 	if c, err := r.Cookie("gitown_session"); err == nil && c.Value != "" {
@@ -694,7 +712,6 @@ func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
 	}
 	a.apiRatesMu.Lock()
 	defer a.apiRatesMu.Unlock()
-	now := time.Now()
 	for k, v := range a.apiRates {
 		if now.After(v.until) {
 			delete(a.apiRates, k)
@@ -704,7 +721,7 @@ func (a *App) apiRateLimit(w http.ResponseWriter, r *http.Request) bool {
 	if v.until.IsZero() {
 		v.until = now.Add(time.Minute)
 	}
-	if v.count >= apiRateLimitPerMinute || (len(a.apiRates) >= 50000 && v.count == 0) {
+	if v.count >= limit || (len(a.apiRates) >= 50000 && v.count == 0) {
 		w.Header().Set("Retry-After", "60")
 		fail(w, 429, "rate_limited", "Too many requests. Try again in a moment.")
 		return false

@@ -377,7 +377,12 @@ func (a *App) sendSMTP(ctx context.Context, m outgoingMail) error {
 		return err
 	}
 	dialer := net.Dialer{Timeout: 15 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", a.cfg.SMTPAddr)
+	var conn net.Conn
+	if a.smtpDial != nil {
+		conn, err = a.smtpDial(ctx, a.cfg.SMTPAddr)
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", a.cfg.SMTPAddr)
+	}
 	if err != nil {
 		return err
 	}

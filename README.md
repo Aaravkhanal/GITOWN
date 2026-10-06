@@ -4,18 +4,20 @@ An independent home for your code. Built and owned by Aarav Khanal.
 
 GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): a Next.js interface, Go API, PostgreSQL metadata, and native Git repository storage. You can create an account and repository, push a branch with standard Git, open a pull request, view its diff, merge it, and pull the result back to your computer.
 
-This is a **local development alpha**, not the finished GitHub-equivalent MVP. See [implementation status](docs/STATUS.md) for the exact feature boundary.
+This is a **development alpha**, not a production-ready public forge or a finished GitHub equivalent. See [implementation status](docs/STATUS.md) for the exact feature boundary and [release gates](docs/RELEASE_GATES.md) for the evidence required before public beta.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
 Phase 2 repository imports, Git bundle exports, tag browsing, operator storage recovery, CLI installation/completions, and the SSH deployment decision are documented in [Repository operations](docs/REPOSITORY_OPERATIONS.md).
 The Routes control plane is documented in [Routes](docs/ROUTES.md). It plans runs and stores quotas, secrets, artifacts, and runner registrations. It does not execute repository-authored commands.
 Worker metrics, traces, dashboards, alert rules, queue recovery, and response guidance are documented in [Observability](docs/OBSERVABILITY.md) and the [operations runbook](docs/OPERATIONS.md).
+The public-beta [release gates](docs/RELEASE_GATES.md), [reviewer scope](docs/SECURITY_REVIEW_SCOPE.md), [threat model](docs/THREAT_MODEL.md), and [security-review closeout template](docs/SECURITY_REVIEW_FINDINGS.md) describe the independent assessment still required. The [backup/restore guide](docs/operations/backup-restore.md) includes an isolated deployment drill and evidence checklist.
 The Phase 12 [Wiki](docs/WIKI.md) stores pages as Markdown in each repository's Git history. Remixes, Town Hall, Showcase pages, snippets, supply-chain notes, the merge queue, pledges, and public forge import are described in [the ecosystem note](docs/ECOSYSTEM.md). None of those start a container, bill a card, or accept a forge credential.
 User-facing terminology follows the compatibility-first [GITOWN naming system](docs/NAMING.md).
 
 ## What works
 
 - Accounts, login/logout, Argon2id password hashes, secure password changes with optional token revocation, expiring/revocable browser sessions with device visibility, and request-origin checks.
+- Account security: optional verified email and password recovery, TOTP MFA with single-use recovery codes and regeneration, step-up checks for sensitive actions, security-event notices, database-backed IP/account throttles, and an operator abuse view. Production SMTP delivery and abuse-threshold tuning still need deployment verification.
 - Public/private repositories with optional initial README, editable descriptions/visibility, collaborator roles, safe rename/archive, 30-day deletion recovery, and real bare Git storage.
 - Personal access tokens with repository or package scopes, 30-day expiration, and revocation. Package tokens cannot push Git.
 - Standard Git clone, fetch, pull, branch/tag push over smart HTTP (HTTPS when behind TLS), including a shallow clone. User SSH keys and deploy keys work through a forced-command gateway when sshd is configured separately. The gateway trusts the fingerprint that command supplies. Git LFS batch upload, download, and path locks are included. A pack that unpacks over the repository or account quota is rolled back before the client is told it succeeded.
@@ -107,7 +109,7 @@ git switch main
 git pull --ff-only origin main
 ```
 
-This release uses merge commits. Squash/rebase methods, required reviews, permanent purge automation, and protected-branch policies beyond force-push/deletion prevention are planned.
+This release supports merge, squash, and rebase strategies, formal reviews, resolved conversations, and branch rules. Required approvals and other configured protections are enforced at merge/push time. Permanent purge automation and additional speculative merge-queue behavior remain future work.
 
 ## Docker Compose
 
@@ -119,7 +121,7 @@ docker compose up --build
 
 The frontend and API are published to loopback on ports 3000 and 8080. PostgreSQL uses 55432. The Compose volumes persist data across restarts. Stop an existing native GITOWN instance before starting Compose on the same ports.
 
-Compose is provided for local development. Docker was unavailable in the initial development environment, so container builds remain to be verified. Public deployment requires TLS and the additional controls in [SECURITY.md](SECURITY.md).
+Compose is provided for local development. CI validates the Compose configuration, but that alone does not verify built images or a production deployment. Public deployment requires TLS and the additional controls in [SECURITY.md](SECURITY.md) and [release gates](docs/RELEASE_GATES.md).
 
 ## Checks
 
@@ -128,6 +130,7 @@ make check               # Go vet + TypeScript
 make test                # Go unit tests; DB integration tests skip without TEST_DATABASE_URL
 make build              # Go executable + production frontend
 make cli                # Friendly GITOWN command-line client
+npm run test:operations # Deployment preflight + isolated backup/restore/failure checks
 
 # With the local development database running:
 TEST_DATABASE_URL='postgres://gitown@127.0.0.1:55432/gitown?sslmode=disable' make test
@@ -135,11 +138,25 @@ TEST_DATABASE_URL='postgres://gitown@127.0.0.1:55432/gitown?sslmode=disable' mak
 # Against a running, disposable GITOWN test instance:
 npx playwright install chromium
 PLAYWRIGHT_BASE_URL=http://localhost:3100 npm run test:e2e
+
+# Production config check (never prints secret values):
+node scripts/deployment-check.mjs --config
+
+# Health check after deployment (HTTPS required except loopback):
+GITOWN_DEPLOY_URL=https://gitown.example node scripts/deployment-check.mjs --health
+
+# Bounded GET-only load smoke against a disposable instance:
+GITOWN_LOAD_TEST_CONFIRM_DISPOSABLE=true \
+GITOWN_LOAD_TEST_URL=http://127.0.0.1:8181 \
+npm run load:check
+
+# After restoring into a separate deployment and logging into it:
+node scripts/restore-drill.mjs # Requires GITOWN_DRILL_* variables; isolated HTTPS only
 ```
 
 Database integration tests create and remove a randomly named schema and use temporary Git storage. They verify real Git transports, authorization failures, scoped/revoked tokens, merge conflicts/races, and a database/repository restore drill. Browser tests create test accounts and repositories in the selected instance, so use a disposable instance, not your everyday workspace.
 
-GitHub Actions runs the Go checks, production frontend build, and browser workflow. Its configured credentials are only for an ephemeral CI database.
+GitHub Actions runs checks on changes, manual dispatch, and weekly. The workflow builds both Compose images and includes PostgreSQL-backed backup/restore, deployment preflight, a bounded two-API-instance load smoke, rate-limit abuse/concurrency tests, frontend build, and browser workflows. Its database credentials are only for an ephemeral CI database. These checks are not a production-scale soak test or an independent security review. See [release gates](docs/RELEASE_GATES.md) before treating any phase as complete or opening a public beta.
 
 ## Project map
 
@@ -162,11 +179,16 @@ docs/              Decisions, status, security and operational details
 
 The initial API modules share one application package for transactional workflows. Splitting into separate services is not required to expand this implementation.
 
-## Next milestones
+## What remains
 
-1. Add email verification, password recovery, MFA, and invitation-based signup.
-2. Run the forced-command SSH gateway behind a separately configured sshd. The gateway trusts the fingerprint argument that sshd binds. Multipart LFS transfer, per-user Git rate limits, and a durable receive queue are still absent.
-3. Add a merge queue, forks, cross-repository Unite requests, and deterministic conflict resolution.
-4. Add durable Git event delivery, backups under load, repository reconciliation, observability, and operational hardening.
+The next work should reduce operational and security risk before adding more parity features:
+
+1. Commission and complete an **independent security review**; track findings through remediation and link the final report from protected deployment configuration. A review brief exists, but no review has been performed yet.
+2. Run a deployment-environment restore drill and document measured recovery time, recovery point, off-host backup encryption, and storage consistency. CI tests the backup/restore path against disposable PostgreSQL and Git storage, not the production environment.
+3. Add representative multi-instance load/soak and failure tests, tune abuse budgets and SLOs, and verify alert delivery, SMTP, proxy identity, retention, and incident response in the chosen hosting environment.
+4. Finish production observability and deployment hardening, including verified container builds, migration/rollback procedures, and operational dashboards/alerts.
+5. Only after the security and operations gates: consider the explicitly partial Phase 11/12 work—safe sandbox execution for untrusted workflows, real push-notification delivery, private-forge imports, and high availability. Keep billing and enterprise identity as separate product decisions.
+
+Phase 11 (Routes) and Phase 12 (ecosystem) remain **partial**. Routes does not execute repository-authored commands. Public beta is not approved by a green CI run; see [release gates](docs/RELEASE_GATES.md) and the [independent security-review brief](docs/SECURITY_REVIEW_SCOPE.md).
 
 The complete longer-term direction stays in [BLUEPRINT.md](BLUEPRINT.md).

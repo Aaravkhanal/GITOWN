@@ -39,6 +39,14 @@ func (a *App) metricsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# HELP gitown_http_request_duration_seconds_total Cumulative API request duration in seconds.")
 	fmt.Fprintln(w, "# TYPE gitown_http_request_duration_seconds_total counter")
 	fmt.Fprintf(w, "gitown_http_request_duration_seconds_total %.9f\n", float64(a.metrics.duration.Load())/1e9)
+	fmt.Fprintln(w, "# HELP gitown_http_request_duration_seconds API request duration in seconds.")
+	fmt.Fprintln(w, "# TYPE gitown_http_request_duration_seconds histogram")
+	for index, bound := range httpDurationBuckets {
+		fmt.Fprintf(w, "gitown_http_request_duration_seconds_bucket{le=\"%g\"} %d\n", bound, a.metrics.durationBuckets[index].Load())
+	}
+	fmt.Fprintf(w, "gitown_http_request_duration_seconds_bucket{le=\"+Inf\"} %d\n", a.metrics.requests.Load())
+	fmt.Fprintf(w, "gitown_http_request_duration_seconds_sum %.9f\n", float64(a.metrics.duration.Load())/1e9)
+	fmt.Fprintf(w, "gitown_http_request_duration_seconds_count %d\n", a.metrics.requests.Load())
 	fmt.Fprintln(w, "# HELP gitown_http_requests_in_flight Current API requests being handled by this process.")
 	fmt.Fprintln(w, "# TYPE gitown_http_requests_in_flight gauge")
 	fmt.Fprintf(w, "gitown_http_requests_in_flight %d\n", a.metrics.inFlight.Load())

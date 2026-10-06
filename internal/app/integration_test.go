@@ -94,6 +94,19 @@ func TestPlatformWorkflow(t *testing.T) {
 	if err = migrations.Apply(ctx, pool); err != nil {
 		t.Fatalf("migration is not repeatable: %v", err)
 	}
+	var migrationChecksum string
+	if err = pool.QueryRow(ctx, `SELECT checksum FROM schema_migrations WHERE version='044_migration_checksums.sql'`).Scan(&migrationChecksum); err != nil || len(migrationChecksum) != 64 {
+		t.Fatalf("migration checksum was not recorded: len=%d err=%v", len(migrationChecksum), err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE schema_migrations SET checksum='tampered' WHERE version='044_migration_checksums.sql'`); err != nil {
+		t.Fatal(err)
+	}
+	if err = migrations.Apply(ctx, pool); err == nil || !strings.Contains(err.Error(), "migration checksum mismatch") {
+		t.Fatalf("edited migration checksum should block startup, got %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE schema_migrations SET checksum=$1 WHERE version='044_migration_checksums.sql'`, migrationChecksum); err != nil {
+		t.Fatal(err)
+	}
 	storage := t.TempDir()
 	a, err := New(config.Config{DataDir: storage, Origin: "http://localhost:3000", GitURL: "http://localhost/git", Signup: true}, pool)
 	if err != nil {

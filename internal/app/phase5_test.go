@@ -74,21 +74,11 @@ func TestReadmeSectionsAndBadges(t *testing.T) {
 	}
 }
 
-// fakeSMTP accepts one message and records the transcript.
-func fakeSMTP(t *testing.T) (string, <-chan string) {
+// fakeSMTP accepts one message over an in-memory pipe and records the transcript.
+func fakeSMTP(t *testing.T) (func(context.Context, string) (net.Conn, error), <-chan string) {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
 	done := make(chan string, 1)
-	go func() {
-		defer listener.Close()
-		conn, err := listener.Accept()
-		if err != nil {
-			done <- ""
-			return
-		}
+	serve := func(conn net.Conn) {
 		defer conn.Close()
 		_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
 		reader := bufio.NewReader(conn)
@@ -124,13 +114,18 @@ func fakeSMTP(t *testing.T) (string, <-chan string) {
 			}
 		}
 		done <- transcript.String()
-	}()
-	return listener.Addr().String(), done
+	}
+	dial := func(context.Context, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		go serve(server)
+		return client, nil
+	}
+	return dial, done
 }
 
 func TestSMTPTransport(t *testing.T) {
-	addr, done := fakeSMTP(t)
-	a := &App{cfg: config.Config{Origin: "https://gitown.example", SMTPAddr: addr, SMTPFrom: "GITOWN <noreply@gitown.example>"}}
+	dial, done := fakeSMTP(t)
+	a := &App{cfg: config.Config{Origin: "https://gitown.example", SMTPAddr: "smtp.example.test:587", SMTPFrom: "GITOWN <noreply@gitown.example>"}, smtpDial: dial}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := a.sendSMTP(ctx, outgoingMail{To: "person@example.test", Subject: "Hello", Body: "Body text", MessageID: "m1"}); err != nil {
