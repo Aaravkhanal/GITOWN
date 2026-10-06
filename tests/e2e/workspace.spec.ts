@@ -480,7 +480,9 @@ test("account security, project collaboration, Git transport, and responsive nav
   await page
     .getByRole("button", { name: "New unite request", exact: true })
     .click();
-  await page.getByLabel("Title", { exact: true }).fill("Add a welcome message");
+  await page
+    .getByPlaceholder("What does this change do?")
+    .fill("Add a welcome message");
   await page
     .getByRole("button", { name: "Create unite request", exact: true })
     .click();
