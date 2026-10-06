@@ -159,6 +159,7 @@ func TestPlatformWorkflow(t *testing.T) {
 	ownerSecond.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "owner-long-password"}, 401, nil)
 	ownerSecond.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "updated-owner-password"}, 200, nil)
 	anon.request("POST", "/auth/login", map[string]string{"username": "owner", "password": "incorrect-password"}, 401, nil)
+	owner.request("POST", "/user/step-up", map[string]string{"current_password": "updated-owner-password"}, 200, nil)
 	var repo Repository
 	owner.request("POST", "/repos", map[string]any{"name": "project", "description": "Integration repository", "visibility": "private", "readme": true}, 201, &repo)
 	owner.request("POST", "/repos", map[string]any{"name": "project", "visibility": "private"}, 409, nil)

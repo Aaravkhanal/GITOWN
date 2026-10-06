@@ -530,13 +530,19 @@ func (a *App) Handler() http.Handler {
 			oauthTokenExchange := r.Method == "POST" && r.URL.Path == "/api/v1/oauth/token"
 			runnerHeartbeat := r.Method == "POST" && r.URL.Path == "/api/v1/routes/runners/heartbeat"
 			bearerRepoWrite := false
-			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange && !runnerHeartbeat {
+			packageBearerWrite := r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" &&
+				(strings.HasPrefix(r.URL.Path, "/api/v1/crates") || strings.HasPrefix(r.URL.Path, "/api/v1/npm/") || strings.HasPrefix(r.URL.Path, "/api/v1/v2/")) &&
+				strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange && !runnerHeartbeat && !packageBearerWrite {
 				if allowed, done := a.allowBearerWrite(w, r); done {
 					return
 				} else {
 					bearerRepoWrite = allowed
 				}
 			}
+			// Package protocol routes authorize bearer tokens against their
+			// package-specific scope in packageUser, not repo:write here.
+			bearerRepoWrite = bearerRepoWrite || packageBearerWrite
 			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" && !oneClick && !oauthTokenExchange && !runnerHeartbeat {
 				if !bearerRepoWrite && r.Header.Get("Origin") != a.cfg.Origin && !isTokenStatusRequest(r) {
 					fail(w, 403, "origin_rejected", "Request origin is not allowed.")
