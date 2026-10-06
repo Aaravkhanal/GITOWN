@@ -102,7 +102,15 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(
     page.getByRole("button", { name: "README.md File" }),
   ).toHaveCount(0);
-  page.on("dialog", (dialog) => dialog.accept("changed-test-password"));
+  page.on("dialog", (dialog) => {
+    const response =
+      dialog.type() !== "prompt"
+        ? undefined
+        : /password/i.test(dialog.message())
+          ? "changed-test-password"
+          : "renamed-project";
+    void dialog.accept(response);
+  });
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Description")
@@ -516,7 +524,6 @@ test("account security, project collaboration, Git transport, and responsive nav
   await expect(page.locator(".diff-panel")).toContainText(
     "A real Git branch, merged from the browser.",
   );
-  page.once("dialog", (dialog) => dialog.accept());
   await page
     .getByRole("button", { name: "Merge unite request", exact: true })
     .click();
@@ -530,7 +537,6 @@ test("account security, project collaboration, Git transport, and responsive nav
   git(["switch", "main"], work);
   git(["pull", "--ff-only", "origin", "main"], work);
   await page.getByRole("link", { name: "Access tokens", exact: true }).click();
-  page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Revoke", exact: true }).click();
   await expect(
     page.getByText("No access tokens yet.", { exact: false }),
@@ -566,7 +572,6 @@ test("account security, project collaboration, Git transport, and responsive nav
     }),
   ).toHaveCount(0);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
-  page.once("dialog", (dialog) => dialog.accept("renamed-project"));
   await page
     .getByRole("button", { name: "Delete repository", exact: true })
     .click();
