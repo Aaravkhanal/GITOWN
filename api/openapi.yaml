@@ -2780,6 +2780,35 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/binary:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    put:
+      summary: Upload a small binary file as a Git commit
+      description: Requires repository write access. The expected head prevents overwriting concurrent changes. Maximum decoded blob size is 512 KiB. Text and active content are rejected; larger files should use Git or Git LFS.
+      parameters: [{ $ref: "#/components/parameters/Origin" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch, path, content_base64, message, expected_head]
+              properties:
+                branch: { type: string }
+                path: { type: string, maxLength: 4096 }
+                content_base64:
+                  { type: string, maxLength: 700000, contentEncoding: base64 }
+                message: { type: string, maxLength: 200 }
+                expected_head: { type: string, minLength: 40, maxLength: 40 }
+      responses:
+        "201": { description: Binary file committed }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
     delete:
       summary: Delete a file with an atomic Git commit
       description: Requires repository write access. The expected branch head prevents deletion after a concurrent push.

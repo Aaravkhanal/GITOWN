@@ -190,6 +190,27 @@ func TestPlatformWorkflow(t *testing.T) {
 	owner.request("GET", "/repos/owner/project/tree?ref=main&path=docs%2Fbrowser.md", nil, 200, nil)
 	owner.request("GET", "/repos/owner/project/raw?ref=main&path=docs%2Fbrowser.md", nil, 200, nil)
 	anon.request("GET", "/repos/owner/project/raw?ref=main&path=docs%2Fbrowser.md", nil, 404, nil)
+	binaryPNG := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+	var binaryCommit struct {
+		SHA string `json:"sha"`
+	}
+	owner.request("PUT", "/repos/owner/project/binary", map[string]string{
+		"branch": "main", "path": "assets/tiny.png", "content_base64": base64.StdEncoding.EncodeToString(binaryPNG), "message": "Add tiny binary", "expected_head": webCommit.SHA,
+	}, 201, &binaryCommit)
+	if binaryCommit.SHA == "" || binaryCommit.SHA == webCommit.SHA {
+		t.Fatalf("binary browser upload did not advance main: %+v", binaryCommit)
+	}
+	binaryBlob, err := a.git.Blob(ctx, repo.ID, "main", "assets/tiny.png")
+	if err != nil || !bytes.Equal(binaryBlob, binaryPNG) {
+		t.Fatalf("binary upload bytes mismatch: %x, err=%v", binaryBlob, err)
+	}
+	webCommit.SHA = binaryCommit.SHA
+	other.request("PUT", "/repos/owner/project/binary", map[string]string{
+		"branch": "main", "path": "assets/other.png", "content_base64": base64.StdEncoding.EncodeToString(binaryPNG), "message": "Unauthorized", "expected_head": binaryCommit.SHA,
+	}, 403, nil)
+	owner.request("PUT", "/repos/owner/project/binary", map[string]string{
+		"branch": "main", "path": "assets/active.html", "content_base64": base64.StdEncoding.EncodeToString([]byte("<script>alert(1)</script>")), "message": "Active content", "expected_head": binaryCommit.SHA,
+	}, 422, nil)
 	var fileHistory []gitstore.Commit
 	owner.request("GET", "/repos/owner/project/commits?ref=main&path=docs%2Fbrowser.md", nil, 200, &fileHistory)
 	if len(fileHistory) != 1 || fileHistory[0].Message != "Add browser guide" {

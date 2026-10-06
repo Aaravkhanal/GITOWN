@@ -939,14 +939,55 @@ function CodeBrowser({
                         event.target.value = "";
                         if (!file) return;
                         if (file.size > 524288) {
-                          setEditError("Upload a text file up to 512 KiB.");
+                          setEditError(
+                            "Browser uploads are limited to 512 KiB. Use Git or Git LFS for larger files.",
+                          );
                           return;
                         }
                         const text = await file.text();
-                        if (text.includes("\u0000")) {
-                          setEditError(
-                            "Binary uploads are not accepted in the browser. Use Git for that file.",
+                        const looksBinary =
+                          !!file.type &&
+                          !file.type.startsWith("text/") &&
+                          ![
+                            "application/json",
+                            "application/xml",
+                            "application/javascript",
+                          ].includes(file.type);
+                        if (text.includes("\u0000") || looksBinary) {
+                          const message = window.prompt(
+                            `Commit ${file.name} to ${branch}:`,
+                            `Upload ${file.name}`,
                           );
+                          if (!message?.trim()) return;
+                          try {
+                            const bytes = new Uint8Array(
+                              await file.arrayBuffer(),
+                            );
+                            let binary = "";
+                            for (
+                              let offset = 0;
+                              offset < bytes.length;
+                              offset += 32768
+                            ) {
+                              binary += String.fromCharCode(
+                                ...bytes.subarray(offset, offset + 32768),
+                              );
+                            }
+                            await api(`${endpoint}/binary`, {
+                              method: "PUT",
+                              body: JSON.stringify({
+                                branch,
+                                path: (path ? path + "/" : "") + file.name,
+                                content_base64: btoa(binary),
+                                message: message.trim(),
+                                expected_head: tree.data?.sha,
+                              }),
+                            });
+                            setEditError("");
+                            setVersion((value) => value + 1);
+                          } catch (error) {
+                            setEditError((error as Error).message);
+                          }
                           return;
                         }
                         setOriginalPath("");

@@ -292,6 +292,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/blame", a.blame)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/compare", a.compareRefs)
 	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/contents", a.updateContent)
+	mux.HandleFunc("PUT /api/v1/repos/{owner}/{repo}/binary", a.uploadBinaryContent)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/contents", a.deleteContent)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/commits", a.commits)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/commits/{sha}/statuses", a.commitStatuses)

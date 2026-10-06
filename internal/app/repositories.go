@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"mime"
 	"net/http"
@@ -651,12 +652,21 @@ func (a *App) raw(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	contentType := mime.TypeByExtension(filepath.Ext(path))
-	if contentType == "" {
-		contentType = http.DetectContentType(content)
+	// Derive the media type from bytes, never the user-controlled filename.
+	// Only plain text and passive raster images are eligible for inline view;
+	// HTML, SVG, PDF, and unknown formats are downloaded with nosniff.
+	contentType := http.DetectContentType(content)
+	inline := contentType == "text/plain; charset=utf-8" || contentType == "image/png" || contentType == "image/jpeg" || contentType == "image/gif" || contentType == "image/webp"
+	if !inline {
+		contentType = "application/octet-stream"
 	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", `inline; filename="`+strings.ReplaceAll(filepath.Base(path), `"`, "")+`"`)
+	disposition := "attachment"
+	if inline {
+		disposition = "inline"
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(path)}))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
 }
@@ -711,6 +721,64 @@ func (a *App) updateContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_commit',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
 	a.finishReceive(r.Context(), repo, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
 	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path})
+}
+
+// uploadBinaryContent stores small binary assets as ordinary Git blobs. It
+// intentionally shares the browser-commit protection and optimistic-head
+// checks with text editing; larger assets belong in Git/LFS clients.
+func (a *App) uploadBinaryContent(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, true)
+	if repo == nil {
+		return
+	}
+	u := a.user(r)
+	r.Body = http.MaxBytesReader(w, r.Body, (gitstore.MaxBlob*4/3)+8192)
+	var in struct {
+		Branch       string `json:"branch"`
+		Path         string `json:"path"`
+		Content      string `json:"content_base64"`
+		Message      string `json:"message"`
+		ExpectedHead string `json:"expected_head"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Branch = strings.TrimSpace(in.Branch)
+	in.Path = strings.TrimSpace(in.Path)
+	in.Message = strings.TrimSpace(in.Message)
+	if in.Branch == "" || in.Path == "" || in.Message == "" || len(in.Message) > 200 || len(in.ExpectedHead) != 40 {
+		fail(w, 422, "validation_failed", "Provide a branch, file path, expected head SHA, and a commit message up to 200 characters.")
+		return
+	}
+	content, err := base64.StdEncoding.DecodeString(in.Content)
+	if err != nil || len(content) == 0 || len(content) > gitstore.MaxBlob {
+		fail(w, 413, "upload_too_large", "Binary browser uploads must be between 1 byte and 512 KiB.")
+		return
+	}
+	contentType := http.DetectContentType(content)
+	if strings.HasPrefix(contentType, "text/") || strings.Contains(contentType, "xml") || strings.Contains(contentType, "svg") {
+		fail(w, 422, "unsupported_content", "This looks like text or active content. Use the text editor or Git client instead.")
+		return
+	}
+	if !a.allowBrowserBranchEdit(w, r, repo.ID, in.Branch, repo.Role) {
+		return
+	}
+	sha, err := a.git.CommitFile(r.Context(), repo.ID, in.Branch, in.Path, content, in.Message, u.DisplayName, u.Username+"@users.gitown.local", in.ExpectedHead)
+	if errors.Is(err, gitstore.ErrConflict) {
+		fail(w, 409, "branch_changed", "The branch changed during upload. Refresh and try again.")
+		return
+	}
+	if errors.Is(err, gitstore.ErrNotFound) {
+		fail(w, 422, "invalid_path_or_branch", "The branch or file path is invalid.")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	_, _ = a.db.Exec(r.Context(), `INSERT INTO audit_events(actor_id,action,target) VALUES($1,'repository.web_binary_upload',$2)`, u.ID, repo.Owner+"/"+repo.Name+":"+in.Branch+":"+in.Path+":"+sha)
+	a.finishReceive(r.Context(), repo, u.ID, []refUpdate{{Old: in.ExpectedHead, New: sha, Ref: "refs/heads/" + in.Branch}}, "api")
+	respond(w, 201, map[string]string{"sha": sha, "branch": in.Branch, "path": in.Path, "content_type": contentType})
 }
 
 func (a *App) deleteContent(w http.ResponseWriter, r *http.Request) {

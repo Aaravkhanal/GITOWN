@@ -680,6 +680,12 @@ function DistrictMembers({
                   <button
                     className="text-button"
                     onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Remove ${member.username} from ${slug}? Their district-derived repository access will end immediately.`,
+                        )
+                      )
+                        return;
                       setError("");
                       try {
                         await remove(
@@ -752,6 +758,12 @@ function DistrictCrews({
                   <button
                     className="text-button"
                     onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Delete crew ${crew.name}? Its members will lose crew-based access, and any branch rule that requires this crew must be updated first.`,
+                        )
+                      )
+                        return;
                       setError("");
                       try {
                         await remove(
@@ -825,6 +837,12 @@ function CrewMembers({
                   <button
                     className="text-button"
                     onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Remove ${member.username} from crew ${crew}?`,
+                        )
+                      )
+                        return;
                       setError("");
                       try {
                         await remove(
