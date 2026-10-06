@@ -1,0 +1,8 @@
+{$GITOWN_DOMAIN} {
+	tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem
+
+	@api path /git /git/* /livez /readyz /healthz
+	reverse_proxy @api api:8080
+
+	reverse_proxy web:3000
+}

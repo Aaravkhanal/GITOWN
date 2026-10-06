@@ -12,9 +12,11 @@
     "build:cli": "mkdir -p .tools/bin && GOCACHE=$PWD/.tools/go-cache .tools/go/bin/go build -ldflags \"-X github.com/Aaravkhanal/GITOWN/internal/version.Version=$npm_package_version\" -o .tools/bin/gitown ./apps/gitown",
     "typecheck": "npm run typecheck --workspace apps/web",
     "check:deployment": "node scripts/deployment-check.mjs",
+    "pilot:check": "node scripts/pilot-check.mjs",
+    "pilot:backup": "node scripts/pilot-backup.mjs",
     "load:check": "node scripts/load-check.mjs",
-    "format": "prettier --write apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",
-    "format:check": "prettier --check apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml",
+    "format": "prettier --write apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml compose.pilot.yaml",
+    "format:check": "prettier --check apps/web tests scripts api docs README.md SECURITY.md playwright.config.ts compose.yaml compose.pilot.yaml",
     "test:e2e": "playwright test",
     "test:operations": "node --test tests/operations/*.test.mjs"
   },

@@ -2,6 +2,8 @@
 
 This first implementation supports coordinated **offline** snapshots. PostgreSQL remains running, while the API and every writer to repository storage must stop. Copying a database and live Git storage at unrelated times is not a consistent backup.
 
+For the VPN-restricted Compose pilot, use `npm run pilot:backup -- /absolute/new-snapshot-directory`. The wrapper validates that the database is exposed only on loopback and repository storage is an absolute bind mount, stops Caddy/web/API writers, runs the backup, and attempts to bring the services back even on failure. Stop any separately deployed SSH Git gateway first. It does not encrypt, upload, schedule, or prune snapshots; follow the [private pilot guide](../PRIVATE_PILOT.md) for off-host protection and a recovery deployment drill.
+
 For the native launcher, Ctrl+C also stops its private PostgreSQL process. Start only that existing cluster again, without the API:
 
 ```sh

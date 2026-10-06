@@ -79,6 +79,8 @@ External OSV advisory lookup is off by default because it sends exact dependency
 
 For production account security, set a stable private `GITOWN_SECRET_KEY`, configure `GITOWN_OPERATORS` to the smallest operator username allowlist, and—when behind a reverse proxy—set `GITOWN_TRUSTED_PROXIES` to its exact IPs/CIDRs. Review the [account-security deployment checklist](docs/ACCOUNT_SECURITY.md) before enabling verified-email enforcement.
 
+For a VPN-restricted self-hosted trial, follow the [private pilot deployment guide](docs/PRIVATE_PILOT.md). It keeps signup closed by default, binds HTTPS to a private interface, and documents SMTP verification, monitoring, offline backups, restoration, and controlled onboarding. It is not authorization for public multi-tenant hosting.
+
 The release version comes from the root `package.json`. `npm run dev`, `make build`, `make cli`, and the API Dockerfile inject it into the Go binaries; `/healthz`, `gitown version`, and the web sidebar report it. Set `NEXT_PUBLIC_GITOWN_CHANNEL=stable` to hide the release-channel badge.
 
 If you already have a dedicated database, export `DATABASE_URL` first. The launcher will use it without starting PostgreSQL. It does **not** automatically load `.env` into your shell. `.env` is used by Docker Compose.

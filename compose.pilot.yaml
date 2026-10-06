@@ -1,0 +1,101 @@
+# Private pilot overlay. The host reverse proxy is bound only to a VPN IP;
+# database and application services are reachable only on the Compose network.
+name: gitown-pilot
+
+services:
+  postgres:
+    image: ${PILOT_POSTGRES_IMAGE:?Pin the PostgreSQL image by digest}
+    restart: unless-stopped
+
+  api:
+    restart: unless-stopped
+    ports: !reset []
+    environment:
+      GITOWN_ORIGIN: ${GITOWN_ORIGIN:?Set the HTTPS pilot origin}
+      GITOWN_GIT_URL: ${GITOWN_GIT_URL:?Set the HTTPS Git origin}
+      GITOWN_ALLOW_SIGNUP: ${GITOWN_ALLOW_SIGNUP:-false}
+      GITOWN_REQUIRE_VERIFIED_EMAIL: "true"
+      GITOWN_SECRET_KEY: ${GITOWN_SECRET_KEY:?Set a stable secret key}
+      GITOWN_OPERATORS: ${GITOWN_OPERATORS:?Set operator usernames}
+      GITOWN_TRUSTED_PROXIES: ${GITOWN_TRUSTED_PROXIES:?Set the exact proxy IP/CIDR}
+      GITOWN_SMTP_ADDR: ${GITOWN_SMTP_ADDR:?Set the SMTP host and port}
+      GITOWN_SMTP_FROM: ${GITOWN_SMTP_FROM:?Set the verified sender address}
+      GITOWN_SMTP_USER: ${GITOWN_SMTP_USER:-}
+      GITOWN_SMTP_PASSWORD: ${GITOWN_SMTP_PASSWORD:-}
+    volumes:
+      - ${GITOWN_REPOSITORY_PATH:?Set an absolute durable repository path}:/data/repositories
+    networks:
+      default:
+        aliases:
+          - gitown-api
+
+  web:
+    ports: !reset []
+    restart: unless-stopped
+
+  caddy:
+    image: ${PILOT_CADDY_IMAGE:?Pin the Caddy image by digest}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    ports:
+      - "${PILOT_BIND_IP:?Bind only to a private VPN interface}:443:443"
+    volumes:
+      - ./deploy/pilot/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PILOT_TLS_DIR:?Set the host directory containing fullchain.pem and privkey.pem}:/etc/caddy/certs:ro
+    environment:
+      GITOWN_DOMAIN: ${GITOWN_DOMAIN:?Set the pilot DNS name}
+    networks:
+      default:
+        ipv4_address: ${PILOT_PROXY_IP:?Set the Caddy proxy IP}
+    security_opt:
+      - no-new-privileges:true
+
+  prometheus:
+    image: ${PILOT_PROMETHEUS_IMAGE:?Pin the Prometheus image by digest}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./ops/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+
+  grafana:
+    image: ${PILOT_GRAFANA_IMAGE:?Pin the Grafana image by digest}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set a monitoring admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set a long random Grafana password}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: http://localhost:3001/
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PILOT_DOCKER_SUBNET:?Set an unused private Docker subnet}
+
+volumes:
+  prometheus_data:
+  grafana_data:

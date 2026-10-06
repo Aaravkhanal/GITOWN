@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.pilot.example
 .tools/
 .data/
 node_modules/

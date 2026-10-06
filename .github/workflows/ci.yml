@@ -51,6 +51,7 @@ jobs:
       - name: Validate Compose deployment configuration
         run: |
           docker compose config --quiet
+          docker compose --env-file .env.pilot.example -f compose.yaml -f compose.pilot.yaml config --quiet
           docker compose build
         env:
           POSTGRES_PASSWORD: ci-only-compose-validation
