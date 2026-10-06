@@ -2541,6 +2541,19 @@ paths:
         "200":
           description: application/x-git-bundle download
         "403": { $ref: "#/components/responses/Error" }
+  /repos/{owner}/{repo}/export/package:
+    parameters:
+      [
+        { $ref: "#/components/parameters/Owner" },
+        { $ref: "#/components/parameters/Repo" },
+      ]
+    get:
+      summary: Download a versioned repository portability package
+      description: Requires repository read access. The tar package contains manifest.json and repository.bundle; the manifest records its SHA-256, refs, default branch, and excluded metadata.
+      responses:
+        "200":
+          { description: application/vnd.gitown.repository-export+tar download }
+        "403": { $ref: "#/components/responses/Error" }
   /operator/storage/reconcile:
     post:
       summary: Inspect or reconcile orphan Git storage
@@ -4260,6 +4273,46 @@ paths:
         forge credential is accepted.
       responses:
         "201": { description: Repository imported }
+        "422": { $ref: "#/components/responses/Error" }
+  /imports/preview:
+    post:
+      summary: Validate and preview a public repository import
+      description: Requires a signed-in account. Resolves only supported public HTTPS forge URLs and returns the target and known shallow/default-branch limitations. Does not fetch repository content or accept credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, url, name]
+              properties:
+                source: { type: string, enum: [github, gitlab, bitbucket] }
+                url: { type: string, format: uri }
+                name: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{0,99}$" }
+                visibility:
+                  { type: string, enum: [private, public], default: private }
+      responses:
+        "200": { description: Validated source and destination preview }
+        "422": { $ref: "#/components/responses/Error" }
+  /imports/bundle:
+    post:
+      summary: Restore a versioned GITOWN repository export package
+      description: Requires a signed-in account. Accepts a tar containing exactly manifest.json and repository.bundle, verifies SHA-256 and ref metadata, enforces a 100 MiB bundle cap and repository quotas, and does not import collaboration metadata or credentials.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package, name, visibility]
+              properties:
+                package: { type: string, format: binary }
+                name: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{0,99}$" }
+                visibility: { type: string, enum: [private, public] }
+      responses:
+        "201": { description: Repository restored }
+        "409": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /repos/{owner}/{repo}/discussions:
     parameters:

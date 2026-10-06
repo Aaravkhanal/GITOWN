@@ -201,8 +201,8 @@ export function RepositoryPage({
             <Terminal size={16} />
             Clone repository
           </button>
-          <a className="button" href={`/api/v1${endpoint}/export`}>
-            Export bundle
+          <a className="button" href={`/api/v1${endpoint}/export/package`}>
+            Export package
           </a>
           {!r.archived && <RemixButton endpoint={endpoint} />}
           {r.visibility === "public" && (
@@ -473,8 +473,8 @@ function RepositoryTags({
             Git client; GITOWN displays up to 40 recent tags.
           </p>
         </div>
-        <a className="button" href={`/api/v1${endpoint}/export`}>
-          Export all refs
+        <a className="button" href={`/api/v1${endpoint}/export/package`}>
+          Export all refs + manifest
         </a>
       </div>
       {canWrite && branches.length > 0 && (

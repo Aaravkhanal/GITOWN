@@ -404,6 +404,8 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/remixes", a.remixes)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/remix", a.createRemix)
 	mux.HandleFunc("POST /api/v1/imports", a.importRepository)
+	mux.HandleFunc("POST /api/v1/imports/preview", a.previewImportRepository)
+	mux.HandleFunc("POST /api/v1/imports/bundle", a.importRepositoryPackage)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/discussions", a.discussions)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/discussions", a.discussions)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/discussions/{number}", a.discussion)
@@ -460,6 +462,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/tags", a.createRepositoryTag)
 	mux.HandleFunc("DELETE /api/v1/repos/{owner}/{repo}/tags/{tag}", a.deleteRepositoryTag)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/export", a.exportRepository)
+	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/export/package", a.exportRepositoryPackage)
 	mux.HandleFunc("POST /api/v1/operator/storage/reconcile", a.reconcileOrphanStorage)
 	mux.HandleFunc("GET /api/v1/repos/{owner}/{repo}/drops", a.drops)
 	mux.HandleFunc("POST /api/v1/repos/{owner}/{repo}/drops", a.createDrop)
@@ -519,6 +522,9 @@ func (a *App) Handler() http.Handler {
 			}
 			if wikiAsset {
 				limit = 700 << 10
+			}
+			if r.Method == "POST" && r.URL.Path == "/api/v1/imports/bundle" {
+				limit = 106 << 20
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			// RFC 8058 one-click unsubscribe comes from mail clients: no

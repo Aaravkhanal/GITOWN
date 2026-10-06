@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -97,6 +98,83 @@ func (s *Store) CloneHTTPS(ctx context.Context, destID, remote string) error {
 	if err := cmd.Run(); err != nil {
 		_ = os.RemoveAll(dest)
 		return fmt.Errorf("clone remote repository: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return s.applyHostConfigs(ctx, destID)
+}
+
+// BundleRef is a ref that is actually present in a Git bundle.
+type BundleRef struct {
+	Name string `json:"name"`
+	SHA  string `json:"sha"`
+}
+
+// BundleHeads reads ref names and object IDs from a bundle without trusting
+// any manifest supplied alongside it.
+func (s *Store) BundleHeads(ctx context.Context, bundlePath string) ([]BundleRef, error) {
+	path, err := filepath.Abs(bundlePath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, ErrNotFound
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.Binary, "bundle", "list-heads", path)
+	cmd.Env = localTransferEnv()
+	var stdout, stderr boundedBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
+	if err = cmd.Run(); err != nil {
+		return nil, fmt.Errorf("read bundle refs: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	refs := []BundleRef{}
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !validSHA(fields[0]) || (fields[1] != "HEAD" && !strings.HasPrefix(fields[1], "refs/")) || strings.ContainsAny(fields[1], "\x00\r\n") {
+			return nil, fmt.Errorf("invalid bundle ref list")
+		}
+		refs = append(refs, BundleRef{Name: fields[1], SHA: fields[0]})
+	}
+	return refs, nil
+}
+
+// CloneBundle imports a verified local Git bundle into a new bare repository.
+// The bundle path must be a server-created regular file, never a caller path.
+func (s *Store) CloneBundle(ctx context.Context, destID, bundlePath string) error {
+	if !identifier.MatchString(destID) {
+		return ErrNotFound
+	}
+	path, err := filepath.Abs(bundlePath)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return ErrNotFound
+	}
+	dest := s.Path(destID)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.Binary, "clone", "--bare", "--no-hardlinks", "--", path, dest)
+	cmd.Env = localTransferEnv()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
+	if err = cmd.Run(); err != nil {
+		_ = os.RemoveAll(dest)
+		return fmt.Errorf("clone Git bundle: %w (%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	if _, err = s.Run(ctx, destID, nil, "config", "--get", "remote.origin.url"); err == nil {
+		if _, err = s.Run(ctx, destID, nil, "remote", "remove", "origin"); err != nil {
+			_ = os.RemoveAll(dest)
+			return err
+		}
 	}
 	return s.applyHostConfigs(ctx, destID)
 }

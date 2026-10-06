@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
@@ -62,6 +65,65 @@ func TestExportBundleContainsAllRefs(t *testing.T) {
 	}
 	if !bytes.HasPrefix(bundle.Bytes(), []byte("# v2 git bundle")) {
 		t.Fatalf("export is not a Git bundle: %q", bundle.Bytes()[:min(bundle.Len(), 40)])
+	}
+}
+
+func TestExportBundleRoundTripsRefsAndObjects(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	source := auth.ID()
+	if err = s.Init(ctx, source, "portable", "Owner", "owner@example.test", true); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := s.Resolve(ctx, source, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"refs/heads/feature", "refs/tags/v1.0.0"} {
+		if _, err = s.Run(ctx, source, nil, "update-ref", ref, sha); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var exported bytes.Buffer
+	if err = s.ExportBundle(ctx, source, &exported); err != nil {
+		t.Fatal(err)
+	}
+	bundlePath := filepath.Join(t.TempDir(), "repository.bundle")
+	if err = os.WriteFile(bundlePath, exported.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manifestRefs, err := s.BundleHeads(ctx, bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := auth.ID()
+	if err = s.CloneBundle(ctx, destination, bundlePath); err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.Run(ctx, destination, nil, "for-each-ref", "--format=%(refname) %(objectname)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifestRefs) != 4 || len(strings.Split(strings.TrimSpace(string(out)), "\n")) != len(manifestRefs)-1 {
+		t.Fatalf("round trip lost refs: manifest=%+v destination=%q", manifestRefs, out)
+	}
+	for _, ref := range manifestRefs {
+		if ref.Name == "HEAD" {
+			if ref.SHA != sha {
+				t.Fatalf("bundle HEAD changed: got %s, want %s", ref.SHA, sha)
+			}
+			continue
+		}
+		resolved, resolveErr := s.Run(ctx, destination, nil, "show-ref", "--verify", ref.Name)
+		if resolveErr != nil || !strings.HasPrefix(string(resolved), ref.SHA+" ") {
+			t.Fatalf("round trip ref %s: got %s, err %v; want %s", ref.Name, resolved, resolveErr, ref.SHA)
+		}
+		if _, err = s.Run(ctx, destination, nil, "cat-file", "-e", ref.SHA); err != nil {
+			t.Fatalf("round trip missing object %s: %v", ref.SHA, err)
+		}
 	}
 }
 

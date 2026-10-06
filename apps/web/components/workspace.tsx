@@ -1562,6 +1562,15 @@ function NewRepository() {
   const [visibility, setVisibility] = useState("private");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [importPreview, setImportPreview] = useState<{
+    source: string;
+    url: string;
+    name: string;
+    visibility: string;
+    upstream_owner: string;
+    upstream_repository: string;
+    history: string;
+  } | null>(null);
   if (!user) return <SignInPrompt />;
   return (
     <div className="form-page">
@@ -1692,13 +1701,26 @@ function NewRepository() {
           setError("");
           const data = new FormData(event.currentTarget);
           try {
-            const repo = await post<Repo>("/imports", {
+            const preview = await post<{
+              url: string;
+              upstream_owner: string;
+              upstream_repository: string;
+              history: string;
+            }>("/imports/preview", {
               source: data.get("source"),
               url: data.get("url"),
               name: String(data.get("import_name") || "").toLowerCase(),
               visibility: data.get("import_visibility"),
             });
-            router.push(repoPath(repo));
+            setImportPreview({
+              source: String(data.get("source")),
+              url: preview.url,
+              name: String(data.get("import_name") || "").toLowerCase(),
+              visibility: String(data.get("import_visibility")),
+              upstream_owner: preview.upstream_owner,
+              upstream_repository: preview.upstream_repository,
+              history: preview.history,
+            });
           } catch (importError) {
             setError((importError as Error).message);
           } finally {
@@ -1709,11 +1731,16 @@ function NewRepository() {
         <h2>Import a public repository</h2>
         <p className="muted small-text">
           GitHub, GitLab, and Bitbucket public HTTPS URLs only. GITOWN does not
-          accept a personal access token or any other forge credential.
+          accept a personal access token or any other forge credential. The
+          import is shallow and copies only the upstream default branch.
         </p>
         <label>
           Forge
-          <select name="source" defaultValue="github">
+          <select
+            name="source"
+            defaultValue="github"
+            onChange={() => setImportPreview(null)}
+          >
             <option value="github">GitHub</option>
             <option value="gitlab">GitLab</option>
             <option value="bitbucket">Bitbucket</option>
@@ -1726,6 +1753,7 @@ function NewRepository() {
             type="url"
             required
             placeholder="https://github.com/owner/name"
+            onChange={() => setImportPreview(null)}
           />
         </label>
         <label>
@@ -1735,17 +1763,132 @@ function NewRepository() {
             required
             pattern="[a-z0-9][a-z0-9._-]{0,99}"
             placeholder="imported-name"
+            onChange={() => setImportPreview(null)}
           />
         </label>
         <label>
           Visibility
-          <select name="import_visibility" defaultValue="private">
+          <select
+            name="import_visibility"
+            defaultValue="private"
+            onChange={() => setImportPreview(null)}
+          >
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        {importPreview ? (
+          <div className="info-box">
+            <strong>Review import</strong>
+            <p>
+              {importPreview.upstream_owner}/{importPreview.upstream_repository}
+              {" → "}
+              {user.username}/{importPreview.name} ({importPreview.visibility})
+            </p>
+            <p className="small-text">{importPreview.history}</p>
+            <div className="form-actions">
+              <button
+                className="button primary"
+                disabled={busy}
+                type="button"
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    const repo = await post<Repo>("/imports", {
+                      source: importPreview.source,
+                      url: importPreview.url,
+                      name: importPreview.name,
+                      visibility: importPreview.visibility,
+                    });
+                    router.push(repoPath(repo));
+                  } catch (importError) {
+                    setError((importError as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "Importing…" : "Import this repository"}
+              </button>
+              <button
+                className="button"
+                disabled={busy}
+                type="button"
+                onClick={() => setImportPreview(null)}
+              >
+                Edit details
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="button" disabled={busy} type="submit">
+            {busy ? "Checking source…" : "Preview import"}
+          </button>
+        )}
+      </form>
+      <form
+        className="panel form-panel"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          const form = new FormData(event.currentTarget);
+          try {
+            const response = await fetch("/api/v1/imports/bundle", {
+              method: "POST",
+              credentials: "same-origin",
+              body: form,
+              cache: "no-store",
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok) {
+              throw new Error(
+                result?.error?.message ||
+                  "Request failed (" + response.status + ").",
+              );
+            }
+            router.push(repoPath(result as Repo));
+          } catch (importError) {
+            setError((importError as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <h2>Restore a GITOWN export package</h2>
+        <p className="muted small-text">
+          Restore Git refs and repository description from an exported .tar
+          package. Membership, issues, tokens, secrets, and other collaboration
+          metadata are deliberately excluded. Maximum bundle size: 100 MiB.
+        </p>
+        <label>
+          Export package
+          <input
+            name="package"
+            type="file"
+            accept=".tar,application/vnd.gitown.repository-export+tar"
+            required
+          />
+        </label>
+        <label>
+          Name on GITOWN
+          <input
+            name="name"
+            required
+            pattern="[a-z0-9][a-z0-9._-]{0,99}"
+            placeholder="restored-project"
+          />
+        </label>
+        <label>
+          Visibility
+          <select name="visibility" defaultValue="private">
             <option value="private">Private</option>
             <option value="public">Public</option>
           </select>
         </label>
         <button className="button" disabled={busy} type="submit">
-          Import repository
+          {busy ? "Validating and restoring…" : "Restore package"}
         </button>
       </form>
     </div>

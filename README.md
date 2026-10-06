@@ -7,7 +7,8 @@ GITOWN now has a working first implementation of the [blueprint](BLUEPRINT.md): 
 This is a **development alpha**, not a production-ready public forge or a finished GitHub equivalent. See [implementation status](docs/STATUS.md) for the exact feature boundary and [release gates](docs/RELEASE_GATES.md) for the evidence required before public beta.
 The dependency-ordered remaining work is tracked in the [execution roadmap](docs/ROADMAP.md).
 The numbered parity plan and honest phase gates are tracked in [product phases](docs/PRODUCT_PHASES.md).
-Phase 2 repository imports, Git bundle exports, tag browsing, operator storage recovery, CLI installation/completions, and the SSH deployment decision are documented in [Repository operations](docs/REPOSITORY_OPERATIONS.md).
+GITOWN's decisions on product identity, essential parity, deliberate deferrals, and implementation order are in [product scope](docs/PRODUCT_SCOPE.md).
+Guided public imports, checksummed export packages with round-trip restore, tag browsing, operator storage recovery, CLI installation/completions, and the SSH deployment decision are documented in [Repository operations](docs/REPOSITORY_OPERATIONS.md).
 The Routes control plane is documented in [Routes](docs/ROUTES.md). It plans runs and stores quotas, secrets, artifacts, and runner registrations. It does not execute repository-authored commands.
 Worker metrics, traces, dashboards, alert rules, queue recovery, and response guidance are documented in [Observability](docs/OBSERVABILITY.md) and the [operations runbook](docs/OPERATIONS.md).
 The public-beta [release gates](docs/RELEASE_GATES.md), [reviewer scope](docs/SECURITY_REVIEW_SCOPE.md), [threat model](docs/THREAT_MODEL.md), and [security-review closeout template](docs/SECURITY_REVIEW_FINDINGS.md) describe the independent assessment still required. The [backup/restore guide](docs/operations/backup-restore.md) includes an isolated deployment drill and evidence checklist.

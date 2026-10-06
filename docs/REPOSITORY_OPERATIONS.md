@@ -2,7 +2,16 @@
 
 ## Import and export
 
-The workspace import form accepts public HTTPS URLs from GitHub, GitLab, and Bitbucket. It does not accept forge credentials; imported repositories default to private. The repository page's **Export bundle** download contains all advertised refs and can be restored with `git clone project.bundle` or inspected with `git bundle list-heads project.bundle`. Large repositories stream from Git storage rather than being buffered in application memory.
+The workspace has two portability paths:
+
+- **Import a public repository** validates a canonical HTTPS URL for GitHub, GitLab, or Bitbucket and shows the upstream/destination and visibility before the user confirms. It accepts no forge credentials. The import uses a shallow clone of the upstream default branch; other branches and tags are not copied. Imported repositories default to private. Preview checks the URL and public DNS answers but does not prove that a repository exists. Fetching still repeats DNS resolution; treat import as a trusted-pilot feature until the documented DNS-pinning hardening is complete.
+- **Restore a GITOWN export package** accepts only a package produced by GITOWN. No arbitrary archive paths are extracted. The server accepts exactly two regular files, manifest.json and repository.bundle, checks the version/schema, bundle size and SHA-256, compares the ref list against the bundle itself, validates the default branch, and enforces repository/account quotas before committing the restored repository. The bundle limit is 100 MiB and manifest limit is 4 MiB. Corrupt or unsupported input is rejected before the repository row is committed.
+
+The repository page's **Export package** download is an uncompressed tar containing a JSON manifest and Git bundle. The v1 manifest has schema_version 1, format gitown.repository-export/v1, source repository display metadata, the default branch, the bundle filename/size/SHA-256, and all refs included in the bundle. The checksum detects corruption; it is not a signature and does not prove who produced the archive. Keep export packages private when the repository is private.
+
+The bundle contains Git refs and objects, not application collaboration state. The manifest explicitly lists omitted areas; the package never includes accounts, credentials, sessions, access permissions, issues, Unite requests, webhook configuration/secrets, or Routes secrets. Import chooses a new repository name and visibility; it does not transfer the source repository's access policy. The original raw .bundle route remains available for users who want to restore it with ordinary Git or inspect it with git bundle list-heads.
+
+The automated portability integration test exports a private repository with multiple branches and a tag, restores it through the upload API, compares every ref/object ID, and checks that a corrupt archive creates no repository. Private/authenticated forge imports are not implemented; they require provider-specific, read-only credentials and the controls in [product scope](PRODUCT_SCOPE.md).
 
 ## Orphan-storage reconciliation
 

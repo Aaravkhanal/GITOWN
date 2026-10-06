@@ -1,9 +1,11 @@
 package app
 
 import (
+	"archive/tar"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,8 +15,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/Aaravkhanal/GITOWN/internal/auth"
+	"github.com/Aaravkhanal/GITOWN/internal/gitstore"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -163,6 +167,142 @@ func (a *App) exportRepository(w http.ResponseWriter, r *http.Request) {
 		// Headers may already have been sent for a streaming response. Log the
 		// storage error rather than append a misleading JSON body to the bundle.
 		slog.Error("repository bundle export failed", "repository", repo.Owner+"/"+repo.Name, "error", err)
+	}
+}
+
+type repositoryExportManifest struct {
+	SchemaVersion int    `json:"schema_version"`
+	Format        string `json:"format"`
+	ExportedAt    string `json:"exported_at"`
+	Repository    struct {
+		Owner         string `json:"owner"`
+		Name          string `json:"name"`
+		Description   string `json:"description"`
+		Visibility    string `json:"visibility"`
+		DefaultBranch string `json:"default_branch"`
+	} `json:"repository"`
+	Bundle struct {
+		File      string               `json:"file"`
+		SHA256    string               `json:"sha256"`
+		SizeBytes int64                `json:"size_bytes"`
+		Refs      []gitstore.BundleRef `json:"refs"`
+	} `json:"bundle"`
+	MetadataExcluded []string `json:"metadata_excluded"`
+}
+
+type repositoryBundleLimitWriter struct {
+	writer    io.Writer
+	remaining int64
+	exceeded  bool
+}
+
+func (w *repositoryBundleLimitWriter) Write(data []byte) (int, error) {
+	if int64(len(data)) > w.remaining {
+		w.exceeded = true
+		if w.remaining <= 0 {
+			return 0, errors.New("portable bundle size limit exceeded")
+		}
+		written, err := w.writer.Write(data[:w.remaining])
+		w.remaining -= int64(written)
+		if err != nil {
+			return written, err
+		}
+		return written, errors.New("portable bundle size limit exceeded")
+	}
+	written, err := w.writer.Write(data)
+	w.remaining -= int64(written)
+	return written, err
+}
+
+func (a *App) exportRepositoryPackage(w http.ResponseWriter, r *http.Request) {
+	repo := a.access(w, r, false)
+	if repo == nil {
+		return
+	}
+	bundle, err := os.CreateTemp("", ".gitown-export-*.bundle")
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	bundlePath := bundle.Name()
+	defer os.Remove(bundlePath)
+	defer bundle.Close()
+	limited := &repositoryBundleLimitWriter{writer: bundle, remaining: maxRepositoryBundle}
+	if err = a.git.ExportBundle(r.Context(), repo.ID, limited); err != nil {
+		if limited.exceeded {
+			fail(w, 422, "export_too_large", "This repository's Git bundle exceeds the 100 MiB portability-package limit.")
+			return
+		}
+		serverError(w, err)
+		return
+	}
+	info, err := bundle.Stat()
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	hash := sha256.New()
+	if _, err = bundle.Seek(0, io.SeekStart); err != nil {
+		serverError(w, err)
+		return
+	}
+	if _, err = io.Copy(hash, bundle); err != nil {
+		serverError(w, err)
+		return
+	}
+	refs, err := a.git.BundleHeads(r.Context(), bundlePath)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if len(refs) > 10000 {
+		fail(w, 422, "too_many_refs", "This repository has too many refs for the version 1 portability package.")
+		return
+	}
+	if _, err = bundle.Seek(0, io.SeekStart); err != nil {
+		serverError(w, err)
+		return
+	}
+	manifest := repositoryExportManifest{
+		SchemaVersion: 1,
+		Format:        "gitown.repository-export/v1",
+		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
+		Bundle: struct {
+			File      string               `json:"file"`
+			SHA256    string               `json:"sha256"`
+			SizeBytes int64                `json:"size_bytes"`
+			Refs      []gitstore.BundleRef `json:"refs"`
+		}{File: "repository.bundle", SHA256: hex.EncodeToString(hash.Sum(nil)), SizeBytes: info.Size(), Refs: refs},
+		MetadataExcluded: []string{"accounts", "credentials", "sessions", "tokens", "permissions", "issues", "unite_requests", "webhooks", "routes_secrets"},
+	}
+	manifest.Repository.Owner = repo.Owner
+	manifest.Repository.Name = repo.Name
+	manifest.Repository.Description = repo.Description
+	manifest.Repository.Visibility = repo.Visibility
+	manifest.Repository.DefaultBranch = repo.DefaultBranch
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.gitown.repository-export+tar")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+repo.Owner+"-"+repo.Name+`-export.tar"`)
+	w.Header().Set("Cache-Control", "private, no-store")
+	tarWriter := tar.NewWriter(w)
+	if err = tarWriter.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0600, Size: int64(len(manifestData)), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}); err == nil {
+		_, err = tarWriter.Write(manifestData)
+	}
+	if err == nil {
+		err = tarWriter.WriteHeader(&tar.Header{Name: "repository.bundle", Mode: 0600, Size: info.Size(), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR})
+	}
+	if err == nil {
+		_, err = io.Copy(tarWriter, bundle)
+	}
+	if closeErr := tarWriter.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		slog.Error("repository export package failed", "repository", repo.Owner+"/"+repo.Name, "error", err)
 	}
 }
 

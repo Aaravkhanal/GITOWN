@@ -1,6 +1,6 @@
 # GITOWN — Product and Engineering Blueprint
 
-> Status: first implementation in progress; see [implementation status](docs/STATUS.md) for verified scope  
+> Status: development alpha; the [product scope decisions](docs/PRODUCT_SCOPE.md), [phase ledger](docs/PRODUCT_PHASES.md), and [release gates](docs/RELEASE_GATES.md) define current commitments and verified scope.
 > Repository: `https://github.com/Aaravkhanal/GITOWN`  
 > Ownership: an original, independent project owned by Aarav Khanal  
 > Working principle: build a dependable Git collaboration platform in deliberate stages instead of attempting every GitHub feature at once.
@@ -22,11 +22,11 @@ The product should feel familiar to GitHub users, but its code, visual identity,
 
 ## 2. Scope and Product Strategy
 
-“Everything GitHub can do” is a multi-year product containing Git hosting, social collaboration, CI/CD, package registries, security scanning, project management, search, billing, and enterprise administration. The practical strategy is:
+“Everything GitHub can do” is a multi-year product containing Git hosting, social collaboration, CI/CD, package registries, security scanning, project management, search, billing, and enterprise administration. GITOWN is not committing to feature-count parity. It prioritizes portable Git, safe collaboration/review, approachable browser/CLI workflows, and privacy-conscious project discovery. The [product-scope decision record](docs/PRODUCT_SCOPE.md) identifies what is core, staged, deferred, or explicitly out of scope. The practical strategy is:
 
 1. Build a secure, single-node Git hosting MVP.
 2. Add collaboration and repository governance.
-3. Add safe, isolated automation.
+3. Keep automation in planning mode until reviewed isolation is proven; external CI remains supported through integrations.
 4. Scale storage, search, background work, and availability only after usage requires it.
 
 ### MVP: the first useful release
@@ -63,20 +63,20 @@ Postponing these keeps the first release achievable without designing them out o
 
 Use a **modular monolith** initially: one deployable backend with strict internal modules and background workers. This minimizes operational complexity while preserving a path to split high-load modules later.
 
-| Area | Initial choice | Reason |
-|---|---|---|
-| Web application | Next.js + TypeScript | Strong server-rendered UI, routing, accessibility tooling, and a mature component ecosystem |
-| Core backend | Go | Good fit for streaming Git traffic, subprocess control, concurrency, and a small production footprint |
-| API style | REST/JSON plus OpenAPI | Simple for browser and CLI clients; generates typed clients and testable contracts |
-| Primary database | PostgreSQL | Transactions, constraints, JSON support, full-text search for the first release, and reliable migrations |
-| Cache/queues | Redis initially | Rate limits, short-lived cache, sessions, and a simple job queue; jobs remain durable in PostgreSQL where loss is unacceptable |
-| Git object storage | Bare repositories on encrypted local/block storage for MVP | Git itself owns packfiles and refs; simplest reliable single-node starting point |
-| Attachments | S3-compatible object storage | Appropriate for avatars, issue attachments, release assets, logs, and artifacts |
-| Git transport | Native `git-http-backend`/`upload-pack`/`receive-pack` integration and OpenSSH forced commands | Reuse the audited Git implementation instead of reimplementing the wire protocol |
-| Reverse proxy | Caddy or Nginx | TLS termination, upload limits, timeouts, buffering rules, and request routing |
-| Observability | OpenTelemetry + Prometheus + structured logs | Traces, metrics, and searchable request/audit context without vendor lock-in |
-| Local environment | Docker Compose | Repeatable PostgreSQL, Redis, object storage, mail catcher, backend, and frontend setup |
-| Production packaging | OCI containers | Portable deployments; Kubernetes is unnecessary for the first release |
+| Area                 | Initial choice                                                                                 | Reason                                                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Web application      | Next.js + TypeScript                                                                           | Strong server-rendered UI, routing, accessibility tooling, and a mature component ecosystem                                    |
+| Core backend         | Go                                                                                             | Good fit for streaming Git traffic, subprocess control, concurrency, and a small production footprint                          |
+| API style            | REST/JSON plus OpenAPI                                                                         | Simple for browser and CLI clients; generates typed clients and testable contracts                                             |
+| Primary database     | PostgreSQL                                                                                     | Transactions, constraints, JSON support, full-text search for the first release, and reliable migrations                       |
+| Cache/queues         | Redis initially                                                                                | Rate limits, short-lived cache, sessions, and a simple job queue; jobs remain durable in PostgreSQL where loss is unacceptable |
+| Git object storage   | Bare repositories on encrypted local/block storage for MVP                                     | Git itself owns packfiles and refs; simplest reliable single-node starting point                                               |
+| Attachments          | S3-compatible object storage                                                                   | Appropriate for avatars, issue attachments, release assets, logs, and artifacts                                                |
+| Git transport        | Native `git-http-backend`/`upload-pack`/`receive-pack` integration and OpenSSH forced commands | Reuse the audited Git implementation instead of reimplementing the wire protocol                                               |
+| Reverse proxy        | Caddy or Nginx                                                                                 | TLS termination, upload limits, timeouts, buffering rules, and request routing                                                 |
+| Observability        | OpenTelemetry + Prometheus + structured logs                                                   | Traces, metrics, and searchable request/audit context without vendor lock-in                                                   |
+| Local environment    | Docker Compose                                                                                 | Repeatable PostgreSQL, Redis, object storage, mail catcher, backend, and frontend setup                                        |
+| Production packaging | OCI containers                                                                                 | Portable deployments; Kubernetes is unnecessary for the first release                                                          |
 
 Do not build Git object parsing or the Git wire protocol from scratch. Git already supplies server-side plumbing for smart HTTP and SSH. GITOWN’s responsibility is authentication, authorization, repository routing, policy checks, hooks, metadata, and presentation.
 
@@ -247,17 +247,17 @@ A merge queue is a post-MVP feature. It should test speculative merge groups aga
 
 The exact schema will evolve, but these are the primary entities:
 
-| Domain | Core tables |
-|---|---|
-| Identity | `users`, `emails`, `sessions`, `password_credentials`, `mfa_methods`, `ssh_keys`, `access_tokens` |
-| Ownership | `namespaces`, later `organizations`, `teams`, `team_members` |
-| Repositories | `repositories`, `repository_members`, `repository_settings`, `branch_rules`, `storage_locations` |
-| Pull requests | `pull_requests`, `pull_request_commits`, `reviews`, `review_comments`, `merge_attempts` |
-| Issues | `issues`, `issue_comments`, `labels`, `issue_labels`, `milestones`, `assignees` |
-| Checks | `check_suites`, `check_runs`, `commit_statuses` |
-| Activity | `timeline_events`, `notifications`, `subscriptions`, `reactions` |
-| Integration | `webhooks`, `webhook_deliveries`, `outbox_events`, `background_jobs` |
-| Governance | `audit_events`, `abuse_reports`, `reserved_names` |
+| Domain        | Core tables                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------- |
+| Identity      | `users`, `emails`, `sessions`, `password_credentials`, `mfa_methods`, `ssh_keys`, `access_tokens` |
+| Ownership     | `namespaces`, later `organizations`, `teams`, `team_members`                                      |
+| Repositories  | `repositories`, `repository_members`, `repository_settings`, `branch_rules`, `storage_locations`  |
+| Pull requests | `pull_requests`, `pull_request_commits`, `reviews`, `review_comments`, `merge_attempts`           |
+| Issues        | `issues`, `issue_comments`, `labels`, `issue_labels`, `milestones`, `assignees`                   |
+| Checks        | `check_suites`, `check_runs`, `commit_statuses`                                                   |
+| Activity      | `timeline_events`, `notifications`, `subscriptions`, `reactions`                                  |
+| Integration   | `webhooks`, `webhook_deliveries`, `outbox_events`, `background_jobs`                              |
+| Governance    | `audit_events`, `abuse_reports`, `reserved_names`                                                 |
 
 Database rules:
 
@@ -327,13 +327,13 @@ Git smart-HTTP endpoints are protocol endpoints, not JSON APIs, and must preserv
 
 ### Repository roles
 
-| Role | Intended access |
-|---|---|
-| Owner/Admin | Settings, access, rules, deletion, and all repository operations |
-| Maintainer | Repository management excluding ownership/destructive controls |
-| Write | Push to allowed refs; create and manage normal collaboration content |
-| Triage | Manage issues and pull requests without code write access |
-| Read | View/clone and participate where allowed |
+| Role        | Intended access                                                      |
+| ----------- | -------------------------------------------------------------------- |
+| Owner/Admin | Settings, access, rules, deletion, and all repository operations     |
+| Maintainer  | Repository management excluding ownership/destructive controls       |
+| Write       | Push to allowed refs; create and manage normal collaboration content |
+| Triage      | Manage issues and pull requests without code write access            |
+| Read        | View/clone and participate where allowed                             |
 
 Every operation must be authorized on the server. Hiding a UI control is never an authorization boundary.
 
