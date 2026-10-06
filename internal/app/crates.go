@@ -53,7 +53,7 @@ func containsSecretMarker(value string) bool {
 }
 
 func (a *App) packageUser(w http.ResponseWriter, r *http.Request, write bool) *User {
-	if u := a.user(r); u != nil {
+	if u := a.sessionUser(r); u != nil {
 		return u
 	}
 	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")

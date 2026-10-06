@@ -28,3 +28,13 @@ Execution remains disabled until independent review proves immutable checkout, f
 ## Backups and restore
 
 Follow [backup and restore](operations/backup-restore.md). Database metadata and Git/LFS storage must represent the same point in time; stop writes or use a deployment-level coordinated snapshot. Practice restore into a separate empty database and storage directory before relying on the backup.
+
+## Load checks and SLOs
+
+Run `npm run load:check` only against a disposable deployment. The check makes bounded, unauthenticated GET requests to `/livez`, `/readyz`, and public repository search, and reports client-observed throughput and p50/p95/p99 latency. Defaults are 100 requests at concurrency 10; hard caps are 10,000 requests and concurrency 100. CI runs a small 90-request smoke check. Neither establishes multi-instance capacity or a service SLO. Before public beta, run a separately approved soak/failure exercise on isolated infrastructure, record capacity and saturation, and tune thresholds from measurements. Never point the load check at production.
+
+## Migration rollout and rollback
+
+Take and verify a coordinated database + Git-storage backup before schema changes. Apply migrations with one deployment rollout; startup uses a PostgreSQL advisory transaction lock so concurrent instances do not apply the same migration simultaneously. Migration files are immutable after release: each applied file is recorded with a SHA-256 checksum, and startup fails closed if a checked migration differs. Existing deployments adopt checksums once when this guard is first introduced; this cannot prove old file history before adoption.
+
+Migrations are forward-only; there are no automatic `down` migrations. Prefer rolling the application forward with a corrective migration. Rolling back an application binary is supported only if its code remains compatible with the already-applied schema. If data or schema must be reverted, restore the pre-deployment backup into a separate database and matching repository-storage snapshot, verify it with the restore drill, and only then make an operator-controlled traffic decision. Do not run ad hoc reverse SQL in production.

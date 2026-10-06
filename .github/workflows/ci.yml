@@ -1,11 +1,16 @@
 name: GITOWN checks
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         # ubuntu-latest currently ships PostgreSQL 16 client tools. Keep the
@@ -35,6 +40,20 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - name: Deployment configuration preflight
+        run: node scripts/deployment-check.mjs --config
+        env:
+          GITOWN_ORIGIN: https://gitown.example
+          GITOWN_GIT_URL: https://gitown.example/git
+          GITOWN_SECRET_KEY: ci-only-not-a-real-secret-with-32-bytes
+          GITOWN_OPERATORS: ci-operator
+          GITOWN_ALLOW_SIGNUP: "false"
+      - name: Validate Compose deployment configuration
+        run: |
+          docker compose config --quiet
+          docker compose build
+        env:
+          POSTGRES_PASSWORD: ci-only-compose-validation
       - name: Test Go and Git workflows
         run: go test -race ./...
       - run: go vet ./...
@@ -59,6 +78,34 @@ jobs:
             tail -n 120 /tmp/gitown-dev.log || true
             exit 1
           fi
+          DATABASE_URL="$DATABASE_URL" \
+          GITOWN_ADDR=127.0.0.1:8182 \
+          GITOWN_ORIGIN=http://localhost:3101 \
+          GITOWN_GIT_URL=http://localhost:8182/git \
+          GITOWN_DATA_DIR="$PWD/.data/repositories" \
+          GITOWN_SECRET_KEY=ci-only-not-a-real-secret-with-32-bytes \
+          GITOWN_OPERATORS=ci-operator \
+          ./.tools/gitown > /tmp/gitown-api-2.log 2>&1 &
+          api2_pid=$!
+          trap 'kill "$api2_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8182/readyz || true)
+            if [ "$status" = "200" ]; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "Second GITOWN API instance did not become ready; recent output follows:"
+            tail -n 80 /tmp/gitown-api-2.log || true
+            exit 1
+          fi
+          GITOWN_DEPLOY_URL=http://127.0.0.1:8181 node scripts/deployment-check.mjs --health
+          GITOWN_LOAD_TEST_CONFIRM_DISPOSABLE=true \
+          GITOWN_LOAD_TEST_URLS=http://127.0.0.1:8181,http://127.0.0.1:8182 \
+          GITOWN_LOAD_TEST_REQUESTS=90 \
+          GITOWN_LOAD_TEST_CONCURRENCY=10 \
+          GITOWN_LOAD_TEST_P95_LIMIT_MS=5000 \
+          node scripts/load-check.mjs
           npm run test:e2e
       - name: Upload failure diagnostics
         if: failure()
@@ -68,3 +115,4 @@ jobs:
           path: |
             test-results
             /tmp/gitown-dev.log
+            /tmp/gitown-api-2.log

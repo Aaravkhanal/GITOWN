@@ -356,6 +356,8 @@ func TestPhaseSixToNine(t *testing.T) {
 	owner.request("POST", "/crates/atlas-kit/versions", map[string]string{"version": "1.0.2", "content_base64": base64.StdEncoding.EncodeToString([]byte("-----BEGIN PRIVATE KEY-----\nabc"))}, 422, nil)
 	packageToken := owner.token("package:write")
 	bare := testClient{t, server.URL, &http.Client{}}
+	repoWriteToken := owner.token("repo:write")
+	bare.bearer(repoWriteToken, "POST", "/crates", map[string]any{"name": "wrong-scope-kit", "visibility": "public"}, 403, nil)
 	bare.bearer(packageToken, "POST", "/crates", map[string]any{"name": "token-kit", "visibility": "public"}, 201, nil)
 	if err = os.WriteFile(filepath.Join(work, "package.txt"), []byte("package\n"), 0600); err != nil {
 		t.Fatal(err)

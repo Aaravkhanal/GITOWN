@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -54,11 +54,10 @@ test(
     const restoreStorage = join(workspace, "restored-repos");
     const snapshot = join(workspace, "snapshot");
 
-    run("createdb", ["--maintenance-db=" + databaseUrl, sourceDb]);
-    run("createdb", ["--maintenance-db=" + databaseUrl, restoreDb]);
-    await mkdir(sourceStorage);
-
     try {
+      run("createdb", ["--maintenance-db=" + databaseUrl, sourceDb]);
+      run("createdb", ["--maintenance-db=" + databaseUrl, restoreDb]);
+      await mkdir(sourceStorage);
       run("psql", [
         sourceUrl,
         "-v",
@@ -162,3 +161,39 @@ test(
     }
   },
 );
+
+test("restore refuses a corrupt snapshot before touching recovery targets", async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "gitown-backup-corrupt-test-"));
+  const snapshot = join(workspace, "snapshot");
+  const storage = join(workspace, "recovered-repos");
+  await mkdir(snapshot);
+  writeFileSync(join(snapshot, "metadata.dump"), "corrupted database dump");
+  writeFileSync(
+    join(snapshot, "manifest.json"),
+    JSON.stringify({ format: 1, metadata_sha256: "0".repeat(64) }),
+  );
+
+  try {
+    const restore = tryRun(
+      "node",
+      ["scripts/backup.mjs", "restore", snapshot],
+      {
+        env: {
+          ...process.env,
+          DATABASE_URL: "postgres://unused:unused@127.0.0.1:5432/unused",
+          GITOWN_DATA_DIR: storage,
+          GITOWN_OFFLINE: "true",
+        },
+      },
+    );
+    assert.notEqual(restore.status, 0);
+    assert.match(restore.stderr, /checksum does not match/);
+    assert.equal(existsSync(storage), false);
+    assert.equal(
+      readFileSync(join(snapshot, "metadata.dump"), "utf8"),
+      "corrupted database dump",
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
